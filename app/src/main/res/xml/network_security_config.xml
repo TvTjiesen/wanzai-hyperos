@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  明文（HTTP）流量策略。
+
+  背景：学校的 CAS 与门户**只开 80 端口**（实测 2026-10-08：ca.hzcu.edu.cn 的 443 直接拒连），
+  而 targetSdk 28+ 默认禁止明文，所以必须显式放行，否则请求会被系统直接掐掉。
+
+  ★ 为什么不用 android:usesCleartextTraffic="true"：
+  那是对**全网**放行明文。本项目的红线之一是「避免把凭据带到外部域名」，
+  而全网放行意味着任何被应用打开的第三方 http 地址都可以被中间人读取 ——
+  包括我们注入过 SSO cookie 的那些 WebView 页面。所以这里只给学校自己的域开口子。
+
+  策略：
+  - base-config：**默认禁止**明文；
+  - domain-config：只对 hzcu.edu.cn 及其子域放行（ca / iappdd / courses / mobile / webvpn 都在其下）。
+
+  已知限制：字面内网 IP 的入口（形如 http://10.x.x.x/…）不在放行范围内，**在校园网内也打不开**。
+  这类入口 A2 一律按「仅校园网」提示处理；若 A3 实测确认某个 IP 必须可用，
+  再按实测地址**逐条**加例外，而不是放开整个 IP 段。
+-->
+<network-security-config>
+
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">hzcu.edu.cn</domain>
+    </domain-config>
+
+</network-security-config>

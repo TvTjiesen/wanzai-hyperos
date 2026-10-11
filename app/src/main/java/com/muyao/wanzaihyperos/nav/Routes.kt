@@ -1,0 +1,44 @@
+package com.muyao.wanzaihyperos.nav
+
+import kotlinx.serialization.Serializable
+import top.yukonga.miuix.kmp.nav.core.NavKey
+
+/**
+ * 全应用路由表。
+ *
+ * 只有「真正需要压在栈上的整屏页面」才进这里 —— 四个 tab **不是**路由，
+ * 它们由 [com.muyao.wanzaihyperos.ui.MainShell] 内部的一个 selectedTab 状态驱动。
+ * 理由见 miuix-skill 的 miuix-nav.md：「不要把 tab 选中态从 NavDisplay 条目推导」，
+ * 否则会出现两套选中态（chrome 一套、路由一套）。
+ *
+ * 全部 route key 都必须 `@Serializable`：`rememberNavBackStack` 靠它做进程重建恢复。
+ */
+@Serializable
+sealed interface Route : NavKey {
+
+    /** 登录页。未登录时的栈底。 */
+    @Serializable
+    data object Login : Route
+
+    /** 主壳（底部四 tab）。登录成功后就停在这里，再按返回键即退出 App。 */
+    @Serializable
+    data object Main : Route
+
+    /** 应用搜索页（压在主壳之上）。 */
+    @Serializable
+    data object Search : Route
+
+    /**
+     * WebView 外壳（压在主壳之上）。
+     *
+     * 只带展示所需的最小信息：应用 id 用于日志与将来换 tempcode，
+     * title 用于顶栏，url 用于加载。**不带凭据** —— A1 不接学校接口，
+     * 这里的 url 全部来自展示用示例数据。
+     */
+    @Serializable
+    data class Web(
+        val appId: Int,
+        val title: String,
+        val url: String,
+    ) : Route
+}

@@ -16,6 +16,9 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+        // 加密存储（Android Keystore）无法在 JVM 单测里跑，只能在真机上验，
+        // 所以有一条仪器化测试专门盯它。见 src/androidTest。
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -25,8 +28,9 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        // 与上面的 jvmTarget 对齐（Miuix 0.9.4 是 JVM 21 字节码）。
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     buildFeatures {
@@ -41,10 +45,17 @@ android {
 }
 
 kotlin {
-    // 机器上只有 JDK 21（无 JDK 17），用 21 编译、字节码目标仍为 17。
+    // 机器上只有 JDK 21（无 JDK 17），用 21 编译。
+    //
+    // ⚠️ jvmTarget 必须也是 21，**不能**降成 17：Miuix 0.9.4 的产物（尤其
+    // miuix-nav）是用 JVM target 21 编的（class 文件 major 65），而
+    // `NavDisplay { entry<T> { ... } }` 是 inline 函数 ——
+    // Kotlin 不允许把 JVM 21 的字节码内联进 JVM 17 的目标，会直接报
+    // "Cannot inline bytecode built with JVM target 21 into bytecode that
+    //  is being built with JVM target 17"。详见 docs/BUILD-KOTLIN.md §4.10。
     jvmToolchain(21)
     compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
     }
 }
 
@@ -63,4 +74,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+
+    // 真机验证：Android Keystore 的加解密在 JVM 上跑不了。
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }
