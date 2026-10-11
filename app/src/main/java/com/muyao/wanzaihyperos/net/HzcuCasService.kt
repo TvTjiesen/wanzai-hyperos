@@ -709,6 +709,75 @@ class HzcuCasService private constructor(
         )
     }
 
+    /**
+     * 用 refresh_token **续期**手机版学在城院的 token 对。
+     *
+     * ## 為什麼需要它（真機實測 2026-10-11）
+     *
+     * Keycloak 的 access_token 壽命約 1 小時。舊實現在**只在輸入密碼那一刻**
+     * 換一次 token 對，之後一律直接用存的舊值 —— 實測 20:53 登入、22:44 打開
+     * 學在城院就**卡在換票入口進不去**，只能重新輸密碼。
+     *
+     * 標準 OIDC 的 refresh_token 就是為這個場景設計的：
+     * 用它可以拿新的 access_token，**不需要密碼、不需要重走 CAS 全鏈**。
+     *
+     * ## 失敗的態度
+     *
+     * 任何失敗（過期、被撤、網絡）都**原樣拋出**，由調用方決定回退
+     * （調用方的回退是「用舊 token 試一次」，再不行才落到 SPA 自己的登入頁）。
+     * **不吞錯** —— 吞了錯就永遠不知道該重新登入。
+     *
+     * ## 紀律
+     *
+     * - `maxAttempts = 1`：帶憑據的 POST 不自動重試（與 [loginForTronclassTokens] 同理）；
+     * - 響應裡的 refresh_token **可能輪換**（Keycloak 的 reuse-refresh-token 策略），
+     *   所以拿到新的就存新的，拿不到就保留舊的 —— 丟了 refresh 等於把續期能力丟了。
+     */
+    suspend fun refreshTronclassTokens(refreshToken: String): HzcuTronclassTokens {
+        if (refreshToken.isBlank()) {
+            throw HzcuException.AuthenticationRejected("refresh_token 为空，无法续期")
+        }
+        val chain = mutableListOf<HzcuHopDiagnosis>()
+        val response = client.send(
+            HzcuRequest.url(
+                tronclassTokenUrl,
+                method = "POST",
+                fields = mapOf(
+                    "grant_type" to "refresh_token",
+                    "client_id" to HzcuEndpoints.TRONCLASS_OIDC_CLIENT_ID,
+                    "refresh_token" to refreshToken,
+                ),
+            ),
+            context = "OIDC 续期 token",
+            maxAttempts = 1,
+        )
+        chain += diagnose(1, "POST", response, tronclassTokenUrl)
+        val body = response.body.trim()
+        if (response.statusCode != 200 || !body.startsWith("{")) {
+            throw HzcuException.Api(
+                code = response.statusCode,
+                message = "Keycloak 续期失败（HTTP ${response.statusCode}）",
+                details = chainText(chain),
+            )
+        }
+        val decoded = try {
+            Json.parseToJsonElement(body) as? JsonObject
+        } catch (_: Exception) {
+            null
+        } ?: throw HzcuException.Parse("Keycloak 续期的响应不是 JSON 对象", details = chainText(chain))
+        val accessToken = decoded["access_token"].asStringOrNull()
+        if (accessToken.isNullOrEmpty()) {
+            throw HzcuException.Parse("Keycloak 续期响应里没有 access_token", details = chainText(chain))
+        }
+        return HzcuTronclassTokens(
+            accessToken = accessToken,
+            // 輪換就換新，沒給就沿用傳進來的那份 —— 丟了它等於丟了續期能力。
+            refreshToken = decoded["refresh_token"].asStringOrNull()?.takeIf { it.isNotBlank() }
+                ?: refreshToken,
+            chain = chain,
+        )
+    }
+
     // ---------------------------------------------------------------------------
     // 探针
     // ---------------------------------------------------------------------------

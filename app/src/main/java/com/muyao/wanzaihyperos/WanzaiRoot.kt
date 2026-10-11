@@ -238,16 +238,45 @@ fun WanzaiApp() {
                 // docs/B1-WALKTHROUGH.md §3。
                 is AppOpenPlan.NativeFeature -> backStack.add(Route.Cjh52Feature(plan.feature))
 
-                // ★ A4：学在城院**手机版免登**。
+                // ★ A4：学在城院**手机版免登**（带自动续期）。
                 //
-                // token 对必须在**登录那一刻**换好（密码不持久化，之后没机会再换），
-                // 这里只是把它读出来拼 URL。读不到就老实进它自己的登录页 ——
-                // 绝不拿一个空/旧 token 去撞，那只会落到 SPA 的错误分支。
-                is AppOpenPlan.TronclassFreeLogin -> {
+                // 旧实现只在输入密码那一刻换一次 token 对，之后直接用存的旧值。
+                // Keycloak 的 access_token 寿命约 1 小时 —— 真机实测 20:53 登录、
+                // 22:44 再打开就**卡在换票入口进不去**，只能重新输密码。
+                //
+                // 现在每次打开先试 refresh_token 续期（标准 OIDC，不需要密码）：
+                // - 续期成功 → 用新 token；
+                // - 续期失败 → **回退用旧 token 试一次**（它可能还在寿命内），
+                //   并打日志 —— 旧 token 也失效时 SPA 会落到它自己的登录页，
+                //   那是最后兜底，不是我们的错，但日志要说清楚走到哪一步。
+                is AppOpenPlan.TronclassFreeLogin -> scope.launch {
                     val access = app.tronclassSession.accessToken()
                     val refresh = app.tronclassSession.refreshToken()
-                    val url = if (access.isNullOrEmpty()) plan.tileUrl
-                    else TronclassBoot.identityTokenUrl(access, refresh)
+                    val fresh = if (refresh.isNullOrBlank()) null else runCatching {
+                        app.casService.refreshTronclassTokens(refresh)
+                    }.getOrNull()
+                    val url = when {
+                        fresh != null -> {
+                            // 续期成功：落盘（SSO cookie 原样带上，别丢）。
+                            app.tronclassSession.saveTokens(
+                                fresh.accessToken,
+                                fresh.refreshToken,
+                                ssoCookiesJson = app.tronclassSession.ssoCookiesJson(),
+                            )
+                            android.util.Log.i("WanzaiLogin", "学在城院 token 已续期")
+                            TronclassBoot.identityTokenUrl(fresh.accessToken, fresh.refreshToken)
+                        }
+                        !access.isNullOrEmpty() -> {
+                            if (fresh == null && !refresh.isNullOrBlank()) {
+                                android.util.Log.w(
+                                    "WanzaiLogin",
+                                    "学在城院续期失败，回退用旧 token（可能已过期，SPA 会落到自己的登录页）",
+                                )
+                            }
+                            TronclassBoot.identityTokenUrl(access, refresh)
+                        }
+                        else -> plan.tileUrl   // 从没登录过：进 SPA 自己的登录页
+                    }
                     backStack.add(Route.Web(target.id, target.name, url))
                 }
 
