@@ -26,12 +26,15 @@ import com.muyao.wanzaihyperos.data.CountValue
 import com.muyao.wanzaihyperos.data.PortalApp
 import com.muyao.wanzaihyperos.nav.Route
 import com.muyao.wanzaihyperos.net.HzcuException
+import com.muyao.wanzaihyperos.net.Cjh52Client
+import com.muyao.wanzaihyperos.net.HzcuEndpoints
 import com.muyao.wanzaihyperos.net.TronclassBoot
 import com.muyao.wanzaihyperos.net.shortErrorText
 import com.muyao.wanzaihyperos.session.SessionState
 import com.muyao.wanzaihyperos.ui.AppUiState
 import com.muyao.wanzaihyperos.ui.MainShell
 import com.muyao.wanzaihyperos.ui.WanzaiTheme
+import com.muyao.wanzaihyperos.ui.courses.CoursesPage
 import com.muyao.wanzaihyperos.ui.login.LoginPage
 import com.muyao.wanzaihyperos.ui.search.SearchPage
 import com.muyao.wanzaihyperos.ui.web.WebShellPage
@@ -63,6 +66,15 @@ private fun NavBackStack.resetTo(route: NavKey) {
     this[0] = route
     while (size > 1) removeAt(lastIndex)
 }
+
+/**
+ * 「我的課程」在門戶上的應用 id。
+ *
+ * 實測值 60（A3 真機走查：`打開策略=TempCode appId=60`）。
+ * 抽成常量是因為它有**兩個**使用點（原生頁預取碼、回退網頁版），
+ * 寫兩遍就會有改一處漏一處的風險。
+ */
+private const val CJH52_COURSE_APP_ID = 60
 
 /**
  * 打开加密存储时的过渡页。
@@ -162,6 +174,18 @@ fun WanzaiApp() {
                             Toast.LENGTH_LONG,
                         ).show()
                     } else {
+                        // ★ B1：把 tempcode 存进 CJH52 会话。
+                        //
+                        // 实测定理（docs/B0-CJH52-CONTRACT.md §2.1）：
+                        // 门户签发的 tempcode **本身就是 CJH52 的 Bearer token**，
+                        // 不需要任何换码步骤。所以原生直连只要在手里有它就够了。
+                        //
+                        // 这条同时**不影响**下面照旧打开 WebView ——
+                        // 两条路并存：WebView 是已验证可用的路径，
+                        // 原生页是新增的；原生页失败时用户仍可走 WebView。
+                        runCatching {
+                            app.cjh52Session.save(tempCode, System.currentTimeMillis())
+                        }
                         val url = AppOpenStrategy.buildTempCodeUrl(
                             appUrl = plan.url,
                             appId = plan.appId,
@@ -178,6 +202,36 @@ fun WanzaiApp() {
                     "「${target.name}」仅校园网内可打开。注意：一般超时不一定都是校园网的问题。",
                     Toast.LENGTH_LONG,
                 ).show()
+
+                // ★ B1：「我的課程」原生頁。
+                //
+                // 必須先取一次 tempcode 存進 CJH52 會話 —— B0 實測
+                // （契約文檔 §2.1）證明**門戶簽發的 tempcode 本身就是 CJH52 的 Bearer token**，
+                // 沒有它原生頁發出的請求會是 401。
+                //
+                // 取不到碼**不進原生頁**（進去只會看到「需要先登入」），
+                // 而是老實提示 —— 不拿舊碼湊數（tempcode 一次性，A3 已驗證）。
+                is AppOpenPlan.NativeCourses -> scope.launch {
+                    val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
+                    if (tempCode == null) {
+                        Toast.makeText(
+                            context,
+                            "没能取到一次性临时码，无法加载原生课表（不会用旧码凑数）",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    } else {
+                        runCatching {
+                            app.cjh52Session.save(tempCode, System.currentTimeMillis())
+                        }
+                        // ★ 只记指纹（前 4 位 + 长度 + 校验和），**不记值**。
+                        //   用于与「页面里那个有效 token」比对，判断是同一个还是不同。
+                        android.util.Log.i(
+                            "WanzaiCjh52",
+                            "原生页取到并存入 tempcode 指纹=${Cjh52Client.fingerprint(tempCode)}",
+                        )
+                        backStack.add(Route.Courses)
+                    }
+                }
 
                 // ★ A4：学在城院**手机版免登**。
                 //
@@ -317,6 +371,39 @@ fun WanzaiApp() {
                     graph = app,
                     onBack = { backStack.removeLastOrNull() },
                     onOpenApp = openApp,
+                )
+            }
+
+            // ★ B1：原生課表頁。
+            //
+            // 語義上的返回 = 回上一頁（可能是首頁，也可能是搜尋頁）。
+            entry<Route.Courses> {
+                CoursesPage(
+                    repository = app.courses,
+                    onExit = { backStack.removeLastOrNull() },
+                    // 原生拿不到資料時的出口：換回 WebView（那條是已驗證的路）。
+                    onFallbackToWeb = {
+                        scope.launch {
+                            val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
+                            if (tempCode == null) {
+                                Toast.makeText(
+                                    context,
+                                    "没能取到一次性临时码，请稍后重试",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } else {
+                                val url = AppOpenStrategy.buildTempCodeUrl(
+                                    appUrl = HzcuEndpoints.CJH52_BASE_URL + "/course/student",
+                                    appId = CJH52_COURSE_APP_ID,
+                                    colorArgb = null,
+                                    tempCode = tempCode,
+                                    nowMillis = System.currentTimeMillis(),
+                                )
+                                // 用 replaceTop 換掉原生頁，避免「原生→網頁」越堆越深。
+                                backStack.add(Route.Web(CJH52_COURSE_APP_ID, "我的課程", url))
+                            }
+                        }
+                    },
                 )
             }
 

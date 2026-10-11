@@ -1,6 +1,8 @@
 package com.muyao.wanzaihyperos.app
 
 import android.content.Context
+import com.muyao.wanzaihyperos.data.cjh52.CourseRepository
+import com.muyao.wanzaihyperos.data.cjh52.LiveCourseRepository
 import com.muyao.wanzaihyperos.data.portal.LivePortalCatalogRepository
 import com.muyao.wanzaihyperos.data.portal.LivePortalFrequentAppsRepository
 import com.muyao.wanzaihyperos.data.portal.LivePortalMessageRepository
@@ -15,9 +17,11 @@ import com.muyao.wanzaihyperos.data.portal.PortalNewsRepository
 import com.muyao.wanzaihyperos.data.portal.PortalSearchRepository
 import com.muyao.wanzaihyperos.data.portal.PortalTodoRepository
 import com.muyao.wanzaihyperos.data.portal.PortalUnreadRepository
+import com.muyao.wanzaihyperos.net.Cjh52Client
 import com.muyao.wanzaihyperos.net.HzcuCasService
 import com.muyao.wanzaihyperos.net.HzcuClient
 import com.muyao.wanzaihyperos.net.PortalApi
+import com.muyao.wanzaihyperos.session.Cjh52Session
 import com.muyao.wanzaihyperos.session.EncryptedSecureStore
 import com.muyao.wanzaihyperos.session.PortalSession
 import com.muyao.wanzaihyperos.session.SessionState
@@ -50,8 +54,10 @@ class AppGraph private constructor(
     val client: HzcuClient,
     val portalSession: PortalSession,
     val tronclassSession: TronclassSession,
+    val cjh52Session: Cjh52Session,
     val casService: HzcuCasService,
     val api: PortalApi,
+    val cjh52: Cjh52Client,
     val catalog: PortalCatalogRepository,
     val frequent: PortalFrequentAppsRepository,
     val unread: PortalUnreadRepository,
@@ -59,6 +65,7 @@ class AppGraph private constructor(
     val news: PortalNewsRepository,
     val messages: PortalMessageRepository,
     val search: PortalSearchRepository,
+    val courses: CourseRepository,
 ) {
 
     /** 启动时该落在哪一页：已经登录就直奔主壳，否则先登录。 */
@@ -74,6 +81,8 @@ class AppGraph private constructor(
         // ★ 学在城院的 token 对也一起清：它与门户是两套独立的登录态，
         //   只清门户会把「学在城院已登录」这个状态留给下一个账号。
         tronclassSession.clear()
+        // ★ CJH52 的 tempcode 也是凭据，且是**第三套独立登录态**，同样要清。
+        cjh52Session.clear()
         // ★ 只清自己的凭据还不够：学在城院那个 SPA 的登录态**不在 Cookie 里**，
         //   在 WebView 的 localStorage 里（isLogin / sessionID / identityRefreshToken）。
         //   不清它，下一个登录的人打开学在城院会直接进上一个人的首页。
@@ -114,13 +123,18 @@ class AppGraph private constructor(
             client.restoreCookieJar()
 
             val api = PortalApi(client)
+            val cjh52Session = Cjh52Session(store)
+            // CJH52 的 token 提供者：从会话读（**不打印、不缓存到别处**）。
+            val cjh52 = Cjh52Client(client, tokenProvider = { cjh52Session.token() })
             return AppGraph(
                 appContext = appContext,
                 client = client,
                 portalSession = portalSession,
                 tronclassSession = TronclassSession(store),
+                cjh52Session = cjh52Session,
                 casService = HzcuCasService.create(client = client, session = portalSession),
                 api = api,
+                cjh52 = cjh52,
                 catalog = LivePortalCatalogRepository(api),
                 frequent = LivePortalFrequentAppsRepository(api),
                 unread = LivePortalUnreadRepository(api),
@@ -128,6 +142,7 @@ class AppGraph private constructor(
                 news = LivePortalNewsRepository(api),
                 messages = LivePortalMessageRepository(api),
                 search = LivePortalSearchRepository(api),
+                courses = LiveCourseRepository(cjh52),
             )
         }
     }

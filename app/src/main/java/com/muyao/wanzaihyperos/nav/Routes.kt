@@ -41,4 +41,15 @@ sealed interface Route : NavKey {
         val title: String,
         val url: String,
     ) : Route
+
+    /**
+     * 我的课程（B1，原生）。
+     *
+     * **刻意不带任何参数** —— 课表是按当前登录会话取的，
+     * 参数化（比如按学生 id）会诱导把识别码写进导航状态，
+     * 而导航状态会被系统保存/恢复（`rememberNavBackStack`）。
+     * 拿不到会话时页面自己显示「需要先登录」。
+     */
+    @Serializable
+    data object Courses : Route
 }

@@ -52,6 +52,33 @@ sealed interface AppOpenPlan {
      */
     data class CampusOnly(val url: String, val name: String) : AppOpenPlan
 
+    /**
+     * 「我的課程」走**原生頁**（B1）。
+     *
+     * ### 為什麼不是直接改成原生、把 WebView 那條刪掉
+     *
+     * WebView 那條是**已被真機走查驗證過**的路徑（A3/A4），
+     * 而原生頁是新的。讓兩條並存、由使用者選，好處是：
+     * - 原生頁萬一在真實資料上出問題，使用者仍有一條能用的路；
+     * - 原生頁的解析假設（B0 契約）可以在真機上與 WebView 的渲染結果**對照**，
+     *   而不是只能相信自己的解析。
+     *
+     * 所以這個 plan 同時帶上 [tileUrl] —— 原生頁必須提供「用網頁版打開」的出口。
+     *
+     * ### 為什麼需要 tempcode
+     *
+     * B0 實測（契約文檔 §2.1）：**門戶簽發的 tempcode 本身就是 CJH52 的 Bearer token**。
+     * 所以走原生頁時必須先取一次 tempcode 存進會話 ——
+     * 沒有它，原生頁發出的請求會是 401。
+     */
+    data class NativeCourses(
+        /** 原始應用地址（cjh52 的課程頁）。作為「改用網頁版」的出口。 */
+        val tileUrl: String,
+        /** 門戶應用 id（取 tempcode 時要用）。 */
+        val appId: Int,
+        val name: String,
+    ) : AppOpenPlan
+
     /** 连地址都没有，或地址无法解析。界面上应当把这条入口禁用而不是崩。 */
     data class Unopenable(val name: String, val reason: String) : AppOpenPlan
 }
@@ -133,10 +160,40 @@ object AppOpenStrategy {
         // 拼上 tempcode 就等于把一次性凭据交出去了。所以这里按 host 再验一道：
         // **不是学校域就不拼码**，退回普通外链（打不开是对方的登录页，至少没泄漏）。
         if (isPortalBuiltin(app.system) && isSchoolHost(host)) {
+            // ★ B1：其中「我的課程」這一條走**原生頁**。
+            //
+            // 只放行這一個入口，其餘 cjh52 應用（學生幹部、困難學生、意見直通車……）
+            // 仍走 WebView —— 原生只做了課表，把別的也導過去只會得到空白頁。
+            // 判據用「host + 路徑」而不是應用名：應用名在門戶上可能改，
+            // 而 `/course/student` 是 cjh52 自己的路由（B0 路由表已核對）。
+            if (isCjh52CoursePage(host, app.url)) {
+                return AppOpenPlan.NativeCourses(
+                    tileUrl = app.url,
+                    appId = app.id,
+                    name = app.name,
+                )
+            }
             return AppOpenPlan.TempCode(url = app.url, appId = app.id, name = app.name)
         }
 
         return AppOpenPlan.Plain(url = app.url, name = app.name)
+    }
+
+    /**
+     * 是不是 cjh52 的「我的課程」頁。
+     *
+     * **同時**判 host 與路徑前綴：
+     * - 只判 host 會把 cjh52 的所有應用都導去課表；
+     * - 只判路徑會誤中其它系統裡同名的路徑。
+     *
+     * 路徑用**前綴**匹配（`/course/student` 之後可能帶 query，也可能帶 `/history` 子頁）——
+     * 但 `/course/teacher`（教師端）不會命中，因為前綴是 `/course/student`。
+     */
+    private fun isCjh52CoursePage(host: String?, url: String): Boolean {
+        val h = host?.lowercase() ?: return false
+        if (h != HzcuHosts.CJH52) return false
+        val path = runCatching { java.net.URI(url).path }.getOrNull() ?: return false
+        return path.startsWith("/course/student")
     }
 
     /**
@@ -224,4 +281,7 @@ object HzcuHosts {
     const val TRONCLASS_MOBILE = "mobile.hzcu.edu.cn"
     const val TRONCLASS_DESKTOP = "courses.hzcu.edu.cn"
     const val IDENTITY = "identity.hzcu.edu.cn"
+
+    /** CJH52（場景管理）。B1 的原生課表走這個域。 */
+    const val CJH52 = "cjh52.hzcu.edu.cn"
 }

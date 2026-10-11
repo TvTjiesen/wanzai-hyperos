@@ -38,6 +38,65 @@ class AppOpenStrategyTest {
         assertTrue("实际是 $plan", plan is AppOpenPlan.TronclassFreeLogin)
     }
 
+    // -------------------------------------------------------------------------
+    // B1：cjh52 的「我的課程」走原生頁
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `cjh52 的课程页走原生页`() {
+        val plan = AppOpenStrategy.decide(
+            app(id = 60, name = "我的课程", url = "https://cjh52.hzcu.edu.cn/course/student", system = PortalSystem.CJH52),
+        )
+        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeCourses)
+        val p = plan as AppOpenPlan.NativeCourses
+        assertEquals(60, p.appId)
+        // ★ 必須保留原地址 —— 原生頁要拿它做「改用網頁版」的出口。
+        assertTrue(p.tileUrl.contains("/course/student"))
+    }
+
+    @Test
+    fun `cjh52 课程页带 query 也认`() {
+        // 門戶下發的地址帶一串 query（dd_nav_bgcolor/appid/...），
+        // 判據必須只看 path，否則真機那條 URL 永遠匹配不上。
+        val plan = AppOpenStrategy.decide(
+            app(
+                id = 60,
+                name = "我的课程",
+                url = "https://cjh52.hzcu.edu.cn/course/student?appid=60&mode=prod",
+                system = PortalSystem.CJH52,
+            ),
+        )
+        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeCourses)
+    }
+
+    @Test
+    fun `cjh52 的其它应用仍走 WebView`() {
+        // ★ 這條是防「原生只做了課表、卻把別的入口也導過去」——
+        //   那會讓使用者看到空白頁。只放行 /course/student。
+        val plan = AppOpenStrategy.decide(
+            app(id = 104, name = "我的班级", url = "https://cjh52.hzcu.edu.cn/clazz/student", system = PortalSystem.CJH52),
+        )
+        assertTrue("实际是 $plan", plan is AppOpenPlan.TempCode)
+    }
+
+    @Test
+    fun `教师端课程路径不误判为原生`() {
+        // B0 路由表核對過：/course/teacher 是教師端。學生的原生頁不該吃它。
+        val plan = AppOpenStrategy.decide(
+            app(id = 61, name = "课程管理", url = "https://cjh52.hzcu.edu.cn/course/teacher", system = PortalSystem.CJH52),
+        )
+        assertTrue("实际是 $plan", plan !is AppOpenPlan.NativeCourses)
+    }
+
+    @Test
+    fun `其它域的 course student 不误判为原生`() {
+        // host 必須一起判：只判路徑會把別的系統裡同名的路徑也吃進來。
+        val plan = AppOpenStrategy.decide(
+            app(id = 1, name = "别的系统", url = "https://other.hzcu.edu.cn/course/student", system = PortalSystem.CJH52),
+        )
+        assertTrue("实际是 $plan", plan !is AppOpenPlan.NativeCourses)
+    }
+
     @Test
     fun `名字里有学在城院也认（门户有时不给地址）`() {
         val plan = AppOpenStrategy.decide(

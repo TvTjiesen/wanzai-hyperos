@@ -139,6 +139,36 @@ object HzcuEndpoints {
             "&response_type=code&scope=openid&state=$state"
 
     // ---------------------------------------------------------------------------
+    // CJH52（浙大城市学院场景管理）—— 第二期
+    // 契约来自真机取证，全文见 docs/B0-CJH52-CONTRACT.md
+    // ---------------------------------------------------------------------------
+
+    /** 移动端 H5 主機。 */
+    const val CJH52_HOST = "cjh52.hzcu.edu.cn"
+
+    const val CJH52_BASE_URL = "https://$CJH52_HOST"
+
+    /**
+     * 用门户 tempcode 换 CJH52 会话。**body 是 `{}`**（实测），
+     * 凭据走 `Authorization: Bearer`。
+     */
+    const val CJH52_GET_USER_BY_TOKEN_PATH =
+        "/dapi/v2/relationship/relationship_service/get_user_by_token"
+
+    /**
+     * 課表（B1 用）。
+     *
+     * 实测：body `{uid, state:"open"}` → `data[]` 每项含
+     * `classTimeInfoList[]`（多時段/多周次/多教室）與 `teacherInfoList[]`。
+     */
+    const val CJH52_CLASS_INFO_BY_UID_PATH =
+        "/dapi/v2/school_manager/class_service/get_class_info_by_uid"
+
+    /** 當前考勤（B2 用）。body `{userId}`；空態是 `[]` 而非 null。 */
+    const val CJH52_CURRENT_ATTENDANCE_PATH =
+        "/dapi/v2/attendance/course_attendance_service/query_student_current_attendance"
+
+    // ---------------------------------------------------------------------------
     // CAS
     // ---------------------------------------------------------------------------
 
