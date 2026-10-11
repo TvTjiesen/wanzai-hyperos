@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos
 
+import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -212,27 +213,18 @@ fun WanzaiApp() {
                 //
                 // 取不到碼**不進原生頁**（進去只會看到「需要先登入」），
                 // 而是老實提示 —— 不拿舊碼湊數（tempcode 一次性，A3 已驗證）。
-                is AppOpenPlan.NativeCourses -> scope.launch {
-                    val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
-                    if (tempCode == null) {
-                        Toast.makeText(
-                            context,
-                            "没能取到一次性临时码，无法加载原生课表（不会用旧码凑数）",
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    } else {
-                        runCatching {
-                            app.cjh52Session.save(tempCode, System.currentTimeMillis())
-                        }
-                        // ★ 只记指纹（前 4 位 + 长度 + 校验和），**不记值**。
-                        //   用于与「页面里那个有效 token」比对，判断是同一个还是不同。
-                        android.util.Log.i(
-                            "WanzaiCjh52",
-                            "原生页取到并存入 tempcode 指纹=${Cjh52Client.fingerprint(tempCode)}",
-                        )
-                        backStack.add(Route.Courses)
-                    }
-                }
+                // ★ B1：「我的課程」原生頁。
+                //
+                // ⚠️ 這裡**不取碼、不存會話** —— 那是閘門（[Cjh52WarmUpGate]）的職責。
+                //
+                // 先前版本在這裡取碼並存進會話，結果是**壞的**：
+                // 那枚碼從未被瀏覽器載入過，直接當 Bearer 用會被拒（401）；
+                // 而閘門看到「會話已有 token」就放行了，於是原生頁必定失敗。
+                //
+                // 正確的分工：
+                // - 閘門：負責「讓會話可用」（取碼 → 真實 WebView 載入 → 讀回 token）；
+                // - 這裡：只負責導航。
+                is AppOpenPlan.NativeCourses -> backStack.add(Route.Courses)
 
                 // ★ A4：学在城院**手机版免登**。
                 //
@@ -383,33 +375,58 @@ fun WanzaiApp() {
             //
             // 語義上的返回 = 回上一頁（可能是首頁，也可能是搜尋頁）。
             entry<Route.Courses> {
-                CoursesPage(
-                    repository = app.courses,
-                    onExit = { backStack.removeLastOrNull() },
-                    // 原生拿不到資料時的出口：換回 WebView（那條是已驗證的路）。
-                    onFallbackToWeb = {
-                        scope.launch {
-                            val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
-                            if (tempCode == null) {
-                                Toast.makeText(
-                                    context,
-                                    "没能取到一次性临时码，请稍后重试",
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            } else {
-                                val url = AppOpenStrategy.buildTempCodeUrl(
-                                    appUrl = HzcuEndpoints.CJH52_BASE_URL + "/course/student",
-                                    appId = CJH52_COURSE_APP_ID,
-                                    colorArgb = null,
-                                    tempCode = tempCode,
-                                    nowMillis = System.currentTimeMillis(),
-                                )
-                                // 用 replaceTop 換掉原生頁，避免「原生→網頁」越堆越深。
-                                backStack.add(Route.Web(CJH52_COURSE_APP_ID, "我的課程", url))
-                            }
+                // ★ 會話閘門：先確保 CJH52 會話可用，再放行頁面取數。
+                //
+                //   為什麼需要它：實測（見 Cjh52WarmUp 的類註釋）——
+                //   門戶新發的 tempcode 直接當 Bearer 用會被拒（401），
+                //   但**被真實瀏覽器載入過的同一枚碼**立刻可用。
+                //   閘門會開一個 0 尺寸 WebView 把碼「捂熱」，只做一次。
+                //
+                //   已驗證：預熱一次之後，token 對多個 cjh52 接口都有效
+                //   （get_user_by_token 與 get_class_info_by_uid 都 200），
+                //   所以**所有 cjh52 原生頁共用同一個閘門**即可。
+                Cjh52WarmUpGate(
+                    session = app.cjh52Session,
+                    issueUrl = {
+                        runCatching { app.api.issueTempCode() }.getOrNull()?.let { code ->
+                            AppOpenStrategy.buildTempCodeUrl(
+                                appUrl = HzcuEndpoints.CJH52_BASE_URL + "/course/student",
+                                appId = CJH52_COURSE_APP_ID,
+                                colorArgb = null,
+                                tempCode = code,
+                                nowMillis = System.currentTimeMillis(),
+                            )
                         }
                     },
-                )
+                ) { ready ->
+                    CoursesPage(
+                        repository = app.courses,
+                        onExit = { backStack.removeLastOrNull() },
+                        ready = ready,
+                        // 原生拿不到資料時的出口：換回 WebView（那條是已驗證的路）。
+                        onFallbackToWeb = {
+                            scope.launch {
+                                val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
+                                if (tempCode == null) {
+                                    Toast.makeText(
+                                        context,
+                                        "没能取到一次性临时码，请稍后重试",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                } else {
+                                    val url = AppOpenStrategy.buildTempCodeUrl(
+                                        appUrl = HzcuEndpoints.CJH52_BASE_URL + "/course/student",
+                                        appId = CJH52_COURSE_APP_ID,
+                                        colorArgb = null,
+                                        tempCode = tempCode,
+                                        nowMillis = System.currentTimeMillis(),
+                                    )
+                                    backStack.add(Route.Web(CJH52_COURSE_APP_ID, "我的課程", url))
+                                }
+                            }
+                        },
+                    )
+                }
             }
 
             // ★ B3：我的事務（待辦 / 我的申請 / 我的已辦）。

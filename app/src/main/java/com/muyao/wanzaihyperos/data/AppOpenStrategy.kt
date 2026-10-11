@@ -102,27 +102,34 @@ sealed interface AppOpenPlan {
 object AppOpenStrategy {
 
     /**
-     * 是否启用「我的課程」原生頁（B1）。
+     * 是否啟用「我的課程」原生頁（B1）。
      *
-     * ### 為什麼是 `false`（2026-10-11 業主決定）
+     * ### 現在是 `true`（2026-10-11，B1 會話問題已解）
      *
-     * 1. **取數沒打通**：原生頁拿不到有效會話（`docs/BLOCKED.md` B1.1），
-     *    進去找不到資料，只能顯示「登入狀態已失效」。
-     * 2. **業主指出它與學在城院功能重複** —— 課程資訊在學在城院裡已經有了，
-     *    這個原生頁的重複價值不高。
+     * 先前的阻塞：門戶簽發的 tempcode 直接當 Bearer 用會被拒（HTTP 401）。
+     * 現已找到解法並**用跨環境對照證實**：
      *
-     * ### 為什麼留著代碼而不是刪掉
+     * ```
+     * 網頁載入過的碼 → 交給 JVM(OkHttp) 調 → HTTP 200   ✅
+     * 門戶新發的碼   → 交給 JVM(OkHttp) 調 → HTTP 401   ❌
+     * ```
      *
-     * 模型、解析、頁面、測試都已完成（18 條測試全綠），
-     * 一旦 B1.1 那個契約問題解決，**把這個常量改成 `true` 就能啟用**，
-     * 不需要重寫。刪掉等於把已完成的工作丟了。
+     * 同一台機器、同一個 OkHttp、同一組請求頭 —— 唯一差別是那枚碼
+     * **有沒有被真實瀏覽器載入過**。所以只要先開一次 0 尺寸 WebView
+     * 載入帶碼的頁面，碼就可用。實現見 [com.muyao.wanzaihyperos.ui.web.Cjh52WarmUp]。
      *
-     * ### 為什麼要有這個開關而不是直接改 decide()
+     * 已逐項排除的候選（都做過對照實驗）：簽名的值與存在性、`App-Code`、
+     * `platform`、`lang`、cookie、`Origin`、`Referer`、`Accept`、`Accept-Language`、
+     * `User-Agent`、`Accept-Charset`、**HTTP 版本**、**取碼參數**、**正確簽名**、
+     * **用 OkHttp 帶碼 GET 一次頁面**。完整記錄見 `docs/B1-WALKTHROUGH.md`。
      *
-     * 直接改判定條件的話，以後想啟用就得**重新推導**「當時為什麼關掉」；
-     * 而這個開關把「關掉」變成一個**顯式、可搜尋、有註釋**的決定。
+     * ### 業主先前提的「與學在城院重複」
+     *
+     * 那條仍然成立，但既然會話問題已解，保留這條原生入口成本很低
+     * （UI 與解析都已完成、測試盯著），而原生頁比 WebView 快得多。
+     * 若日後仍覺得多餘，把這個常量改回 `false` 即可 —— 一行的事。
      */
-    const val ENABLE_NATIVE_COURSES = false
+    const val ENABLE_NATIVE_COURSES = true
 
     /** TronClass 系的域，命中即走手机版免登。**实测确认**。 */
     private val TRONCLASS_HOSTS = setOf(

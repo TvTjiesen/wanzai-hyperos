@@ -1,5 +1,9 @@
 package com.muyao.wanzaihyperos.ui.courses
 
+import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUp
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,21 +73,26 @@ fun CoursesPage(
      * 原生頁取不到資料時（尤其**會話無效**）的出口：改用網頁版。
      *
      * ★ 這條是 B1 的**必要設計**，不是可選項。
-     * 原生頁依賴的 CJH52 會話有一個**尚未解決的契約問題**
-     * （見 `docs/BLOCKED.md`：門戶 tempcode 單獨取用時被服務端拒），
-     * 所以原生頁可能拿不到資料。此時**必須**讓使用者有路可走 ——
-     * WebView 那條是已被真機走查驗證過的，不能因為新增原生頁就把使用者困住。
+     * 原生頁依賴的 CJH52 會話可能失效（門戶 tempcode 有壽命），
+     * 所以必須讓使用者有路可走 —— WebView 那條是已被真機走查驗證過的。
      */
     onFallbackToWeb: (() -> Unit)? = null,
-    /** 為 true 時不自動載入（給走查用；預設自動載入）。 */
-    autoLoad: Boolean = true,
+    /**
+     * 會話是否就緒（由 [com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate] 給）。
+     *
+     * 為 false 時**不要取數** —— 那一定 401，只會讓使用者先看到一個假錯誤。
+     * 頁面此時顯示自己的載入態即可。
+     */
+    ready: Boolean = true,
 ) {
     val state by repository.state.collectAsStateWithLifecycle()
     val pageState = state.toPageState()
     val courses = (state as? ListState.Content)?.items.orEmpty()
 
-    LaunchedEffect(repository, autoLoad) {
-        if (autoLoad && state is ListState.FirstLoad) repository.refresh()
+    // 會話就緒後才取數。未就緒時畫面停在 FirstLoad（= 載入態），
+    // 這段等待就是預熱的時間（通常 1-2 秒）。
+    LaunchedEffect(ready) {
+        if (ready && state is ListState.FirstLoad) repository.refresh()
     }
 
     Scaffold(
