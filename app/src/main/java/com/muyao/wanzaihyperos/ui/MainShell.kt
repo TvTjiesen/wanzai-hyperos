@@ -53,6 +53,8 @@ fun MainShell(
     modifier: Modifier = Modifier,
     /** 點首頁「待辦/申請/已辦」三格（B3）：參數是清單名。 */
     onOpenBusyness: ((String) -> Unit)? = null,
+    /** 點首頁「全部待办」入口（B6）：打開多來源待辦看板。 */
+    onOpenTodoBoard: (() -> Unit)? = null,
     /**
      * 未读数。**`null` = 不知道**（还没取到、或取失败）。
      *
@@ -111,6 +113,7 @@ fun MainShell(
                 contentPadding = innerPadding,
                 unreadCount = unreadCount,
                 onOpenBusyness = onOpenBusyness,
+                onOpenTodoBoard = onOpenTodoBoard,
             )
 
             Tab.Apps -> com.muyao.wanzaihyperos.ui.apps.AppsPage(

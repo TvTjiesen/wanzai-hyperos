@@ -80,6 +80,13 @@ fun HomePage(
      * 而且導航參數本來就是字串（見 `Route.Busyness`）。
      */
     onOpenBusyness: ((String) -> Unit)? = null,
+    /**
+     * 打開「全部待辦」看板（B6）。
+     *
+     * 可空：與 [onOpenBusyness] 同一個理由 —— 走查/預覽時沒有導航容器，
+     * 給 null 就**不顯示這個入口**，而不是顯示一個點了沒反應的東西。
+     */
+    onOpenTodoBoard: (() -> Unit)? = null,
     /** 真实未读数。**null = 不知道**（显示 «—»，绝不显示 0）。 */
     unreadCount: Int? = null,
     modifier: Modifier = Modifier,
@@ -235,7 +242,30 @@ fun HomePage(
                 }
 
                 // ---- 待办三计数 -------------------------------------------------------
-                item(span = { GridItemSpan(maxLineSpan) }) { SmallTitle(text = "待办事项") }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    // 標題行右側帶一個「全部待办」入口（B6）。
+                    // 放這裡而不是另開一格：這一組本來講的就是「要辦的事」，
+                    // 多一個區塊會把首頁拉得更長，而語義是同一件事。
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        SmallTitle(
+                            text = "待办事项",
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (onOpenTodoBoard != null) {
+                            Text(
+                                text = "全部待办 ›",
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(end = 16.dp)
+                                    .clickable { onOpenTodoBoard() },
+                            )
+                        }
+                    }
+                }
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Card(modifier = Modifier.padding(horizontal = 12.dp)) {
                         Row(

@@ -25,6 +25,8 @@ import com.muyao.wanzaihyperos.data.portal.PortalNewsRepository
 import com.muyao.wanzaihyperos.data.portal.PortalSearchRepository
 import com.muyao.wanzaihyperos.data.portal.PortalTodoRepository
 import com.muyao.wanzaihyperos.data.portal.PortalUnreadRepository
+import com.muyao.wanzaihyperos.data.todo.LiveTodoRepository
+import com.muyao.wanzaihyperos.data.todo.TodoRepository
 import com.muyao.wanzaihyperos.net.Cjh52Client
 import com.muyao.wanzaihyperos.net.HzcuCasService
 import com.muyao.wanzaihyperos.net.HzcuClient
@@ -78,6 +80,8 @@ class AppGraph private constructor(
     val notices: NoticeRepository,
     val exams: ExamRepository,
     val growth: GrowthRepository,
+    /** B6：多來源待辦看板（聚合門戶審批 + 學在城院作業）。 */
+    val todoBoard: TodoRepository,
 ) {
 
     /** 启动时该落在哪一页：已经登录就直奔主壳，否则先登录。 */
@@ -138,6 +142,9 @@ class AppGraph private constructor(
             val cjh52Session = Cjh52Session(store)
             // CJH52 的 token 提供者：从会话读（**不打印、不缓存到别处**）。
             val cjh52 = Cjh52Client(client, tokenProvider = { cjh52Session.token() })
+            // B6 的待辦看板要複用同一個門戶事務倉庫（它帶單飛與快取），
+            // 所以提出區域變數讓兩處指向同一實例。
+            val billsRepo = LivePortalBillRepository(api)
             return AppGraph(
                 appContext = appContext,
                 client = client,
@@ -155,10 +162,15 @@ class AppGraph private constructor(
                 messages = LivePortalMessageRepository(api),
                 search = LivePortalSearchRepository(api),
                 courses = LiveCourseRepository(cjh52),
-                bills = LivePortalBillRepository(api),
+                // ★ 提出區域變數而不是直接寫 `bills = LivePortalBillRepository(api)`：
+                //   B6 的待辦看板要複用**同一個**門戶事務倉庫（它自己帶單飛與快取），
+                //   而命名實參在實參列表裡不能互相引用，所以必须先建實例。
+                //   共用同一實例還有個好處：從「我的事務」回來時資料是热的。
+                bills = billsRepo,
                 notices = LiveNoticeRepository(cjh52),
                 exams = LiveExamRepository(cjh52),
                 growth = LiveGrowthRepository(cjh52),
+                todoBoard = LiveTodoRepository(billsRepo),
             )
         }
     }

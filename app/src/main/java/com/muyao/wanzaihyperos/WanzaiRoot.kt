@@ -3,6 +3,7 @@ package com.muyao.wanzaihyperos
 import com.muyao.wanzaihyperos.ui.cjh52.GrowthPage
 import com.muyao.wanzaihyperos.ui.cjh52.ExamPage
 import com.muyao.wanzaihyperos.ui.cjh52.NoticePage
+import com.muyao.wanzaihyperos.ui.todo.TodoBoardPage
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
@@ -356,6 +357,8 @@ fun WanzaiApp() {
                     onOpenBusyness = { bucketName ->
                         backStack.add(Route.Busyness(bucket = bucketName))
                     },
+                    // ★ B6：首頁「全部待办」→ 多來源待辦看板。
+                    onOpenTodoBoard = { backStack.add(Route.TodoBoard) },
                     onRelogin = {
                         uiState.loggedIn = false
                         uiState.displayAccount = ""
@@ -520,6 +523,17 @@ fun WanzaiApp() {
                     repository = app.bills,
                     onExit = { backStack.removeLastOrNull() },
                     initialBucket = initial,
+                )
+            }
+
+            // ★ B6：多來源待辦看板。
+            //
+            // 它**不需要 CJH52 預熱閘門**：目前接通的來源只有門戶事務
+            // （A3 的會話就夠）。等學在城院那一路接上時再評估要不要包閘門。
+            entry<Route.TodoBoard> {
+                TodoBoardPage(
+                    repository = app.todoBoard,
+                    onExit = { backStack.removeLastOrNull() },
                 )
             }
 

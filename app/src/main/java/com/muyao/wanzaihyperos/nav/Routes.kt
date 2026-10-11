@@ -78,4 +78,9 @@ sealed interface Route : NavKey {
      */
     @Serializable
     data class Cjh52Feature(val feature: String = "NOTICE") : Route
+
+
+    /** B6：多來源待辦（按來源分組）。 */
+    @Serializable
+    data object TodoBoard : Route
 }
