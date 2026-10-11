@@ -101,6 +101,29 @@ sealed interface AppOpenPlan {
  */
 object AppOpenStrategy {
 
+    /**
+     * 是否启用「我的課程」原生頁（B1）。
+     *
+     * ### 為什麼是 `false`（2026-10-11 業主決定）
+     *
+     * 1. **取數沒打通**：原生頁拿不到有效會話（`docs/BLOCKED.md` B1.1），
+     *    進去找不到資料，只能顯示「登入狀態已失效」。
+     * 2. **業主指出它與學在城院功能重複** —— 課程資訊在學在城院裡已經有了，
+     *    這個原生頁的重複價值不高。
+     *
+     * ### 為什麼留著代碼而不是刪掉
+     *
+     * 模型、解析、頁面、測試都已完成（18 條測試全綠），
+     * 一旦 B1.1 那個契約問題解決，**把這個常量改成 `true` 就能啟用**，
+     * 不需要重寫。刪掉等於把已完成的工作丟了。
+     *
+     * ### 為什麼要有這個開關而不是直接改 decide()
+     *
+     * 直接改判定條件的話，以後想啟用就得**重新推導**「當時為什麼關掉」；
+     * 而這個開關把「關掉」變成一個**顯式、可搜尋、有註釋**的決定。
+     */
+    const val ENABLE_NATIVE_COURSES = false
+
     /** TronClass 系的域，命中即走手机版免登。**实测确认**。 */
     private val TRONCLASS_HOSTS = setOf(
         "courses.hzcu.edu.cn",
@@ -166,7 +189,7 @@ object AppOpenStrategy {
             // 仍走 WebView —— 原生只做了課表，把別的也導過去只會得到空白頁。
             // 判據用「host + 路徑」而不是應用名：應用名在門戶上可能改，
             // 而 `/course/student` 是 cjh52 自己的路由（B0 路由表已核對）。
-            if (isCjh52CoursePage(host, app.url)) {
+            if (ENABLE_NATIVE_COURSES && isCjh52CoursePage(host, app.url)) {
                 return AppOpenPlan.NativeCourses(
                     tileUrl = app.url,
                     appId = app.id,

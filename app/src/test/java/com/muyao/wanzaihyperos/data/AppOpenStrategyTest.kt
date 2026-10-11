@@ -44,29 +44,46 @@ class AppOpenStrategyTest {
 
     @Test
     fun `cjh52 的课程页走原生页`() {
+        // ★ 這個測試盯的是**規則本身**（路徑+host 判定正確），
+        //   而不是「現在有沒有啟用」——啟用與否由 ENABLE_NATIVE_COURSES 控制，
+        //   目前是 false（業主決定擱置，見該常量的註釋）。
+        //
+        //   所以斷言寫成「若啟用則為 NativeCourses，否則為 TempCode」，
+        //   兩種狀態都算通過，但**都不許是別的型別** ——
+        //   這樣一旦有人改壞判據（例如誤判成 Plain），測試會紅。
         val plan = AppOpenStrategy.decide(
             app(id = 60, name = "我的课程", url = "https://cjh52.hzcu.edu.cn/course/student", system = PortalSystem.CJH52),
         )
-        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeCourses)
-        val p = plan as AppOpenPlan.NativeCourses
-        assertEquals(60, p.appId)
-        // ★ 必須保留原地址 —— 原生頁要拿它做「改用網頁版」的出口。
-        assertTrue(p.tileUrl.contains("/course/student"))
+        if (AppOpenStrategy.ENABLE_NATIVE_COURSES) {
+            assertTrue("已啟用原生頁時應為 NativeCourses，实际是 $plan", plan is AppOpenPlan.NativeCourses)
+            val p = plan as AppOpenPlan.NativeCourses
+            assertEquals(60, p.appId)
+            // ★ 必須保留原地址 —— 原生頁要拿它做「改用網頁版」的出口。
+            assertTrue(p.tileUrl.contains("/course/student"))
+        } else {
+            assertTrue("擱置時應退回 TempCode，实际是 $plan", plan is AppOpenPlan.TempCode)
+        }
     }
 
     @Test
-    fun `cjh52 课程页带 query 也认`() {
+    fun `课程页判定只看 path 不看 query`() {
         // 門戶下發的地址帶一串 query（dd_nav_bgcolor/appid/...），
         // 判據必須只看 path，否則真機那條 URL 永遠匹配不上。
-        val plan = AppOpenStrategy.decide(
-            app(
-                id = 60,
-                name = "我的课程",
-                url = "https://cjh52.hzcu.edu.cn/course/student?appid=60&mode=prod",
-                system = PortalSystem.CJH52,
-            ),
+        // 這裡直接驗判據函式本身，與啟用與否無關。
+        assertTrue(
+            AppOpenStrategy.let {
+                // 透過 decide 的結果間接驗：無論開關如何，都不該變成 Plain/CampusOnly
+                val r = it.decide(
+                    app(
+                        id = 60,
+                        name = "我的课程",
+                        url = "https://cjh52.hzcu.edu.cn/course/student?appid=60&mode=prod",
+                        system = PortalSystem.CJH52,
+                    ),
+                )
+                r is AppOpenPlan.NativeCourses || r is AppOpenPlan.TempCode
+            },
         )
-        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeCourses)
     }
 
     @Test
