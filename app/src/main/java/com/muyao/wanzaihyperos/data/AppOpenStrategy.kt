@@ -235,6 +235,22 @@ object AppOpenStrategy {
             return AppOpenPlan.TempCode(url = app.url, appId = app.id, name = app.name)
         }
 
+        // ★ B4 一卡通：原生化**已尝试并放弃**，继续走 WebView。
+        //
+        // 真机逐步实测（签名公式已用抓包反推验证正确）：
+        //   GetAccInfoByPercode → 成功（账号、状态、卡号都拿到了）
+        //   GetWalletMoney      → `code 40004 无效的access_token`
+        //   getYMUserByUserID   → `code 0 获取参数不能为空`（换不到那个 token）
+        //
+        // 余额接口要一个 `etToken` 授权头，它来自**第三方认证**（云马
+        // `auth.xiaofubao.com`，要先走它自己的授权码流程）。
+        // 只做账户不做余额的原生页没有意义（用户打开一卡通就是为了看余额），
+        // 所以**不做半个页面**，保留 WebView（真机验证过可用、看到余额、
+        // 手动登录一次后浏览器会记住）。
+        //
+        // 若后续要攻：路径是把云马的授权码流程走通（外部第三方服务，
+        // 风险与收益不成比例）。签名公式已记在 docs/B4-WALKTHROUGH.md。
+
         return AppOpenPlan.Plain(url = app.url, name = app.name)
     }
 
