@@ -542,9 +542,11 @@ fun WanzaiApp() {
                     title = route.title,
                     url = route.url,
                     onExit = { backStack.removeLastOrNull() },
-                    // 把 CAS 統一認證會話交給 WebView：學校共用 CAS 的子系統
-                    // （一卡通、圖書館…）因此免登。只注入統一認證那兩個域。
-                    cookieJar = app.client.cookieJar,
+                    // ⚠️ 這裡曾經傳入 `cookieJar` 讓 WebView 注入 CAS 會話（B4），
+                    //   B5 真機對照實驗證明它把圖書館弄壞了（注入後打開就是廠商
+                    //   端點 500，且清掉注入 cookie 仍壞 —— WebView 自己累積的
+                    //   `.ca.hzcu.edu.cn` 會話刪不掉）。已撤銷，理由寫在
+                    //   WebShellPage 的對應註釋與 docs/B5-WALKTHROUGH.md。
                 )
             }
         }
