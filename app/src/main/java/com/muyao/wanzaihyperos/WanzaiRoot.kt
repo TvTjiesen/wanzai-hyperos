@@ -528,6 +528,9 @@ fun WanzaiApp() {
                     title = route.title,
                     url = route.url,
                     onExit = { backStack.removeLastOrNull() },
+                    // 把 CAS 統一認證會話交給 WebView：學校共用 CAS 的子系統
+                    // （一卡通、圖書館…）因此免登。只注入統一認證那兩個域。
+                    cookieJar = app.client.cookieJar,
                 )
             }
         }

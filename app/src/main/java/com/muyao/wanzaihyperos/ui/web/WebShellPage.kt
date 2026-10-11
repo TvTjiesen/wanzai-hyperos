@@ -79,6 +79,14 @@ fun WebShellPage(
     url: String,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * 我們自己的 cookie 罐。給了它，打開**學校域**時會把 CAS 統一認證 cookie
+     * 注入 WebView，讓共用 CAS 的子系统（一卡通、圖書館…）免登。
+     *
+     * 為 null 表示不注入（走查/測試用）。
+     * **只注入統一認證那兩個域**，詳見 [WebViewCookieBridge]。
+     */
+    cookieJar: com.muyao.wanzaihyperos.net.HzcuCookieJar? = null,
 ) {
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
@@ -169,7 +177,28 @@ fun WebShellPage(
                         settings.domStorageEnabled = true
                         settings.loadWithOverviewMode = true
                         settings.useWideViewPort = true
-                        // 不给 WebView 任何我们自己的凭据：A1 无会话。
+                        // ★ 打開學校域時，把 CAS 統一認證會話交給 WebView。
+                        //
+                        // 為什麼要這樣做：門戶登入建立的 CAS 會話我們**手裡就有**，
+                        // 而學校有幾十個子系統共用它（一卡通、圖書館…）。
+                        // 不注入的話，那些系統會停在 CAS 登入頁要求重新輸密碼
+                        // —— 真機實測一卡通就是這樣。
+                        //
+                        // ⚠️ 只注入統一認證那兩個域的 cookie；**絕不**把門戶
+                        // ACCESS_TOKEN / cjh52 token / 學在城院 token 對帶過去。
+                        // 非學校域**一條都不注入**。詳見 [WebViewCookieBridge]。
+                        cookieJar?.let { jar ->
+                            val injected = runCatching {
+                                WebViewCookieBridge.injectSsoCookiesIfSchoolHost(jar, url)
+                            }.getOrDefault(0)
+                            // 只記「注入了幾條」與是否學校域，**不記 cookie 名與值**
+                            //（名與值都是憑據的一部分）。
+                            android.util.Log.i(
+                                "WanzaiWeb",
+                                "cookie 注入：host=${com.muyao.wanzaihyperos.net.HzcuEndpoints.hostOf(url)} " +
+                                    "條數=$injected",
+                            )
+                        }
                         webViewClient = object : WebViewClient() {
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 super.onPageStarted(view, url, favicon)
