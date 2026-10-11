@@ -168,6 +168,50 @@ object HzcuEndpoints {
     const val CJH52_CURRENT_ATTENDANCE_PATH =
         "/dapi/v2/attendance/course_attendance_service/query_student_current_attendance"
 
+    // ---- B3 剩餘三項（真機取證：build/three.json、build/codes.json）----------
+
+    /**
+     * 日常通知（讀者視角）。
+     *
+     * 實測請求：`{scope: {school, college[], grade[], specialty[], role}, pageSize, pageNum}`
+     * —— `scope` 的幾個值**從 `get_user_by_token` 的用戶資訊推出來**，不是硬編碼。
+     */
+    const val CJH52_NOTICE_READER_PATH =
+        "/dapi/v2/courier/notice_service/find_all_for_reader"
+
+    /**
+     * 我的考試。
+     *
+     * 實測請求：`{pageNum: 0, pageSize: 10, modelCode: "M0017"}`
+     * ⚠️ **`pageNum` 從 0 起**（與「我的事務」那批從 1 起的不同）。
+     */
+    const val CJH52_EXAM_LIST_PATH =
+        "/dapi/v2/school_manager/exam_service/get_user_exam_list"
+
+    /** 我的考試的 `modelCode`。實測值，非猜測。 */
+    const val CJH52_EXAM_MODEL_CODE = "M0017"
+
+    // ---- 我的成長（8 個接口，真機實測）---------------------------------------
+
+    /** KQA 三維分數。body `{userId}` → `{Q, GY, K}`。 */
+    const val CJH52_KQA_SCORE_PATH = "/dapi/v2/model/query_service/query_one_kqa_score"
+
+    /** 體測成績。body `{}` → `data[]`。 */
+    const val CJH52_PHYSIQUE_PATH =
+        "/dapi/v2/school_manager/physique_service/find_my_physique_scores"
+
+    /** 學分達成。body `{}` → `data{}`。 */
+    const val CJH52_CREDIT_PROGRESS_PATH =
+        "/dapi/v2/studyguide/quality_service/get_my_quality_course_score"
+
+    /** 行為記錄（按月）。body `{userId, startYear, endYear}` → `data.results[]`。 */
+    const val CJH52_ACTIVITY_MONTHS_PATH =
+        "/dapi/v2/model/kqa_statistical_service/get_events_by_user_id_and_years_group_by_month"
+
+    /** 用戶資訊（成長頁要拿 userSid）。body `{userSid}`。 */
+    const val CJH52_USER_INFO_PATH =
+        "/dapi/v2/school_manager/user_service/get_user_info_by_id"
+
     // ---------------------------------------------------------------------------
     // CAS
     // ---------------------------------------------------------------------------

@@ -1,5 +1,11 @@
 package com.muyao.wanzaihyperos.app
 
+import com.muyao.wanzaihyperos.data.cjh52.LiveGrowthRepository
+import com.muyao.wanzaihyperos.data.cjh52.GrowthRepository
+import com.muyao.wanzaihyperos.data.cjh52.LiveExamRepository
+import com.muyao.wanzaihyperos.data.cjh52.ExamRepository
+import com.muyao.wanzaihyperos.data.cjh52.LiveNoticeRepository
+import com.muyao.wanzaihyperos.data.cjh52.NoticeRepository
 import android.content.Context
 import com.muyao.wanzaihyperos.data.cjh52.CourseRepository
 import com.muyao.wanzaihyperos.data.cjh52.LiveCourseRepository
@@ -69,6 +75,9 @@ class AppGraph private constructor(
     val search: PortalSearchRepository,
     val courses: CourseRepository,
     val bills: PortalBillRepository,
+    val notices: NoticeRepository,
+    val exams: ExamRepository,
+    val growth: GrowthRepository,
 ) {
 
     /** 启动时该落在哪一页：已经登录就直奔主壳，否则先登录。 */
@@ -147,6 +156,9 @@ class AppGraph private constructor(
                 search = LivePortalSearchRepository(api),
                 courses = LiveCourseRepository(cjh52),
                 bills = LivePortalBillRepository(api),
+                notices = LiveNoticeRepository(cjh52),
+                exams = LiveExamRepository(cjh52),
+                growth = LiveGrowthRepository(cjh52),
             )
         }
     }

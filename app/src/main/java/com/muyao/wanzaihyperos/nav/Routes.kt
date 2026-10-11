@@ -65,4 +65,17 @@ sealed interface Route : NavKey {
      */
     @Serializable
     data class Busyness(val bucket: String = "TODO") : Route
+
+    /**
+     * B3 剩餘三項的 cjh52 原生頁：日常通知 / 我的考試 / 我的成長。
+     *
+     * 用**一個路由 + 一個枚舉名**而不是三個 data object：
+     * 它們的形狀完全一樣（都是「一個 cjh52 原生頁 + 預熱閘門 + 網頁版出口」），
+     * 拆三個會讓導航表、閘門接線、返回處理各寫三遍。
+     *
+     * 存的是**枚舉名**（`String`）而不是枚舉本身：導航狀態會被序列化保存，
+     * 用名字更穩 —— 枚舉改名時只是回退到默認頁，而不是反序列化失敗讓整個返回棧崩掉。
+     */
+    @Serializable
+    data class Cjh52Feature(val feature: String = "NOTICE") : Route
 }

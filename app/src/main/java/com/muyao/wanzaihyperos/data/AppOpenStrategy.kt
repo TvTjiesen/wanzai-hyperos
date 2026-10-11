@@ -79,6 +79,22 @@ sealed interface AppOpenPlan {
         val name: String,
     ) : AppOpenPlan
 
+    /**
+     * 走**原生頁**的 cjh52 功能（B3：日常通知 / 我的考試 / 我的成長）。
+     *
+     * 與 [NativeCourses] 分開是因為「哪個功能對應哪個原生頁」的映射不同 ——
+     * 課程頁的路徑判定（`/course/student`）與這三個不一樣，
+     * 混在一個 plan 裡會讓 `openApp` 那邊需要再判一次。
+     */
+    data class NativeFeature(
+        /** 對應的原生頁（枚舉名，與 `Route.Cjh52Feature` 一致）。 */
+        val feature: String,
+        /** 原始應用地址，作為「改用網頁版」的出口。 */
+        val tileUrl: String,
+        val appId: Int,
+        val name: String,
+    ) : AppOpenPlan
+
     /** 连地址都没有，或地址无法解析。界面上应当把这条入口禁用而不是崩。 */
     data class Unopenable(val name: String, val reason: String) : AppOpenPlan
 }
@@ -203,6 +219,19 @@ object AppOpenStrategy {
                     name = app.name,
                 )
             }
+            // ★ B3 剩餘三項：日常通知 / 我的考試 / 我的成長。
+            //
+            // 同樣只放行**做了原生頁的那三個路徑**，其餘 cjh52 應用
+            // （學生幹部、愛講座、失物招領……）仍走 WebView ——
+            // 導過去只會得到空白頁。
+            nativeFeatureOf(host, app.url)?.let { feature ->
+                return AppOpenPlan.NativeFeature(
+                    feature = feature,
+                    tileUrl = app.url,
+                    appId = app.id,
+                    name = app.name,
+                )
+            }
             return AppOpenPlan.TempCode(url = app.url, appId = app.id, name = app.name)
         }
 
@@ -224,6 +253,28 @@ object AppOpenStrategy {
         if (h != HzcuHosts.CJH52) return false
         val path = runCatching { java.net.URI(url).path }.getOrNull() ?: return false
         return path.startsWith("/course/student")
+    }
+
+    /**
+     * cjh52 的路徑 → 原生頁的枚舉名；不是那三個就 null。
+     *
+     * **判據只用路徑**（不看應用名）：應用名在門戶上可能改，
+     * 而路徑是 cjh52 自己的路由（B0 的路由表已核對過）。
+     *
+     * 只放行**已經做了原生頁**的三個路徑。其餘一律 null →
+     * 退回 WebView。**這是刻意的保守**：導去沒有實作的原生頁只會得到空白。
+     */
+    private fun nativeFeatureOf(host: String?, url: String): String? {
+        val h = host?.lowercase() ?: return null
+        if (h != HzcuHosts.CJH52) return null
+        val path = runCatching { java.net.URI(url).path }.getOrNull() ?: return null
+        return when {
+            // 用 startsWith 而不是 ==：門戶下發的地址可能帶子路徑。
+            path.startsWith("/notice") -> "NOTICE"
+            path.startsWith("/examination") -> "EXAM"
+            path.startsWith("/development") -> "GROWTH"
+            else -> null
+        }
     }
 
     /**

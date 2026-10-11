@@ -114,6 +114,60 @@ class AppOpenStrategyTest {
         assertTrue("实际是 $plan", plan !is AppOpenPlan.NativeCourses)
     }
 
+    // -------------------------------------------------------------------------
+    // B3 剩餘三項：日常通知 / 我的考試 / 我的成長 走原生頁
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `日常通知走原生页`() {
+        val plan = AppOpenStrategy.decide(
+            app(id = 188, name = "日常通知", url = "https://cjh52.hzcu.edu.cn/notice", system = PortalSystem.CJH52),
+        )
+        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeFeature)
+        assertEquals("NOTICE", (plan as AppOpenPlan.NativeFeature).feature)
+    }
+
+    @Test
+    fun `我的考试走原生页`() {
+        val plan = AppOpenStrategy.decide(
+            app(id = 211, name = "我的考试", url = "https://cjh52.hzcu.edu.cn/examination", system = PortalSystem.CJH52),
+        )
+        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeFeature)
+        assertEquals("EXAM", (plan as AppOpenPlan.NativeFeature).feature)
+    }
+
+    @Test
+    fun `我的成长走原生页`() {
+        val plan = AppOpenStrategy.decide(
+            app(id = 106, name = "我的成长", url = "https://cjh52.hzcu.edu.cn/development/home", system = PortalSystem.CJH52),
+        )
+        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeFeature)
+        assertEquals("GROWTH", (plan as AppOpenPlan.NativeFeature).feature)
+    }
+
+    @Test
+    fun `未做原生页的 cjh52 应用仍走 WebView`() {
+        // ★ 保守：只放行**已經做了原生頁**的三個路徑。
+        //   導去沒有實作的原生頁只會得到空白。
+        for (url in listOf(
+            "https://cjh52.hzcu.edu.cn/clazz/student",
+            "https://cjh52.hzcu.edu.cn/lecture/lectureList",
+            "https://cjh52.hzcu.edu.cn/lost/lostList",
+            "https://cjh52.hzcu.edu.cn/studentCadre/StudentPostList",
+        )) {
+            val plan = AppOpenStrategy.decide(app(id = 1, name = "x", url = url, system = PortalSystem.CJH52))
+            assertTrue("$url 不該走原生，实际是 $plan", plan is AppOpenPlan.TempCode)
+        }
+    }
+
+    @Test
+    fun `其它域的 notice 不误判`() {
+        val plan = AppOpenStrategy.decide(
+            app(id = 1, name = "别的系统", url = "https://other.hzcu.edu.cn/notice", system = PortalSystem.CJH52),
+        )
+        assertTrue("实际是 $plan", plan !is AppOpenPlan.NativeFeature)
+    }
+
     @Test
     fun `名字里有学在城院也认（门户有时不给地址）`() {
         val plan = AppOpenStrategy.decide(

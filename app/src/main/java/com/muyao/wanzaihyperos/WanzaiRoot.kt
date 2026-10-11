@@ -1,5 +1,8 @@
 package com.muyao.wanzaihyperos
 
+import com.muyao.wanzaihyperos.ui.cjh52.GrowthPage
+import com.muyao.wanzaihyperos.ui.cjh52.ExamPage
+import com.muyao.wanzaihyperos.ui.cjh52.NoticePage
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
@@ -226,6 +229,14 @@ fun WanzaiApp() {
                 // - 這裡：只負責導航。
                 is AppOpenPlan.NativeCourses -> backStack.add(Route.Courses)
 
+                // ★ B3 剩餘三項：日常通知 / 我的考試 / 我的成長。
+                //
+                // 與 NativeCourses 一樣，這裡**不取碼、不存會話** ——
+                // 那是預熱閘門（Cjh52WarmUpGate）的職責。
+                // 先前在別處存「未激活的碼」導致閘門誤判，那次教訓記在
+                // docs/B1-WALKTHROUGH.md §3。
+                is AppOpenPlan.NativeFeature -> backStack.add(Route.Cjh52Feature(plan.feature))
+
                 // ★ A4：学在城院**手机版免登**。
                 //
                 // token 对必须在**登录那一刻**换好（密码不持久化，之后没机会再换），
@@ -426,6 +437,73 @@ fun WanzaiApp() {
                             }
                         },
                     )
+                }
+            }
+
+            // ★ B3 剩餘三項：日常通知 / 我的考試 / 我的成長。
+            //
+            // 三頁共用**同一個**預熱閘門 —— 一次預熱服務所有 cjh52 功能
+            // （實測同一枚 token 對多個接口都有效），所以這裡不必各開一次。
+            entry<Route.Cjh52Feature> { route ->
+                Cjh52WarmUpGate(
+                    session = app.cjh52Session,
+                    issueUrl = {
+                        runCatching { app.api.issueTempCode() }.getOrNull()?.let { code ->
+                            AppOpenStrategy.buildTempCodeUrl(
+                                appUrl = HzcuEndpoints.CJH52_BASE_URL,
+                                appId = 0,
+                                colorArgb = null,
+                                tempCode = code,
+                                nowMillis = System.currentTimeMillis(),
+                            )
+                        }
+                    },
+                ) { ready ->
+                    // 網頁版出口：三頁共用同一個「回退」動作。
+                    val fallback: () -> Unit = {
+                        scope.launch {
+                            val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
+                            if (tempCode == null) {
+                                Toast.makeText(
+                                    context,
+                                    "没能取到一次性临时码，请稍后重试",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } else {
+                                val url = AppOpenStrategy.buildTempCodeUrl(
+                                    appUrl = HzcuEndpoints.CJH52_BASE_URL,
+                                    appId = 0,
+                                    colorArgb = null,
+                                    tempCode = tempCode,
+                                    nowMillis = System.currentTimeMillis(),
+                                )
+                                backStack.add(Route.Web(0, route.feature, url))
+                            }
+                        }
+                    }
+                    when (route.feature) {
+                        "EXAM" -> ExamPage(
+                            repository = app.exams,
+                            onExit = { backStack.removeLastOrNull() },
+                            ready = ready,
+                            onFallbackToWeb = fallback,
+                        )
+                        "GROWTH" -> GrowthPage(
+                            repository = app.growth,
+                            onExit = { backStack.removeLastOrNull() },
+                            ready = ready,
+                            onFallbackToWeb = fallback,
+                        )
+                        // 認不出來的名字 → 回退到通知頁（而不是崩）。
+                        // 導航狀態會被系統保存/恢復，用名字就是為了讓「枚舉改名」
+                        // 只表現成「回到默認頁」。
+                        else -> NoticePage(
+                            repository = app.notices,
+                            onExit = { backStack.removeLastOrNull() },
+                            ready = ready,
+                            onFallbackToWeb = fallback,
+                        )
+                    }
                 }
             }
 

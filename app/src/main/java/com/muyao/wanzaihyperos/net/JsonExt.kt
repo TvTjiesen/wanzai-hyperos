@@ -26,6 +26,25 @@ fun JsonElement?.asIntOrNull(): Int? {
     return text.toIntOrNull() ?: text.toDoubleOrNull()?.toInt()
 }
 
+/**
+ * 数字或数字字符串 → Long。
+ *
+ * 為什麼需要它：cjh52 的時間欄位（`createTime` / `pubTime`）是**毫秒時間戳**，
+ * 位數超過 Int 的範圍（實測 13 位）。用 [asIntOrNull] 會**靜默溢出成錯的值**
+ * —— 那種 bug 在界面上表現成「時間顯示成 1970 年」，很難往回追。
+ */
+fun JsonElement?.asLongOrNull(): Long? {
+    val primitive = this as? JsonPrimitive ?: return null
+    val text = primitive.content.trim()
+    return text.toLongOrNull() ?: text.toDoubleOrNull()?.toLong()
+}
+
+/** 数字或数字字符串 → Double。 */
+fun JsonElement?.asDoubleOrNull(): Double? {
+    val primitive = this as? JsonPrimitive ?: return null
+    return primitive.content.trim().toDoubleOrNull()
+}
+
 /** 布尔、数字或数字字符串 → Boolean。其它一律 null。 */
 fun JsonElement?.asBoolOrNull(): Boolean? {
     val primitive = this as? JsonPrimitive ?: return null
