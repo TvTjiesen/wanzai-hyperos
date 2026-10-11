@@ -52,4 +52,17 @@ sealed interface Route : NavKey {
      */
     @Serializable
     data object Courses : Route
+
+    /**
+     * 我的事務（B3，原生）—— 待辦 / 我的申請 / 我的已辦。
+     *
+     * 帶一個 `bucket` 參數：首頁那三個計數卡各自對應一個清單，
+     * 點哪張就該落到哪個 tab（否則使用者點「已辦」卻看到「待辦」，會以為壞了）。
+     *
+     * 存的是**枚舉名**（`String`）而不是枚舉本身：
+     * 導航狀態會被序列化保存，用名字更穩 —— 枚舉改名時只是回退到默認 tab，
+     * 而不是反序列化失敗讓整個返回棧崩掉。
+     */
+    @Serializable
+    data class Busyness(val bucket: String = "TODO") : Route
 }

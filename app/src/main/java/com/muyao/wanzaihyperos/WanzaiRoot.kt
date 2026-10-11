@@ -34,6 +34,7 @@ import com.muyao.wanzaihyperos.session.SessionState
 import com.muyao.wanzaihyperos.ui.AppUiState
 import com.muyao.wanzaihyperos.ui.MainShell
 import com.muyao.wanzaihyperos.ui.WanzaiTheme
+import com.muyao.wanzaihyperos.ui.busyness.BusynessPage
 import com.muyao.wanzaihyperos.ui.courses.CoursesPage
 import com.muyao.wanzaihyperos.ui.login.LoginPage
 import com.muyao.wanzaihyperos.ui.search.SearchPage
@@ -348,6 +349,10 @@ fun WanzaiApp() {
                     onOpenApp = openApp,
                     onOpenSearch = { backStack.add(Route.Search) },
                     onOpenMessages = { uiState.selectedTab = 2 },
+                    // ★ B3：首頁「待辦 / 申請 / 已辦」三格 → 我的事務對應清單。
+                    onOpenBusyness = { bucketName ->
+                        backStack.add(Route.Busyness(bucket = bucketName))
+                    },
                     onRelogin = {
                         uiState.loggedIn = false
                         uiState.displayAccount = ""
@@ -404,6 +409,22 @@ fun WanzaiApp() {
                             }
                         }
                     },
+                )
+            }
+
+            // ★ B3：我的事務（待辦 / 我的申請 / 我的已辦）。
+            //
+            // `bucket` 是**清單名**（`"TODO"` 等）。名字認不出來時**回退到待辦**
+            // 而不是崩 —— 導航狀態會被系統保存/恢復，用名字就是為了讓
+            // 「枚舉改名」這種事只表現成「回到默認 tab」。
+            entry<Route.Busyness> { route ->
+                val initial = com.muyao.wanzaihyperos.data.portal.PortalBillBucket.entries
+                    .firstOrNull { it.name == route.bucket }
+                    ?: com.muyao.wanzaihyperos.data.portal.PortalBillBucket.TODO
+                BusynessPage(
+                    repository = app.bills,
+                    onExit = { backStack.removeLastOrNull() },
+                    initialBucket = initial,
                 )
             }
 

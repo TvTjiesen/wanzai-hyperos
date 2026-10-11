@@ -180,6 +180,15 @@ class PortalApi(private val client: HzcuClient) {
         const val MESSAGE_ROWS = 10
         const val NEWS_PAGE_SIZE = 8
 
+        /**
+         * 「我的事務」每頁條數。
+         *
+         * 門戶源碼裡寫死 `rows: 10`，且用 `10 == e.length` 判斷「還有下一頁」
+         * （見 `MyBusynessPage` 的 `getAppList`）。照抄它是**刻意的**：
+         * 改成別的數，那個判據就跟著失效 —— 而它正是「有沒有更多」的唯一線索。
+         */
+        const val BILL_PAGE_SIZE = 10
+
         /** 供测试断言「包体类型没被改错」。 */
         internal val JSON_BODY_ENDPOINTS = setOf(
             HzcuEndpoints.PORTAL_APP_SEARCH_PATH,
@@ -191,6 +200,45 @@ class PortalApi(private val client: HzcuClient) {
     /** 把一个 JSON 包体原样发出去（给需要额外参数的调用方留的口子）。 */
     internal suspend fun postJson(path: String, body: JsonObject, context: String): HzcuResponse =
         client.portalPost(path = path, jsonBody = body, context = context)
+
+    // ---------------------------------------------------------------------------
+    // 我的事務（B3）
+    // ---------------------------------------------------------------------------
+
+    /**
+     * 拉「我的事務」某個清單的一頁。
+     *
+     * ### ★ 必須用 JSON 包體（真機實測，2026-10-11）
+     *
+     * 三個接口用 **form 一律回 `code 400`**，換 JSON 立刻 `code 200`。
+     * 這與 A3 的 `listmessage`/`listnewslist` 是同一個坑
+     * （API-PORTAL §1.3 已記過一次）。所以參數照門戶源碼給，
+     * 但**包體類型不能照門戶源碼猜** —— 那裡的 `sendRequest` 封裝決定了實際編碼，
+     * 只有實測才準。
+     *
+     * ### 參數（逐字來自門戶 `MyBusynessPage` 的源碼）
+     *
+     * ```js
+     * { appid: i, page: t, rows: 10 }   // 三個接口完全相同
+     * ```
+     * `appid` 可以傳空串 —— 門戶的「全部」那一項就是 `{ id: "", app_name: "全部" }`。
+     *
+     * @param bucket 三個清單之一（路徑與標籤都綁在它身上）
+     * @param page 1 起
+     */
+    suspend fun fetchBills(
+        bucket: com.muyao.wanzaihyperos.data.portal.PortalBillBucket,
+        page: Int = 1,
+        appId: String = "",
+    ): HzcuResponse = postJson(
+        path = bucket.path,
+        body = buildJsonObject {
+            put("appid", appId)
+            put("page", page)
+            put("rows", BILL_PAGE_SIZE)
+        },
+        context = "我的事務-${bucket.label}",
+    )
 
     // ---------------------------------------------------------------------------
     // 跨子系统 SSO

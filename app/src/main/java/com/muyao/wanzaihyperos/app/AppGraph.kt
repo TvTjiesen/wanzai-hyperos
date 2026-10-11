@@ -4,6 +4,8 @@ import android.content.Context
 import com.muyao.wanzaihyperos.data.cjh52.CourseRepository
 import com.muyao.wanzaihyperos.data.cjh52.LiveCourseRepository
 import com.muyao.wanzaihyperos.data.portal.LivePortalCatalogRepository
+import com.muyao.wanzaihyperos.data.portal.LivePortalBillRepository
+import com.muyao.wanzaihyperos.data.portal.PortalBillRepository
 import com.muyao.wanzaihyperos.data.portal.LivePortalFrequentAppsRepository
 import com.muyao.wanzaihyperos.data.portal.LivePortalMessageRepository
 import com.muyao.wanzaihyperos.data.portal.LivePortalNewsRepository
@@ -66,6 +68,7 @@ class AppGraph private constructor(
     val messages: PortalMessageRepository,
     val search: PortalSearchRepository,
     val courses: CourseRepository,
+    val bills: PortalBillRepository,
 ) {
 
     /** 启动时该落在哪一页：已经登录就直奔主壳，否则先登录。 */
@@ -143,6 +146,7 @@ class AppGraph private constructor(
                 messages = LivePortalMessageRepository(api),
                 search = LivePortalSearchRepository(api),
                 courses = LiveCourseRepository(cjh52),
+                bills = LivePortalBillRepository(api),
             )
         }
     }

@@ -51,6 +51,8 @@ fun MainShell(
     onRelogin: () -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 點首頁「待辦/申請/已辦」三格（B3）：參數是清單名。 */
+    onOpenBusyness: ((String) -> Unit)? = null,
     /**
      * 未读数。**`null` = 不知道**（还没取到、或取失败）。
      *
@@ -108,6 +110,7 @@ fun MainShell(
                 onOpenMessages = onOpenMessages,
                 contentPadding = innerPadding,
                 unreadCount = unreadCount,
+                onOpenBusyness = onOpenBusyness,
             )
 
             Tab.Apps -> com.muyao.wanzaihyperos.ui.apps.AppsPage(

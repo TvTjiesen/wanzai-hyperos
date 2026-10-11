@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.home
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,6 +72,14 @@ fun HomePage(
     onOpenSearch: () -> Unit,
     onOpenMessages: () -> Unit,
     contentPadding: PaddingValues,
+    /**
+     * 點「待辦 / 申請 / 已辦」三格時進來（B3）。
+     *
+     * 傳的是**清單枚舉名**（`"TODO"`/`"APPLIED"`/`"FINISHED"`），
+     * 而不是枚舉本身：`ui/home` 這一層不該依賴 `data.portal` 的類型細節，
+     * 而且導航參數本來就是字串（見 `Route.Busyness`）。
+     */
+    onOpenBusyness: ((String) -> Unit)? = null,
     /** 真实未读数。**null = 不知道**（显示 «—»，绝不显示 0）。 */
     unreadCount: Int? = null,
     modifier: Modifier = Modifier,
@@ -236,9 +245,11 @@ fun HomePage(
                             horizontalArrangement = Arrangement.SpaceEvenly,
                         ) {
                             // ★ 取不到就是 null → 「—」，**不是 0**。
-                            TodoCountCell("我的待办", todoCounts?.pending)
-                            TodoCountCell("我的申请", todoCounts?.applied)
-                            TodoCountCell("我的已办", todoCounts?.finished)
+                            // 三格都可點：進「我的事務」對應的清單（B3）。
+                            // 之前只有數字、點不動，要看具體內容得回門戶一層層翻。
+                            TodoCountCell("我的待办", todoCounts?.pending) { onOpenBusyness?.invoke("TODO") }
+                            TodoCountCell("我的申请", todoCounts?.applied) { onOpenBusyness?.invoke("APPLIED") }
+                            TodoCountCell("我的已办", todoCounts?.finished) { onOpenBusyness?.invoke("FINISHED") }
                         }
                     }
                 }
@@ -354,9 +365,17 @@ fun HomePage(
 }
 
 @Composable
-private fun TodoCountCell(label: String, count: Int?) {
+private fun TodoCountCell(label: String, count: Int?, onClick: (() -> Unit)? = null) {
     val colors = MiuixTheme.colorScheme
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = if (onClick != null) {
+            // 可點：整格都是熱區（只有文字可點會很難按）。
+            Modifier.clickable(onClick = onClick)
+        } else {
+            Modifier
+        },
+    ) {
         // ★ count 可空是刻意的：取不到时显示「—」，**绝不显示 0**。
         //   显示 0 等于告诉用户「你没有待办」，而我们其实不知道。
         //   这是业主在 Flutter 版明确提过的原始问题。
