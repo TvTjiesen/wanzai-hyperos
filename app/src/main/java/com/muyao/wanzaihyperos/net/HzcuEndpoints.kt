@@ -212,6 +212,16 @@ object HzcuEndpoints {
     const val CJH52_USER_INFO_PATH =
         "/dapi/v2/school_manager/user_service/get_user_info_by_id"
 
+    /**
+     * 班級詳情（B：我的班級原生化）。body `{clazzSid}`。
+     *
+     * 實測回應 `data = { sid, clazz, specialty, grade, number, collegeName,
+     * teacherInfoList[], counselorInfoList[] }` —— 班級 sid 從
+     * `get_user_by_token` 的 `data.clazz.sid` 拿。
+     */
+    const val CJH52_CLAZZ_INFO_PATH =
+        "/dapi/v2/school_manager/clazz_service/get_clazz_info_plus_by_id"
+
     // ---------------------------------------------------------------------------
     // CAS
     // ---------------------------------------------------------------------------

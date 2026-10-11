@@ -54,6 +54,8 @@ data class Cjh52UserContext(
     val gradeValue: String,
     /** `data.specialty.sid`。通知的 `scope.specialty[]` 用它。 */
     val specialtySid: String,
+    /** `data.clazz.sid`。班級詳情接口要它（`clazzSid`）。 */
+    val clazzSid: String,
 )
 
 /** 取當前使用者上下文。**每次取數都重取**（見類註釋的隱私理由）。 */
@@ -71,6 +73,7 @@ suspend fun Cjh52Client.currentUser(): Cjh52UserContext {
         collegeSid = field("college", "sid"),
         gradeValue = field("grade", "value"),
         specialtySid = field("specialty", "sid"),
+        clazzSid = field("clazz", "sid"),
     )
 }
 

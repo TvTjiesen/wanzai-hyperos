@@ -1,7 +1,9 @@
 package com.muyao.wanzaihyperos.app
 
-import com.muyao.wanzaihyperos.data.cjh52.LiveGrowthRepository
 import com.muyao.wanzaihyperos.data.cjh52.GrowthRepository
+import com.muyao.wanzaihyperos.data.cjh52.LiveGrowthRepository
+import com.muyao.wanzaihyperos.data.cjh52.ClazzRepository
+import com.muyao.wanzaihyperos.data.cjh52.LiveClazzRepository
 import com.muyao.wanzaihyperos.data.cjh52.LiveExamRepository
 import com.muyao.wanzaihyperos.data.cjh52.ExamRepository
 import com.muyao.wanzaihyperos.data.cjh52.LiveNoticeRepository
@@ -80,6 +82,7 @@ class AppGraph private constructor(
     val notices: NoticeRepository,
     val exams: ExamRepository,
     val growth: GrowthRepository,
+    val clazz: ClazzRepository,
     /** B6：多來源待辦看板（聚合門戶審批 + 學在城院作業）。 */
     val todoBoard: TodoRepository,
 ) {
@@ -170,6 +173,7 @@ class AppGraph private constructor(
                 notices = LiveNoticeRepository(cjh52),
                 exams = LiveExamRepository(cjh52),
                 growth = LiveGrowthRepository(cjh52),
+                clazz = LiveClazzRepository(cjh52),
                 todoBoard = LiveTodoRepository(billsRepo),
             )
         }

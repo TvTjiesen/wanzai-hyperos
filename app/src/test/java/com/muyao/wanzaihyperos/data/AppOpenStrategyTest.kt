@@ -88,12 +88,22 @@ class AppOpenStrategyTest {
 
     @Test
     fun `cjh52 的其它应用仍走 WebView`() {
-        // ★ 這條是防「原生只做了課表、卻把別的入口也導過去」——
-        //   那會讓使用者看到空白頁。只放行 /course/student。
+        // ★ 這條是防「原生只做了幾個入口、卻把別的也導過去」——
+        //   那會讓使用者看到空白頁。只放行已做原生頁的路徑。
+        val plan = AppOpenStrategy.decide(
+            app(id = 1, name = "失物招领", url = "https://cjh52.hzcu.edu.cn/lost/lostList", system = PortalSystem.CJH52),
+        )
+        assertTrue("实际是 $plan", plan is AppOpenPlan.TempCode)
+    }
+
+    @Test
+    fun `我的班级走原生页`() {
+        // 班級已原生化（CLAZZ），路徑 /clazz 要命中原生而不是 WebView。
         val plan = AppOpenStrategy.decide(
             app(id = 104, name = "我的班级", url = "https://cjh52.hzcu.edu.cn/clazz/student", system = PortalSystem.CJH52),
         )
-        assertTrue("实际是 $plan", plan is AppOpenPlan.TempCode)
+        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeFeature)
+        assertEquals("CLAZZ", (plan as AppOpenPlan.NativeFeature).feature)
     }
 
     @Test
@@ -147,10 +157,9 @@ class AppOpenStrategyTest {
 
     @Test
     fun `未做原生页的 cjh52 应用仍走 WebView`() {
-        // ★ 保守：只放行**已經做了原生頁**的三個路徑。
+        // ★ 保守：只放行**已經做了原生頁**的路徑（課程/班級/通知/考試/成長）。
         //   導去沒有實作的原生頁只會得到空白。
         for (url in listOf(
-            "https://cjh52.hzcu.edu.cn/clazz/student",
             "https://cjh52.hzcu.edu.cn/lecture/lectureList",
             "https://cjh52.hzcu.edu.cn/lost/lostList",
             "https://cjh52.hzcu.edu.cn/studentCadre/StudentPostList",

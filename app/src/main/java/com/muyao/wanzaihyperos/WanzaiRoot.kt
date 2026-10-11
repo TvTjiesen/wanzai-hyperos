@@ -3,6 +3,7 @@ package com.muyao.wanzaihyperos
 import com.muyao.wanzaihyperos.ui.cjh52.GrowthPage
 import com.muyao.wanzaihyperos.ui.cjh52.ExamPage
 import com.muyao.wanzaihyperos.ui.cjh52.NoticePage
+import com.muyao.wanzaihyperos.ui.cjh52.ClazzPage
 import com.muyao.wanzaihyperos.ui.todo.TodoBoardPage
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
 import android.widget.Toast
@@ -81,6 +82,21 @@ private fun NavBackStack.resetTo(route: NavKey) {
  * 寫兩遍就會有改一處漏一處的風險。
  */
 private const val CJH52_COURSE_APP_ID = 60
+
+/**
+ * cjh52 原生功能名 → 它在 cjh52 上的頁面路徑。
+ *
+ * 用於「改用網頁版」時退回**同一個功能**的網頁，而不是 cjh52 首頁。
+ * 與 `AppOpenStrategy.nativeFeatureOf` 是**反向映射**，兩處要保持一致：
+ * 那边按路徑決定走不走原生，这边按原生名退回對應網頁。
+ */
+private fun cjh52FeaturePath(feature: String): String = when (feature) {
+    "NOTICE" -> "/notice"
+    "EXAM" -> "/examination"
+    "GROWTH" -> "/development/home"
+    "CLAZZ" -> "/clazz/student"
+    else -> "/"
+}
 
 /**
  * 打开加密存储时的过渡页。
@@ -491,7 +507,9 @@ fun WanzaiApp() {
                         }
                     },
                 ) { ready ->
-                    // 網頁版出口：三頁共用同一個「回退」動作。
+                    // 網頁版出口：各頁共用同一個「回退」動作，但**回退到各自的頁面**
+                    //（之前統一退回 cjh52 根，使用者從「班級」退回網頁卻落在首頁，
+                    // 還得自己再點一次 —— 回退要回到同一個功能才說得過去）。
                     val fallback: () -> Unit = {
                         scope.launch {
                             val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
@@ -503,7 +521,7 @@ fun WanzaiApp() {
                                 ).show()
                             } else {
                                 val url = AppOpenStrategy.buildTempCodeUrl(
-                                    appUrl = HzcuEndpoints.CJH52_BASE_URL,
+                                    appUrl = HzcuEndpoints.CJH52_BASE_URL + cjh52FeaturePath(route.feature),
                                     appId = 0,
                                     colorArgb = null,
                                     tempCode = tempCode,
@@ -522,6 +540,12 @@ fun WanzaiApp() {
                         )
                         "GROWTH" -> GrowthPage(
                             repository = app.growth,
+                            onExit = { backStack.removeLastOrNull() },
+                            ready = ready,
+                            onFallbackToWeb = fallback,
+                        )
+                        "CLAZZ" -> ClazzPage(
+                            repository = app.clazz,
                             onExit = { backStack.removeLastOrNull() },
                             ready = ready,
                             onFallbackToWeb = fallback,

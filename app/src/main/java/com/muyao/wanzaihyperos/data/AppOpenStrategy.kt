@@ -273,6 +273,7 @@ object AppOpenStrategy {
             path.startsWith("/notice") -> "NOTICE"
             path.startsWith("/examination") -> "EXAM"
             path.startsWith("/development") -> "GROWTH"
+            path.startsWith("/clazz") -> "CLAZZ"
             else -> null
         }
     }
