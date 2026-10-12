@@ -2,7 +2,6 @@ package com.muyao.wanzaihyperos.ui.tronclass
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -32,10 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.google.zxing.BinaryBitmap
 import com.google.zxing.MultiFormatReader
-import com.google.zxing.PlanarYUVLuminanceSource
-import com.google.zxing.common.HybridBinarizer
+import com.muyao.wanzaihyperos.data.tronclass.QrDecoder
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -189,7 +186,15 @@ fun QrScannerPage(
                                 .build()
                             analysis.setAnalyzer(executor) { proxy ->
                                 if (!reported) {
-                                    val text = decode(proxy, reader)
+                                    // 解碼邏輯在 QrDecoder（純函式，可單測）——
+                                    // 這裡只負責把相機的平面資料交給它。
+                                    val text = QrDecoder.decodeWithStride(
+                                        buffer = proxy.planes[0].buffer,
+                                        width = proxy.width,
+                                        height = proxy.height,
+                                        rowStride = proxy.planes[0].rowStride,
+                                        reader = reader,
+                                    )
                                     if (text != null) {
                                         reported = true
                                         onScanned(text)
@@ -229,48 +234,4 @@ fun QrScannerPage(
             }
         }
     }
-}
-
-/**
- * 解一幀。
- *
- * ### 為什麼只取平面 0（Y）
- *
- * `YUV_420_888` 的第 0 個平面是**亮度**（灰度），而二維碼是黑白圖案 ——
- * 灰度足夠解碼，省掉一次 YUV→RGB 轉換（那在 720p 上每次要幾毫秒）。
- *
- * ⚠️ 不複製整塊 buffer，而是按 `rowStride` 逐行取：
- * 相機給的 buffer 每行可能帶 padding（`rowStride > width`），
- * 直接當緊湊陣列用會**圖像錯位**、怎麼掃都掃不到。
- */
-private fun decode(proxy: ImageProxy, reader: MultiFormatReader): String? {
-    val plane = proxy.planes[0]
-    val buffer = plane.buffer
-    val width = proxy.width
-    val height = proxy.height
-    val rowStride = plane.rowStride
-    val data = ByteArray(width * height)
-
-    if (rowStride == width) {
-        // 緊湊排列：直接整塊取（可能不足，取小的那個）。
-        buffer.get(data, 0, minOf(data.size, buffer.remaining()))
-    } else {
-        // 帶 padding：逐行取前 width 個位元組。
-        val row = ByteArray(rowStride)
-        var out = 0
-        while (out + width <= data.size && buffer.remaining() >= rowStride) {
-            buffer.get(row, 0, rowStride)
-            System.arraycopy(row, 0, data, out, width)
-            out += width
-        }
-    }
-
-    return runCatching {
-        val source = PlanarYUVLuminanceSource(data, width, height, 0, 0, width, height, false)
-        val bitmap = BinaryBitmap(HybridBinarizer(source))
-        // ★ 復用同一個 reader（由呼叫方傳入）：
-        //   `MultiFormatReader()` 每次建構會初始化一整張解碼器表，
-        //   在 30fps 的分析回呼裡每幀新建是白白浪費。
-        reader.decodeWithState(bitmap).text
-    }.getOrNull()
 }

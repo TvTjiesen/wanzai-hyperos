@@ -168,7 +168,13 @@ private fun HomeworkCard(hw: TronHomework) {
             val meta = buildList {
                 add("截止 ${hw.deadlineLocal}")
                 if (hw.submitTimes != null) add("可交 ${hw.submitTimes} 次")
-                if (hw.scorePercentage.isNotBlank()) add("占比 ${hw.scorePercentage}%")
+                // 佔比：服務端給的是 `"0.0"` 這種**字串**（已含小數）。
+                // ⚠️ 只有「非 0」才顯示 —— 實測多數作業是 `0.0`（老師沒設），
+                //   一律顯示會讓每張卡都掛一個沒有資訊量的「占比 0.0%」。
+                val pct = hw.scorePercentage.toDoubleOrNull()
+                if (pct != null && pct > 0.0) add("占比 ${hw.scorePercentage}%")
+                // 作業類型直接顯示服務端代號（file_upload 之類）——
+                // 我們不知道全部種類的中文名，**不編**（與 Q/GY/K 同一原則）。
                 if (hw.homeworkType.isNotBlank()) add(hw.homeworkType)
             }
             Text(

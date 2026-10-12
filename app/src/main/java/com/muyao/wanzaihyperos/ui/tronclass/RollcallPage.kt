@@ -165,13 +165,28 @@ fun RollcallPage(
         },
     ) { innerPadding ->
         if (items.isEmpty()) {
-            StatePlaceholder(
-                state = pageState,
-                modifier = Modifier.padding(innerPadding),
-                detail = if (pageState == PageState.Empty) "目前没有进行中的签到" else null,
-                onAction = onFallbackToWeb,
-                actionLabel = if (onFallbackToWeb != null) "改用网页版" else null,
-            )
+            Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                // ★ 結果訊息**必須在空態也顯示**。
+                //   先前它只寫在列表分支裡 —— 那時「簽到成功/失敗」
+                //   在沒有進行中簽到時**永遠看不到**（真機上就是這個現象：
+                //   掃完碼回來一片空白，不知道成沒成）。
+                answerMessage?.let { msg ->
+                    Text(
+                        text = msg,
+                        style = MiuixTheme.textStyles.body1,
+                        color = if (answerOk) MiuixTheme.colorScheme.primary
+                        else MiuixTheme.colorScheme.error,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+                StatePlaceholder(
+                    state = pageState,
+                    modifier = Modifier.weight(1f),
+                    detail = if (pageState == PageState.Empty) "目前没有进行中的签到" else null,
+                    onAction = onFallbackToWeb,
+                    actionLabel = if (onFallbackToWeb != null) "改用网页版" else null,
+                )
+            }
         } else {
             LazyColumn(
                 modifier = Modifier.padding(innerPadding).fillMaxSize(),
