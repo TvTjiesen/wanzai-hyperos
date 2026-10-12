@@ -55,6 +55,7 @@ fun TronShellPage(
     homeworkRepository: HomeworkRepository,
     rollcallRepository: RollcallRepository,
     courseDetailRepository: com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository,
+    scheduleRepository: com.muyao.wanzaihyperos.data.tronclass.ScheduleRepository,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
     /** 網頁版出口（學在城院原站）。 */
@@ -106,6 +107,7 @@ fun TronShellPage(
                 homeworkRepository = homeworkRepository,
                 rollcallRepository = rollcallRepository,
                 courseDetailRepository = courseDetailRepository,
+                scheduleRepository = scheduleRepository,
                 onOpenWeb = onOpenWeb,
                 modifier = contentModifier,
             )

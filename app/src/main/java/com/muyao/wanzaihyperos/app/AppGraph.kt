@@ -85,6 +85,8 @@ class AppGraph private constructor(
     val tronMe: com.muyao.wanzaihyperos.data.tronclass.TronMeRepository,
     /** 學在城院某門課的**詳情**（資訊 / 成績 / 出勤 / 大綱 / 作業）。 */
     val courseDetail: com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository,
+    /** 學在城院**課表**（把各門課的上課時間字串攤成一週的格子）。 */
+    val schedule: com.muyao.wanzaihyperos.data.tronclass.ScheduleRepository,
     val catalog: PortalCatalogRepository,
     val frequent: PortalFrequentAppsRepository,
     val unread: PortalUnreadRepository,
@@ -219,6 +221,7 @@ class AppGraph private constructor(
                 tronFeed = com.muyao.wanzaihyperos.data.tronclass.LiveTronFeedRepository(tron),
                 tronMe = com.muyao.wanzaihyperos.data.tronclass.LiveTronMeRepository(tron),
                 courseDetail = com.muyao.wanzaihyperos.data.tronclass.LiveCourseDetailRepository(tron),
+                schedule = com.muyao.wanzaihyperos.data.tronclass.LiveScheduleRepository(tron),
                 catalog = LivePortalCatalogRepository(api),
                 frequent = LivePortalFrequentAppsRepository(api),
                 unread = LivePortalUnreadRepository(api),

@@ -45,6 +45,9 @@ private sealed interface TronSub {
      * 頁首在詳情回來之前就能顯示完整資訊。
      */
     data class Course(val course: com.muyao.wanzaihyperos.data.tronclass.TronCourse) : TronSub
+
+    /** 課表（本週 / 全部）。 */
+    data object Schedule : TronSub
 }
 
 @Composable
@@ -53,6 +56,7 @@ fun TronHomeContent(
     homeworkRepository: HomeworkRepository,
     rollcallRepository: RollcallRepository,
     courseDetailRepository: com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository,
+    scheduleRepository: com.muyao.wanzaihyperos.data.tronclass.ScheduleRepository,
     onOpenWeb: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -67,6 +71,7 @@ fun TronHomeContent(
         TronSub.None -> TronHomeBody(
             repository = repository,
             onOpenRollcall = { sub = TronSub.Rollcall },
+            onOpenSchedule = { sub = TronSub.Schedule },
             onOpenCourse = { course -> sub = TronSub.Course(course) },
             onOpenWeb = onOpenWeb,
             modifier = modifier,
@@ -78,6 +83,30 @@ fun TronHomeContent(
             onOpenWeb = onOpenWeb,
             modifier = modifier,
         )
+
+        TronSub.Schedule -> {
+            ScheduleContent(
+                repository = scheduleRepository,
+                onBack = { sub = TronSub.None },
+                onOpenCourse = { id, name ->
+                    // 課表點課 → 進課程詳情。用**已取到的**課程清單那筆補齊教師等欄位：
+                    // 課表格子本身只有課名與課號，不能自己造一個 TronCourse。
+                    val known = (state as? ListState.Content)?.items?.firstOrNull()
+                        ?.courses?.firstOrNull { it.id == id }
+                    sub = TronSub.Course(
+                        known ?: com.muyao.wanzaihyperos.data.tronclass.TronCourse(
+                            id = id,
+                            name = name,
+                            courseCode = "",
+                            teachingClass = "",
+                            department = "",
+                        ),
+                    )
+                },
+                onOpenWeb = onOpenWeb,
+                modifier = modifier,
+            )
+        }
 
         is TronSub.Course -> {
             // 載入由「進入那一門課」觸發（詳情接口是課程內的）。

@@ -253,7 +253,21 @@ class TronclassClient(
         requestJson("/api/profile", "个人资料", method = "GET")["id"].asIntOrNull()
 
     /**
-     * 某門課的作業清單（含要求說明）。
+     * 機構的**教學週**（第 N 週 = 哪段日期）。
+     *
+     * ⚠️ `orgId` 實測是 `1`（我們學校那一筆）。這是**機構層級**的設定，
+     * 不是課程層級 —— 所以拿它來算「本週是第幾週」是對的。
+     *
+     * 取不到回空清單（呼叫方把「第幾週」顯示成「—」，**不猜**）。
+     */
+    suspend fun teachingWeeks(orgId: Int = 1):
+        List<com.muyao.wanzaihyperos.data.tronclass.TronTeachingWeek> =
+        com.muyao.wanzaihyperos.data.tronclass.TronTeachingWeekParser.parse(
+            requestJson("/api/org/$orgId/teaching-weeks", "教学周", method = "GET"),
+        )
+
+    /**
+     * 某門課的**作業清單**（含要求說明）。
      *
      * ⚠️ 路徑是 `/api/courses/{id}/homework-activities`（**courses 複數**）。
      * 先前猜成 `/api/course/{id}/homeworks` 全 404 —— 這個站單複數混用，

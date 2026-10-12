@@ -55,6 +55,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun TronHomeBody(
     repository: TronHomeRepository,
     onOpenRollcall: () -> Unit,
+    onOpenSchedule: () -> Unit,
     onOpenCourse: (com.muyao.wanzaihyperos.data.tronclass.TronCourse) -> Unit,
     onOpenWeb: () -> Unit,
     modifier: Modifier = Modifier,
@@ -87,6 +88,14 @@ fun TronHomeBody(
                 subtitle = "查看进行中的签到并签到",
                 action = "查看与签到",
                 onClick = onOpenRollcall,
+            )
+        }
+        item {
+            ActionRow(
+                title = "课表",
+                subtitle = "本周与整学期的上课时间",
+                action = "查看",
+                onClick = onOpenSchedule,
             )
         }
 

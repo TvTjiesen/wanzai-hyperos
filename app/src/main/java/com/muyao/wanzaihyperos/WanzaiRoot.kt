@@ -641,6 +641,7 @@ fun WanzaiApp() {
                     homeworkRepository = app.homework,
                     rollcallRepository = app.rollcall,
                     courseDetailRepository = app.courseDetail,
+                    scheduleRepository = app.schedule,
                     onExit = { backStack.removeLastOrNull() },
                     onOpenWeb = { openTronWeb(route.tileUrl) },
                 )
