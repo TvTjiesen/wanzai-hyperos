@@ -65,6 +65,8 @@ fun TronHomePage(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
     onFallbackToWeb: (() -> Unit)? = null,
+    /** 進「簽到」原生頁（看 + 簽）。為 null 時不顯示入口。 */
+    onOpenRollcall: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val state by repository.state.collectAsState()
@@ -124,6 +126,34 @@ fun TronHomePage(
                             color = MiuixTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 4.dp),
                         )
+                    }
+                }
+
+                // 「签到」入口：學在城院最高頻的動作之一，放在最顯眼處。
+                if (onOpenRollcall != null) {
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpenRollcall() }
+                                    .padding(14.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "签到",
+                                    style = MiuixTheme.textStyles.body1,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MiuixTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = "查看与签到 ›",
+                                    style = MiuixTheme.textStyles.footnote2,
+                                    color = MiuixTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                     }
                 }
 

@@ -5,6 +5,7 @@ import com.muyao.wanzaihyperos.ui.cjh52.ExamPage
 import com.muyao.wanzaihyperos.ui.cjh52.NoticePage
 import com.muyao.wanzaihyperos.ui.cjh52.ClazzPage
 import com.muyao.wanzaihyperos.ui.tronclass.TronHomePage
+import com.muyao.wanzaihyperos.ui.tronclass.RollcallPage
 import com.muyao.wanzaihyperos.ui.todo.TodoBoardPage
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
 import android.widget.Toast
@@ -320,6 +321,36 @@ fun WanzaiApp() {
             }
         }
 
+        // ★ 學在城院「改用網頁版」的**唯一**出口。
+        //
+        // 抽成函式而不是在每個原生頁各寫一遍：這段涉及
+        // 「先續期 token → 失敗回退舊 token → 再失敗才用原始地址」三步，
+        // 抄三遍就會有一處漏掉續期（那條路徑的表現是「使用者突然要重新登入」）。
+        fun openTronWeb(tileUrl: String) {
+            scope.launch {
+                val access = app.tronclassSession.accessToken()
+                val refresh = app.tronclassSession.refreshToken()
+                val fresh = if (refresh.isNullOrBlank()) null else runCatching {
+                    app.casService.refreshTronclassTokens(refresh)
+                }.getOrNull()
+                val url = when {
+                    fresh != null -> {
+                        // 續期成功：落盤（SSO cookie 原樣帶上）。
+                        app.tronclassSession.saveTokens(
+                            fresh.accessToken,
+                            fresh.refreshToken,
+                            ssoCookiesJson = app.tronclassSession.ssoCookiesJson(),
+                        )
+                        TronclassBoot.identityTokenUrl(fresh.accessToken, fresh.refreshToken)
+                    }
+                    !access.isNullOrEmpty() -> TronclassBoot.identityTokenUrl(access, refresh)
+                    tileUrl.isNotBlank() -> tileUrl
+                    else -> HzcuEndpoints.TRONCLASS_MOBILE_TILE
+                }
+                backStack.add(Route.Web(156, "学在城院", url))
+            }
+        }
+
         NavDisplay(
             backStack = backStack,
             transition = NavTransitions.MiuixDefault,
@@ -603,29 +634,18 @@ fun WanzaiApp() {
                     repository = app.tronHome,
                     onExit = { backStack.removeLastOrNull() },
                     // 取不到數 / 需要進階功能時的出口：走已驗證的 WebView 免登路。
-                    onFallbackToWeb = {
-                        scope.launch {
-                            val access = app.tronclassSession.accessToken()
-                            val refresh = app.tronclassSession.refreshToken()
-                            val fresh = if (refresh.isNullOrBlank()) null else runCatching {
-                                app.casService.refreshTronclassTokens(refresh)
-                            }.getOrNull()
-                            val url = when {
-                                fresh != null -> {
-                                    app.tronclassSession.saveTokens(
-                                        fresh.accessToken,
-                                        fresh.refreshToken,
-                                        ssoCookiesJson = app.tronclassSession.ssoCookiesJson(),
-                                    )
-                                    TronclassBoot.identityTokenUrl(fresh.accessToken, fresh.refreshToken)
-                                }
-                                !access.isNullOrEmpty() -> TronclassBoot.identityTokenUrl(access, refresh)
-                                route.tileUrl.isNotBlank() -> route.tileUrl
-                                else -> HzcuEndpoints.TRONCLASS_MOBILE_TILE
-                            }
-                            backStack.add(Route.Web(156, "学在城院", url))
-                        }
-                    },
+                    onFallbackToWeb = { openTronWeb(route.tileUrl) },
+                    // 進「簽到」原生頁（看 + 簽）。
+                    onOpenRollcall = { backStack.add(Route.Rollcall(tileUrl = route.tileUrl)) },
+                )
+            }
+
+            // ★ 學在城院 → 簽到。
+            entry<Route.Rollcall> { route ->
+                RollcallPage(
+                    repository = app.rollcall,
+                    onExit = { backStack.removeLastOrNull() },
+                    onFallbackToWeb = { openTronWeb(route.tileUrl) },
                 )
             }
 

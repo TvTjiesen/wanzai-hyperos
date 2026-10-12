@@ -91,4 +91,12 @@ sealed interface Route : NavKey {
      */
     @Serializable
     data class TronHome(val tileUrl: String = "") : Route
+
+    /**
+     * 學在城院 → 簽到（看 + 簽）。
+     *
+     * 帶 `tileUrl` 同樣為了回退網頁版。
+     */
+    @Serializable
+    data class Rollcall(val tileUrl: String = "") : Route
 }

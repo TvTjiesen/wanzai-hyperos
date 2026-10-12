@@ -160,109 +160,192 @@ class TronclassClient(
         }
     }
 
-    /** 待辦（作業）列表。sessionID 失效時**自動重換一次**再試。 */
-    suspend fun todos(): List<TronTodo> {
-        val first = runCatching { getTodos(sessionId()) }
-        val err = first.exceptionOrNull()
-        if (err == null) return first.getOrThrow()
-        // 只在「會話類失敗」時重換 —— 網絡錯誤重換沒意義，直接上拋。
-        if (err !is HzcuException.LoginExpired && !isUnauthorized(err)) throw err
-        // ★ 只記「走了重換這條路」與異常類型，**不記任何憑據**。
-        //   沒有這條日誌時，真機上只看到界面「取數失敗」，
-        //   分不清是「sessionID 過期」還是「換取本身壞了」。
-        android.util.Log.i("WanzaiTron", "todos 首次失敗（${err.javaClass.simpleName}），重換 sessionID 後重試")
-        val sid = exchangeSessionId()
-        return getTodos(sid)
-    }
+    /** 待辦（作業）列表。 */
+    suspend fun todos(): List<TronTodo> =
+        parseListOf("/api/todos", "待办") { TronTodoParser.parse(it) }
 
     /**
      * 首頁要用的「最近訪問的課程」。
-     *
-     * 與 [todos] 同一套會話與重試策略 —— 抽成共用是為了**只有一處**
-     * 決定「會話失效時怎麼辦」，避免兩個接口各自演化出不同的補救方式。
      */
-    suspend fun recentCourses(): List<com.muyao.wanzaihyperos.data.tronclass.TronCourse> {
-        val first = runCatching { getCourses(sessionId()) }
+    suspend fun recentCourses(): List<com.muyao.wanzaihyperos.data.tronclass.TronCourse> =
+        parseListOf("/api/user/recently-visited-courses", "课程") {
+            com.muyao.wanzaihyperos.data.tronclass.TronCourseParser.parse(it)
+        }
+
+    /**
+     * 進行中的簽到（唯讀）。
+     *
+     * 端點是 `/api/radar/rollcalls` —— 名字叫 radar，但它回的是**所有**進行中的簽到
+     * （實測 200 可用），不只是雷達那種。名稱是歷史遺留。
+     */
+    suspend fun ongoingRollcalls(myStudentId: Int?): List<com.muyao.wanzaihyperos.data.tronclass.TronRollcall> =
+        requestJson("/api/radar/rollcalls", "签到", method = "GET").let { root ->
+            com.muyao.wanzaihyperos.data.tronclass.TronRollcallParser.parseList(root, myStudentId)
+        }
+
+    /**
+     * 取自己的 user id（`/api/profile` 的 `id`）。
+     *
+     * 簽到資料裡的 `student_rollcalls[].student_id` 用它來比對「哪條是我」——
+     * 沒有它就分不清「我簽了」與「別人簽了」。
+     *
+     * 取不到時回 null 由呼叫方決定怎麼顯示（**不猜一個 id**）。
+     */
+    suspend fun profileUserId(): Int? =
+        requestJson("/api/profile", "个人资料", method = "GET")["id"].asIntOrNull()
+
+    /**
+     * **簽到動作**（寫操作）。
+     *
+     * ⚠️ 這是本專案**極少數的寫操作**之一，所以把紀律寫在這裡：
+     *
+     * 1. **只由使用者明確點擊觸發** —— 絕不自動呼叫、絕不重試。
+     *    （重試一次簽到 ＝ 可能送出兩筆記錄。）
+     * 2. 校驗在**服務端**（位置、二維碼時效、IP、雷達訊號），
+     *    所以這裡**不猜測、不預判**：老實提交，把服務端的原話回報給使用者。
+     * 3. 失敗訊息要用服務端說的（它比我們準），但要**去掉可能含憑據的片段**。
+     *
+     * @param rollcallId 簽到 id
+     * @param kind 簽到方式（決定端點）：`number` / `self_registration` / `qr`
+     * @param code 數字簽到的數字，或掃碼得到的字串。其餘方式可為 null。
+     */
+    suspend fun answerRollcall(
+        rollcallId: Int,
+        kind: com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind,
+        code: String?,
+    ): com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult {
+        val path = when (kind) {
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.NUMBER ->
+                "/api/rollcall/$rollcallId/answer_number_rollcall"
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.SELF_REGISTRATION ->
+                "/api/rollcall/$rollcallId/answer_self_registration_rollcall"
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.QR ->
+                "/api/rollcall/$rollcallId/answer_qr_rollcall"
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.PLAIN ->
+                "/api/rollcall/$rollcallId/answer?api_version=1.76"
+        }
+        // 數字簽到的包體欄位是 `number_code`（源碼模型欄位名），
+        // 掃碼那條帶的是掃到的原始字串。
+        val bodyJson = when (kind) {
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.NUMBER ->
+                """{"number_code":${jsonString(code.orEmpty())}}"""
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.QR ->
+                """{"code_str":${jsonString(code.orEmpty())}}"""
+            else -> "{}"
+        }
+        val (status, text) = rawRequest(path, "PUT", bodyJson)
+        return com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult(
+            ok = status == 200,
+            httpStatus = status,
+            // 服務端原話（校驗失敗時它會說「位置不對」「二維碼過期」等）。
+            // ⚠️ 只保留短訊息，且**不帶請求內容**。
+            message = extractMessage(text),
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // 共用的請求與重試（**只有一處**決定「會話失效了怎麼辦**）
+    //
+    // 先前 `todos` 與 `recentCourses` 各寫了一遍「首次失敗→重換 sessionID→再試」，
+    // 加第三、第四個接口就會出現四份幾乎一樣的邏輯 —— 那種重複的代價不是行數，
+    // 是**它們會各自演化**（有一處忘了重試、有一處重試兩次）。
+    // 所以抽在這裡，新接口只寫「路徑 + 怎麼解析」。
+    // -------------------------------------------------------------------------
+
+    /**
+     * 發一個帶 sessionID 的請求，**失敗且屬於會話問題時自動重換一次**。
+     *
+     * @param parse 解析器；只負責把 JSON 變成模型。
+     */
+    private suspend fun <T> parseListOf(
+        path: String,
+        label: String,
+        parse: (JsonObject) -> List<T>,
+    ): List<T> {
+        val first = runCatching { requestJson(path, label, method = "GET") }
         val err = first.exceptionOrNull()
-        if (err == null) return first.getOrThrow()
+        if (err == null) return first.getOrThrow().let { parse(it) }
         if (err !is HzcuException.LoginExpired && !isUnauthorized(err)) throw err
-        android.util.Log.i("WanzaiTron", "课程首次失败（${err.javaClass.simpleName}），重換 sessionID 後重試")
-        return getCourses(exchangeSessionId())
+        android.util.Log.i("WanzaiTron", "$label 首次失败（${err.javaClass.simpleName}），重換 sessionID 後重試")
+        return parse(requestJson(path, label, method = "GET", forceNewSession = true))
+    }
+
+    /**
+     * 發請求並回已解析的 JSON（物件）。
+     *
+     * 錯誤判據**集中在此**：
+     * - 401/403 → 會話失效；
+     * - 非 200 → HttpStatus；
+     * - 回 HTML → 會話失效（被踢時 SPA 會兜底成頁面）—— 這條很重要，
+     *   若當成「空資料」會讓界面顯示「0 條」，那是謊報。
+     */
+    private suspend fun requestJson(
+        path: String,
+        label: String,
+        method: String,
+        forceNewSession: Boolean = false,
+    ): JsonObject {
+        val sid = if (forceNewSession) exchangeSessionId() else sessionId()
+        val (status, text) = rawRequest(path, method, null, sid)
+        when {
+            status == 401 || status == 403 -> throw HzcuException.LoginExpired("学在城院会话已失效")
+            status != 200 -> throw HzcuException.HttpStatus(
+                statusCode = status,
+                requestUri = TRON_BASE + path,
+                summary = "$label 失败",
+            )
+        }
+        if (text.trimStart().startsWith("<")) {
+            throw HzcuException.LoginExpired("学在城院会话已失效（返回了页面而非数据）")
+        }
+        return runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+            ?: throw HzcuException.Parse("$label 响应不是 JSON 对象")
+    }
+
+    /**
+     * 最底層：發一個請求，回 (狀態碼, 正文)。
+     *
+     * ⚠️ 同步 OkHttp，**必須在 IO 線程**（Main 上會 NetworkOnMainThreadException，
+     * 真機踩過）。
+     */
+    private suspend fun rawRequest(
+        path: String,
+        method: String,
+        jsonBody: String?,
+        sid: String? = null,
+    ): Pair<Int, String> {
+        val effectiveSid = sid ?: sessionId()
+        return limiter.gate(path) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val builder = Request.Builder()
+                    .url(TRON_BASE + path)
+                    .header("X-SESSION-ID", effectiveSid)
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("Accept", "application/json, text/plain, */*")
+                when (method) {
+                    "GET" -> builder.get()
+                    "PUT" -> builder.put((jsonBody ?: "{}").toRequestBody(JSON_TYPE))
+                    else -> builder.post((jsonBody ?: "{}").toRequestBody(JSON_TYPE))
+                }
+                http.newCall(builder.build()).execute().use { resp ->
+                    resp.code to resp.body?.string().orEmpty()
+                }
+            }
+        }
+    }
+
+    /** 從回應裡取服務端的短訊息（給使用者看）。取不到就給個通用說法。 */
+    private fun extractMessage(text: String): String {
+        val obj = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+            ?: return "签到未成功（服务端未说明原因）"
+        val msg = obj["message"].asStringOrNull()
+            ?: obj["msg"].asStringOrNull()
+            ?: obj["error"].asStringOrNull()
+        return msg?.take(120)?.takeIf { it.isNotBlank() } ?: "签到未成功（服务端未说明原因）"
     }
 
     private fun isUnauthorized(t: Throwable): Boolean =
         t is HzcuException.HttpStatus && t.statusCode.let { it == 401 || it == 403 }
-
-    /** 取最近訪問的課程。錯誤處理與 [getTodos] 同一套判據。 */
-    private suspend fun getCourses(sid: String): List<com.muyao.wanzaihyperos.data.tronclass.TronCourse> =
-        limiter.gate("/api/user/recently-visited-courses") {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val request = Request.Builder()
-                    .url(TRON_BASE + "/api/user/recently-visited-courses")
-                    .header("X-SESSION-ID", sid)
-                    .header("X-Requested-With", "XMLHttpRequest")
-                    .header("Accept", "application/json, text/plain, */*")
-                    .get()
-                    .build()
-                http.newCall(request).execute().use { resp ->
-                    when {
-                        resp.code == 401 || resp.code == 403 ->
-                            throw HzcuException.LoginExpired("学在城院会话已失效")
-                        resp.code != 200 -> throw HzcuException.HttpStatus(
-                            statusCode = resp.code,
-                            requestUri = TRON_BASE + "/api/user/recently-visited-courses",
-                            summary = "课程取数失败",
-                        )
-                        else -> {
-                            val text = resp.body?.string().orEmpty()
-                            // 與 todos 同樣：回 HTML 說明會話被踢，要報錯而不是給空列表。
-                            if (text.trimStart().startsWith("<")) {
-                                throw HzcuException.LoginExpired("学在城院会话已失效（返回了页面而非数据）")
-                            }
-                            val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
-                                ?: throw HzcuException.Parse("课程响应不是 JSON 对象")
-                            com.muyao.wanzaihyperos.data.tronclass.TronCourseParser.parse(root)
-                        }
-                    }
-                }
-            }
-        }
-
-    private suspend fun getTodos(sid: String): List<TronTodo> = limiter.gate("/api/todos") {
-        // 同上：同步 OkHttp 必須在 IO 線程。
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val request = Request.Builder()
-                .url(TRON_BASE + "/api/todos")
-                .header("X-SESSION-ID", sid)
-                .header("X-Requested-With", "XMLHttpRequest")
-                .header("Accept", "application/json, text/plain, */*")
-                .get()
-                .build()
-            http.newCall(request).execute().use { resp ->
-                when {
-                    resp.code == 401 || resp.code == 403 ->
-                        throw HzcuException.LoginExpired("学在城院会话已失效")
-                    resp.code != 200 -> throw HzcuException.HttpStatus(
-                        statusCode = resp.code,
-                        requestUri = TRON_BASE + "/api/todos",
-                        summary = "待办取数失败",
-                    )
-                    else -> {
-                        val text = resp.body?.string().orEmpty()
-                        // ⚠️ 服務端可能回 HTML（會話被踢時會落到 SPA 空殼）——
-                        //   那種情況要報錯而不是靜默給空列表，
-                        //   否則界面會顯示「0 條作業」，那是謊報。
-                        if (text.trimStart().startsWith("<")) {
-                            throw HzcuException.LoginExpired("学在城院会话已失效（返回了页面而非数据）")
-                        }
-                        val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
-                            ?: throw HzcuException.Parse("待办响应不是 JSON 对象")
-                        TronTodoParser.parse(root)
-                    }
-                }
-            }
-        }
-    }
 
     /** 最小 JSON 字串轉義（值可能含引號/反斜線）。 */
     private fun jsonString(v: String): String = buildString {

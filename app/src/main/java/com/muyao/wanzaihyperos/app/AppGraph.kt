@@ -75,6 +75,8 @@ class AppGraph private constructor(
     val tronclass: TronclassClient,
     /** 學在城院原生首頁（我的課 + 待交作業）。 */
     val tronHome: com.muyao.wanzaihyperos.data.tronclass.TronHomeRepository,
+    /** 學在城院簽到（看 + 簽）。 */
+    val rollcall: com.muyao.wanzaihyperos.data.tronclass.RollcallRepository,
     val catalog: PortalCatalogRepository,
     val frequent: PortalFrequentAppsRepository,
     val unread: PortalUnreadRepository,
@@ -200,6 +202,11 @@ class AppGraph private constructor(
                 cjh52 = cjh52,
                 tronclass = tron,
                 tronHome = com.muyao.wanzaihyperos.data.tronclass.LiveTronHomeRepository(tron),
+                // 簽到需要「我的 student_id」來判斷簽了沒 —— 由倉庫自己向
+                // `/api/profile` 取（帶快取），不在此處傳變數：
+                // 那個 id 是**介面來源**的資訊，讓 AppGraph 記住它等於把
+                // 「怎麼取得」洩漏到組裝層。
+                rollcall = com.muyao.wanzaihyperos.data.tronclass.LiveRollcallRepository(tron),
                 catalog = LivePortalCatalogRepository(api),
                 frequent = LivePortalFrequentAppsRepository(api),
                 unread = LivePortalUnreadRepository(api),
