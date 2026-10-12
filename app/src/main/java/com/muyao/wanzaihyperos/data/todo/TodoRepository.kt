@@ -62,6 +62,7 @@ interface TodoRepository {
 
 class LiveTodoRepository(
     private val bills: PortalBillRepository,
+    private val tron: com.muyao.wanzaihyperos.net.TronclassClient,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : TodoRepository {
 
@@ -105,25 +106,33 @@ class LiveTodoRepository(
                 }
             }
 
-            // ---- 來源 2：學在城院的作業（**待接入**）------------------------
+            // ---- 來源 2：學在城院的作業 ------------------------------------
             //
-            // 刻意 items=null + 一句明確的原因，而不是空清單：
-            // 空清單在界面上表現成「0 條」，那等於告訴使用者「你沒有作業」——
-            // 而事實是**我們還沒接**。這是兩種完全不同的意思。
+            // 鏈路（真機探測 2026-10-12）：Keycloak accessToken
+            //   → POST /api/login?login=access_token → 響應頭 X-SESSION-ID
+            //   → GET /api/todos → 19 條。實現在 TronclassClient。
             //
-            // ⚠️ 這裡的文字是**給使用者看的**：只說「還沒接通」這個事實，
-            //   不提 sessionID、代碼註釋這類內部細節（第一版寫了「見代碼註釋」，
-            //   真機截圖裡就露出來了 —— 那是把開發筆記印在產品上）。
-            //   技術原因記在本類註釋與 docs/B6-WALKTHROUGH.md，那才是它該在的地方。
-            val tronResult = SourceResult(
-                source = TodoSource.TRONCLASS,
-                items = null,
-                error = "这个来源还没接通，暂时看不到作业",
-            )
+            // 失敗時仍給 null 而不是空清單：空清單在界面上是「0 條作業」，
+            // 那等於斷言「你沒作業」；而失敗時我們**不知道**。
+            val tronResult = runCatching {
+                val list = tron.todos()
+                SourceResult(
+                    source = TodoSource.TRONCLASS,
+                    items = list.map { it.toTodoItem() },
+                    // /api/todos 不分頁（實測一次給全部），所以條數就是總數。
+                    total = list.size,
+                )
+            }
 
             val board = TodoBoardBuilder.build(
                 listOf(
-                    tronResult,
+                    tronResult.getOrElse { e ->
+                        SourceResult(
+                            source = TodoSource.TRONCLASS,
+                            items = null,
+                            error = shortReason(e),
+                        )
+                    },
                     portalResult.getOrElse { e ->
                         SourceResult(
                             source = TodoSource.PORTAL,
@@ -162,9 +171,13 @@ class LiveTodoRepository(
      * 甚至（別處的）憑據片段。只給一句人能懂的。
      */
     private fun shortReason(t: Throwable): String = when (t) {
-        is HzcuException.LoginExpired -> "登录状态已失效"
+        is HzcuException.LoginExpired -> "登录状态已失效，请重新登录"
         is HzcuException.Transport, is HzcuException.RequestTimeout -> "网络不可用"
         is HzcuException.Parse -> "服务端返回了无法解析的内容"
-        else -> "取数失败"
+        // ⚠️ 不要把所有別的異常都說成「取數失敗」——
+        //   那句話讓真機排查時完全看不出方向（分不清 HTTP 碼、超時、還是解析）。
+        //   帶上異常類型名（**不含任何訊息文本**，避免服務端文案裡的憑據片段）。
+        is HzcuException.HttpStatus -> "服务端返回 HTTP ${t.statusCode}"
+        else -> "取数失败（${t.javaClass.simpleName}）"
     }
 }

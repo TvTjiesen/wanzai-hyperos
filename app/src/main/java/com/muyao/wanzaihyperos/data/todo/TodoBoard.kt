@@ -238,7 +238,12 @@ object TodoBoardBuilder {
  *                                  end_time, id, is_locked, is_student,
  *                                  prerequisites[], title, type }] }
  * ```
- * 實測 19 條，`end_time` **全是 null** —— 所以時間顯示要能處理「沒有」。
+ * 實測 19 條。
+ *
+ * ⚠️ **截止時間是 UTC（尾碼 `Z`）**，實測值形如 `2026-10-14T15:30:00Z`。
+ * 直接照原樣顯示會**差 8 小時** —— 那是會讓人錯過交作業的錯，不是顯示問題。
+ * 所以這裡把解析出的毫秒**轉成本地時間**再顯示；
+ * 解析不出來時才退回原始字串（至少不丟資訊）。
  */
 fun TronTodo.toTodoItem(): TodoItem = TodoItem(
     source = TodoSource.TRONCLASS,
@@ -246,8 +251,23 @@ fun TronTodo.toTodoItem(): TodoItem = TodoItem(
     title = title,
     subtitle = courseName,
     sortTimeMillis = endTimeMillis,
-    timeText = timeText,
+    timeText = formatLocal(endTimeMillis) ?: timeText,
 )
+
+/**
+ * 毫秒 → 本地時間 `yyyy-MM-dd HH:mm`。
+ *
+ * 用 `java.time` + 系統時區：截止時間的意義就是「你當地幾點」，
+ * 用固定時區反而會在跨時區時出錯。
+ */
+private fun formatLocal(millis: Long?): String? {
+    if (millis == null || millis <= 0L) return null
+    return runCatching {
+        java.time.Instant.ofEpochMilli(millis)
+            .atZone(java.time.ZoneId.systemDefault())
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+    }.getOrNull()
+}
 
 /** 門戶的事務 → 統一視圖。 */
 fun PortalBill.toTodoItem(): TodoItem = TodoItem(

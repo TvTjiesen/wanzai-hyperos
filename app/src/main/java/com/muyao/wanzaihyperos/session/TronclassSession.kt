@@ -63,6 +63,16 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
         const val KEY_SAVED_AT = "tronclass_saved_at"
         const val KEY_DISPLAY_NAME = "tronclass_display_name"
 
+        /**
+         * `X-SESSION-ID`（courses 域的會話標識）。
+         *
+         * **複用上面那個 T44 舊鍵**：T44 存的就是 courses 會話標識，
+         * 與現在 [TronclassClient] 換到的是**同一個東西的同一種用途** ——
+         * 換個鍵名只會讓「同一份憑據有兩份存放」，多一處要清的方。
+         * 舊值讀出來若不可用，服務端會回 401，客戶端據此重換 —— 不會出錯。
+         */
+        const val KEY_X_SESSION_ID = KEY_SESSION_ID
+
         /** token 对所在的域。**JWT 只允许拼到这个 host**（见 TronclassBoot）。 */
         const val TARGET_HOST = "mobile.hzcu.edu.cn"
 
@@ -130,6 +140,29 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
     @Volatile
     private var savedAtMillisValue: Long? = null
 
+    /** `X-SESSION-ID`（courses 域會話）。**這是憑據**。 */
+    @Volatile
+    private var xSessionIdValue: String? = null
+
+    /**
+     * 讀快取的 `X-SESSION-ID`。
+     *
+     * ⚠️ 它**可能已經過期**（服務端沒告訴我們壽命）。呼叫方（[TronclassClient]）
+     * 的策略是「先用它試，401 就重換」—— 所以這兒不做任何有效性假設。
+     */
+    fun xSessionId(): String? {
+        ensureLoaded()
+        return xSessionIdValue
+    }
+
+    /** 存 `X-SESSION-ID`（換到新的時由客戶端回呼）。**這是憑據**，只進加密存儲。 */
+    fun saveXSessionId(sid: String) {
+        if (sid.isBlank()) return
+        xSessionIdValue = sid
+        store.write(KEY_X_SESSION_ID, sid)
+        markLoaded()
+    }
+
     /** access_token。**这是凭据**，调用方只允许把它拼进目标 URL，禁止打印/记录。 */
     fun accessToken(): String? {
         ensureLoaded()
@@ -164,12 +197,14 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
         refreshTokenValue = pair?.second
         ssoCookiesJsonValue = store.read(KEY_SSO)?.takeIf { it.isNotBlank() }
         savedAtMillisValue = store.read(KEY_SAVED_AT)?.toLongOrNull()
+        xSessionIdValue = store.read(KEY_X_SESSION_ID)?.takeIf { it.isNotBlank() }
     }
 
     override fun clearMemory() {
         accessTokenValue = null
         refreshTokenValue = null
         ssoCookiesJsonValue = null
+        xSessionIdValue = null
         savedAtMillisValue = null
     }
 

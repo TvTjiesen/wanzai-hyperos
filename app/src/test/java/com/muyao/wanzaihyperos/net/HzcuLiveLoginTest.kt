@@ -108,6 +108,10 @@ class HzcuLiveLoginTest {
             "未配置 $ENV_CREDENTIALS_PATH（或文件不存在/不足两行），跳过活体联调",
             credentials != null,
         )
+        // ★ 網絡預檢：連不上就**跳過**，不要報一堆超時 ——
+        //   超時只說明當時網絡不通，卻會讓測試報告看起來像代碼壞了。
+        //   （2026-10-12 上午真發生過：12 條紅全是活體測試，離線單測一條沒掛。）
+        LiveNetworkGate.requirePortal()
         val (account, password) = credentials!!
 
         // token 只在这个进程的内存里，不落盘。

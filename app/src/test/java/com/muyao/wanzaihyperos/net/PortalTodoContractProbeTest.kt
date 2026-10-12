@@ -87,6 +87,7 @@ class PortalTodoContractProbeTest {
     fun `探测我的待办三个接口的结构`() = runTest {
         val credentials = readCredentials()
         Assume.assumeTrue("没有联调凭据（.secrets/login.txt 或 WANZAI_LIVE_CREDENTIALS），跳过活体探测", credentials != null)
+        LiveNetworkGate.requirePortal()
         val (account, password) = credentials!!
 
         val session = com.muyao.wanzaihyperos.session.PortalSession(

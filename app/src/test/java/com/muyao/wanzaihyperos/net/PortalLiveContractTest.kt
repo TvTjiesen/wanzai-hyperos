@@ -81,6 +81,9 @@ class PortalLiveContractTest {
 
     @Before
     fun requireCredentials() {
+        // ★ 網絡預檢要在**登入之前**：登入本身就會超時，
+        //   等它失敗再跳過等於白白等一輪超時（9 條測試就是 9 輪）。
+        LiveNetworkGate.requirePortal()
         val loggedIn = ensureLoggedIn()
         Assume.assumeTrue("未配置凭据，跳过门户接口活体契约测试", loggedIn != null)
     }

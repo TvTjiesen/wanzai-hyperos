@@ -30,6 +30,7 @@ import com.muyao.wanzaihyperos.data.portal.PortalUnreadRepository
 import com.muyao.wanzaihyperos.data.todo.LiveTodoRepository
 import com.muyao.wanzaihyperos.data.todo.TodoRepository
 import com.muyao.wanzaihyperos.net.Cjh52Client
+import com.muyao.wanzaihyperos.net.TronclassClient
 import com.muyao.wanzaihyperos.net.HzcuCasService
 import com.muyao.wanzaihyperos.net.HzcuClient
 import com.muyao.wanzaihyperos.net.PortalApi
@@ -70,6 +71,8 @@ class AppGraph private constructor(
     val casService: HzcuCasService,
     val api: PortalApi,
     val cjh52: Cjh52Client,
+    /** 學在城院原生接口層（B6 待辦的第二個來源）。 */
+    val tronclass: TronclassClient,
     val catalog: PortalCatalogRepository,
     val frequent: PortalFrequentAppsRepository,
     val unread: PortalUnreadRepository,
@@ -145,6 +148,42 @@ class AppGraph private constructor(
             val cjh52Session = Cjh52Session(store)
             // CJH52 的 token 提供者：从会话读（**不打印、不缓存到别处**）。
             val cjh52 = Cjh52Client(client, tokenProvider = { cjh52Session.token() })
+            val tronSession = TronclassSession(store)
+            val casService = HzcuCasService.create(client = client, session = portalSession)
+            // 學在城院的原生接口層（B6 待辦看板的第二個來源）。
+            // 用**裸 OkHttp**：門戶那個 client 會塞 ACCESS_TOKEN，拿去打
+            // courses 域會出亂子（實測過）。限流仍走全域那一份閘門。
+            val tronHttp = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                .retryOnConnectionFailure(false)
+                .build()
+            val tron = TronclassClient(
+                http = tronHttp,
+                accountProvider = { portalSession.userCode() },
+                accessTokenProvider = { tronSession.accessToken() },
+                onSessionId = { sid -> tronSession.saveXSessionId(sid) },
+                cachedSessionId = { tronSession.xSessionId() },
+                // ★ 續期：待辦看板不經過「打開學在城院磁貼」那條會續期的路，
+                //   token 過期時必須在這裡自己補救（否則界面只顯示「取數失敗」）。
+                refreshAccessToken = {
+                    val refreshToken = tronSession.refreshToken()
+                    if (refreshToken.isNullOrBlank()) {
+                        null
+                    } else {
+                        runCatching {
+                            val fresh = casService.refreshTronclassTokens(refreshToken)
+                            // SSO cookie 原樣帶上，別在續期時弄丟。
+                            tronSession.saveTokens(
+                                fresh.accessToken,
+                                fresh.refreshToken,
+                                ssoCookiesJson = tronSession.ssoCookiesJson(),
+                            )
+                            fresh.accessToken
+                        }.getOrNull()
+                    }
+                },
+            )
             // B6 的待辦看板要複用同一個門戶事務倉庫（它帶單飛與快取），
             // 所以提出區域變數讓兩處指向同一實例。
             val billsRepo = LivePortalBillRepository(api)
@@ -152,11 +191,12 @@ class AppGraph private constructor(
                 appContext = appContext,
                 client = client,
                 portalSession = portalSession,
-                tronclassSession = TronclassSession(store),
+                tronclassSession = tronSession,
                 cjh52Session = cjh52Session,
-                casService = HzcuCasService.create(client = client, session = portalSession),
+                casService = casService,
                 api = api,
                 cjh52 = cjh52,
+                tronclass = tron,
                 catalog = LivePortalCatalogRepository(api),
                 frequent = LivePortalFrequentAppsRepository(api),
                 unread = LivePortalUnreadRepository(api),
@@ -174,7 +214,7 @@ class AppGraph private constructor(
                 exams = LiveExamRepository(cjh52),
                 growth = LiveGrowthRepository(cjh52),
                 clazz = LiveClazzRepository(cjh52),
-                todoBoard = LiveTodoRepository(billsRepo),
+                todoBoard = LiveTodoRepository(billsRepo, tron),
             )
         }
     }
