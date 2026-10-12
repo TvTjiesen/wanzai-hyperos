@@ -99,4 +99,13 @@ sealed interface Route : NavKey {
      */
     @Serializable
     data class Rollcall(val tileUrl: String = "") : Route
+
+    /**
+     * 學在城院 → 某門課的作業（**只讀**）。
+     *
+     * 帶課程 id 與課名：作業接口是課程內的，必須知道看哪門課。
+     * `courseName` 只為了標題顯示（免得使用者不知道自己在哪門課裡）。
+     */
+    @Serializable
+    data class Homework(val courseId: Int = 0, val courseName: String = "", val tileUrl: String = "") : Route
 }

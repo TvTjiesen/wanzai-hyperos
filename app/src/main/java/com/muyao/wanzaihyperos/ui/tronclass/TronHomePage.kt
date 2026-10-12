@@ -67,6 +67,8 @@ fun TronHomePage(
     onFallbackToWeb: (() -> Unit)? = null,
     /** 進「簽到」原生頁（看 + 簽）。為 null 時不顯示入口。 */
     onOpenRollcall: (() -> Unit)? = null,
+    /** 點一門課 → 看那門課的作業（只讀）。為 null 時課程卡片不可點。 */
+    onOpenCourse: ((Int, String) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val state by repository.state.collectAsState()
@@ -161,7 +163,14 @@ fun TronHomePage(
                 if (home.courses.isEmpty()) {
                     item { EmptyHint("没有取到课程") }
                 } else {
-                    items(home.courses, key = { it.id }) { c -> CourseCard(c) }
+                    items(home.courses, key = { it.id }) { c ->
+                        CourseCard(
+                            c = c,
+                            // 有 onOpenCourse 才可點：沒有出口時給一個點不動的卡片
+                            // 比看起來「可點但沒反應」誠實。
+                            onClick = onOpenCourse?.let { open -> { open(c.id, c.name) } },
+                        )
+                    }
                 }
 
                 item { SmallTitle(text = "待交作业（${home.todos.size}）") }
@@ -210,9 +219,13 @@ private fun EmptyHint(text: String) {
 }
 
 @Composable
-private fun CourseCard(c: TronCourse) {
+private fun CourseCard(c: TronCourse, onClick: (() -> Unit)? = null) {
     val colors = MiuixTheme.colorScheme
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
+    ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
                 text = c.name,

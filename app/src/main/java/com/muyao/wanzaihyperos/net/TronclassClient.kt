@@ -195,6 +195,19 @@ class TronclassClient(
         requestJson("/api/profile", "个人资料", method = "GET")["id"].asIntOrNull()
 
     /**
+     * 某門課的作業清單（含要求說明）。
+     *
+     * ⚠️ 路徑是 `/api/courses/{id}/homework-activities`（**courses 複數**）。
+     * 先前猜成 `/api/course/{id}/homeworks` 全 404 —— 這個站單複數混用，
+     * 只能逐字照抄源碼，不能按慣例推。
+     */
+    suspend fun homeworks(courseId: Int, page: Int = 1, pageSize: Int = 20):
+        List<com.muyao.wanzaihyperos.data.tronclass.TronHomework> =
+        parseListOf("/api/courses/$courseId/homework-activities?page=$page&page_size=$pageSize", "作业") {
+            com.muyao.wanzaihyperos.data.tronclass.TronHomeworkParser.parseList(it)
+        }
+
+    /**
      * **簽到動作**（寫操作）。
      *
      * ⚠️ 這是本專案**極少數的寫操作**之一，所以把紀律寫在這裡：

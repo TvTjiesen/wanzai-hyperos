@@ -6,6 +6,7 @@ import com.muyao.wanzaihyperos.ui.cjh52.NoticePage
 import com.muyao.wanzaihyperos.ui.cjh52.ClazzPage
 import com.muyao.wanzaihyperos.ui.tronclass.TronHomePage
 import com.muyao.wanzaihyperos.ui.tronclass.RollcallPage
+import com.muyao.wanzaihyperos.ui.tronclass.HomeworkPage
 import com.muyao.wanzaihyperos.ui.todo.TodoBoardPage
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
 import android.widget.Toast
@@ -637,6 +638,16 @@ fun WanzaiApp() {
                     onFallbackToWeb = { openTronWeb(route.tileUrl) },
                     // 進「簽到」原生頁（看 + 簽）。
                     onOpenRollcall = { backStack.add(Route.Rollcall(tileUrl = route.tileUrl)) },
+                    // 點一門課 → 看那門課的作業（只讀）。
+                    onOpenCourse = { courseId, courseName ->
+                        backStack.add(
+                            Route.Homework(
+                                courseId = courseId,
+                                courseName = courseName,
+                                tileUrl = route.tileUrl,
+                            ),
+                        )
+                    },
                 )
             }
 
@@ -644,6 +655,21 @@ fun WanzaiApp() {
             entry<Route.Rollcall> { route ->
                 RollcallPage(
                     repository = app.rollcall,
+                    onExit = { backStack.removeLastOrNull() },
+                    onFallbackToWeb = { openTronWeb(route.tileUrl) },
+                )
+            }
+
+            // ★ 學在城院 → 某門課的作業（只讀）。
+            entry<Route.Homework> { route ->
+                // 進頁先載入那門課的作業（作業接口是課程內的）。
+                LaunchedEffect(route.courseId) {
+                    if (route.courseId > 0) {
+                        runCatching { app.homework.load(route.courseId, route.courseName) }
+                    }
+                }
+                HomeworkPage(
+                    repository = app.homework,
                     onExit = { backStack.removeLastOrNull() },
                     onFallbackToWeb = { openTronWeb(route.tileUrl) },
                 )
