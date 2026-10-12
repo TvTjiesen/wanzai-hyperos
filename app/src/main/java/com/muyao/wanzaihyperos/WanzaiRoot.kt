@@ -4,9 +4,7 @@ import com.muyao.wanzaihyperos.ui.cjh52.GrowthPage
 import com.muyao.wanzaihyperos.ui.cjh52.ExamPage
 import com.muyao.wanzaihyperos.ui.cjh52.NoticePage
 import com.muyao.wanzaihyperos.ui.cjh52.ClazzPage
-import com.muyao.wanzaihyperos.ui.tronclass.TronHomePage
-import com.muyao.wanzaihyperos.ui.tronclass.RollcallPage
-import com.muyao.wanzaihyperos.ui.tronclass.HomeworkPage
+import com.muyao.wanzaihyperos.ui.tronclass.TronShellPage
 import com.muyao.wanzaihyperos.ui.todo.TodoBoardPage
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
 import android.widget.Toast
@@ -629,49 +627,21 @@ fun WanzaiApp() {
                 )
             }
 
-            // ★ 學在城院原生首頁。
+            // ★ 學在城院（**一個外殼，三個板塊**）。
+            //
+            // 先前是三個獨立路由（我的課／簽到／作業），各自有返回箭頭 ——
+            // 在「學在城院」內部切換時看起來像反覆離開再進入這個應用。
+            // 現在由 TronShellPage 統一提供頂欄與標籤，
+            // 簽到／作業降為**板塊內部的二級頁**。
             entry<Route.TronHome> { route ->
-                TronHomePage(
-                    repository = app.tronHome,
+                TronShellPage(
+                    homeRepository = app.tronHome,
+                    feedRepository = app.tronFeed,
+                    meRepository = app.tronMe,
+                    homeworkRepository = app.homework,
+                    rollcallRepository = app.rollcall,
                     onExit = { backStack.removeLastOrNull() },
-                    // 取不到數 / 需要進階功能時的出口：走已驗證的 WebView 免登路。
-                    onFallbackToWeb = { openTronWeb(route.tileUrl) },
-                    // 進「簽到」原生頁（看 + 簽）。
-                    onOpenRollcall = { backStack.add(Route.Rollcall(tileUrl = route.tileUrl)) },
-                    // 點一門課 → 看那門課的作業（只讀）。
-                    onOpenCourse = { courseId, courseName ->
-                        backStack.add(
-                            Route.Homework(
-                                courseId = courseId,
-                                courseName = courseName,
-                                tileUrl = route.tileUrl,
-                            ),
-                        )
-                    },
-                )
-            }
-
-            // ★ 學在城院 → 簽到。
-            entry<Route.Rollcall> { route ->
-                RollcallPage(
-                    repository = app.rollcall,
-                    onExit = { backStack.removeLastOrNull() },
-                    onFallbackToWeb = { openTronWeb(route.tileUrl) },
-                )
-            }
-
-            // ★ 學在城院 → 某門課的作業（只讀）。
-            entry<Route.Homework> { route ->
-                // 進頁先載入那門課的作業（作業接口是課程內的）。
-                LaunchedEffect(route.courseId) {
-                    if (route.courseId > 0) {
-                        runCatching { app.homework.load(route.courseId, route.courseName) }
-                    }
-                }
-                HomeworkPage(
-                    repository = app.homework,
-                    onExit = { backStack.removeLastOrNull() },
-                    onFallbackToWeb = { openTronWeb(route.tileUrl) },
+                    onOpenWeb = { openTronWeb(route.tileUrl) },
                 )
             }
 

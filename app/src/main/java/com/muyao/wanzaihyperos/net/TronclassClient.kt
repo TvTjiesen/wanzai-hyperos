@@ -208,6 +208,33 @@ class TronclassClient(
         }
 
     /**
+     * 全校／機構**公告**（首頁「課程動態」的來源之一）。
+     *
+     * 回應外層是 `{bulletins:[...]}` 或 `{data:[...]}`，
+     * 所以用 [requestJsonElement] 取原始 JSON 再交給解析器（它三種外層都接）。
+     */
+    suspend fun orgBulletins(page: Int = 1, pageSize: Int = 20):
+        List<com.muyao.wanzaihyperos.data.tronclass.TronBulletin> =
+        parseElementOf(
+            "/api/org-bulletin/bulletins?conditions=%7B%7D&page=$page&page_size=$pageSize",
+            "公告",
+        ) { com.muyao.wanzaihyperos.data.tronclass.TronBulletinParser.parseList(it) }
+
+    /** 某門課的公告。 */
+    suspend fun courseBulletins(courseId: Int, page: Int = 1, pageSize: Int = 20):
+        List<com.muyao.wanzaihyperos.data.tronclass.TronBulletin> =
+        parseElementOf(
+            "/api/courses/$courseId/bulletins?page=$page&page_size=$pageSize",
+            "课程公告",
+        ) { com.muyao.wanzaihyperos.data.tronclass.TronBulletinParser.parseList(it) }
+
+    /** 個人資訊（「我的」頁）。 */
+    suspend fun profile(): com.muyao.wanzaihyperos.data.tronclass.TronProfile? =
+        com.muyao.wanzaihyperos.data.tronclass.TronProfileParser.parse(
+            requestJson("/api/profile", "个人资料", method = "GET"),
+        )
+
+    /**
      * **簽到動作**（寫操作）。
      *
      * ⚠️ 這是本專案**極少數的寫操作**之一，所以把紀律寫在這裡：
@@ -281,6 +308,50 @@ class TronclassClient(
         if (err !is HzcuException.LoginExpired && !isUnauthorized(err)) throw err
         android.util.Log.i("WanzaiTron", "$label 首次失败（${err.javaClass.simpleName}），重換 sessionID 後重試")
         return parse(requestJson(path, label, method = "GET", forceNewSession = true))
+    }
+
+    /**
+     * 與 [parseListOf] 相同，但解析器吃的是**原始 JSON 元素**。
+     *
+     * 為什麼需要它：這個站的回應外層不統一 —— 同類資料可能是
+     * `{bulletins:[...]}`、`{data:[...]}` 或直接 `[...]`。
+     * 把「認外層」的責任放在**解析器**（那裡能一次處理三種），
+     * 而不是在這裡硬轉成 `JsonObject`（那會讓 `[...]` 直接失敗）。
+     */
+    private suspend fun <T> parseElementOf(
+        path: String,
+        label: String,
+        parse: (kotlinx.serialization.json.JsonElement?) -> List<T>,
+    ): List<T> {
+        val first = runCatching { requestElement(path, label) }
+        val err = first.exceptionOrNull()
+        if (err == null) return parse(first.getOrThrow())
+        if (err !is HzcuException.LoginExpired && !isUnauthorized(err)) throw err
+        android.util.Log.i("WanzaiTron", "$label 首次失败（${err.javaClass.simpleName}），重換 sessionID 後重試")
+        return parse(requestElement(path, label, forceNewSession = true))
+    }
+
+    /** 取原始 JSON 元素（不要求是物件）。錯誤判據與 [requestJson] 一致。 */
+    private suspend fun requestElement(
+        path: String,
+        label: String,
+        forceNewSession: Boolean = false,
+    ): kotlinx.serialization.json.JsonElement? {
+        val sid = if (forceNewSession) exchangeSessionId() else sessionId()
+        val (status, text) = rawRequest(path, "GET", null, sid)
+        when {
+            status == 401 || status == 403 -> throw HzcuException.LoginExpired("学在城院会话已失效")
+            status != 200 -> throw HzcuException.HttpStatus(
+                statusCode = status,
+                requestUri = TRON_BASE + path,
+                summary = "$label 失败",
+            )
+        }
+        if (text.trimStart().startsWith("<")) {
+            throw HzcuException.LoginExpired("学在城院会话已失效（返回了页面而非数据）")
+        }
+        return runCatching { Json.parseToJsonElement(text) }.getOrNull()
+            ?: throw HzcuException.Parse("$label 响应不是 JSON")
     }
 
     /**

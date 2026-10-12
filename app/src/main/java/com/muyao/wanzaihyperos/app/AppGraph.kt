@@ -79,6 +79,10 @@ class AppGraph private constructor(
     val rollcall: com.muyao.wanzaihyperos.data.tronclass.RollcallRepository,
     /** 學在城院某門課的作業（只讀）。 */
     val homework: com.muyao.wanzaihyperos.data.tronclass.HomeworkRepository,
+    /** 學在城院「課程動態」（公告 + 待辦 + 我的課的合成視圖）。 */
+    val tronFeed: com.muyao.wanzaihyperos.data.tronclass.TronFeedRepository,
+    /** 學在城院「我的」（個人資料 + 概覽）。 */
+    val tronMe: com.muyao.wanzaihyperos.data.tronclass.TronMeRepository,
     val catalog: PortalCatalogRepository,
     val frequent: PortalFrequentAppsRepository,
     val unread: PortalUnreadRepository,
@@ -210,6 +214,8 @@ class AppGraph private constructor(
                 // 「怎麼取得」洩漏到組裝層。
                 rollcall = com.muyao.wanzaihyperos.data.tronclass.LiveRollcallRepository(tron),
                 homework = com.muyao.wanzaihyperos.data.tronclass.LiveHomeworkRepository(tron),
+                tronFeed = com.muyao.wanzaihyperos.data.tronclass.LiveTronFeedRepository(tron),
+                tronMe = com.muyao.wanzaihyperos.data.tronclass.LiveTronMeRepository(tron),
                 catalog = LivePortalCatalogRepository(api),
                 frequent = LivePortalFrequentAppsRepository(api),
                 unread = LivePortalUnreadRepository(api),
