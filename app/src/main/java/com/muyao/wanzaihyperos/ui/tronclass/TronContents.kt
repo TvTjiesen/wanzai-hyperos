@@ -35,6 +35,16 @@ private sealed interface TronSub {
     data object None : TronSub
     data object Rollcall : TronSub
     data class Homework(val courseId: Int, val courseName: String) : TronSub
+
+    /**
+     * 課程詳情。
+     *
+     * ★ 帶的是整個 [com.muyao.wanzaihyperos.data.tronclass.TronCourse] 而不是 id：
+     * 頁首要顯示上課時間，而那個欄位**只有課程清單有**（詳情接口的
+     * `classroom_schedule` 實測是 null）。把清單那一份帶進去，
+     * 頁首在詳情回來之前就能顯示完整資訊。
+     */
+    data class Course(val course: com.muyao.wanzaihyperos.data.tronclass.TronCourse) : TronSub
 }
 
 @Composable
@@ -42,6 +52,7 @@ fun TronHomeContent(
     repository: TronHomeRepository,
     homeworkRepository: HomeworkRepository,
     rollcallRepository: RollcallRepository,
+    courseDetailRepository: com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository,
     onOpenWeb: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -56,7 +67,7 @@ fun TronHomeContent(
         TronSub.None -> TronHomeBody(
             repository = repository,
             onOpenRollcall = { sub = TronSub.Rollcall },
-            onOpenCourse = { id, name -> sub = TronSub.Homework(id, name) },
+            onOpenCourse = { course -> sub = TronSub.Course(course) },
             onOpenWeb = onOpenWeb,
             modifier = modifier,
         )
@@ -67,6 +78,21 @@ fun TronHomeContent(
             onOpenWeb = onOpenWeb,
             modifier = modifier,
         )
+
+        is TronSub.Course -> {
+            // 載入由「進入那一門課」觸發（詳情接口是課程內的）。
+            LaunchedEffect(s.course.id) {
+                runCatching { courseDetailRepository.load(s.course) }
+            }
+            CourseDetailContent(
+                repository = courseDetailRepository,
+                onBack = { sub = TronSub.None },
+                // 「看全部作業」複用既有的作業頁（同一份資料不做兩個實作）。
+                onOpenHomework = { sub = TronSub.Homework(s.course.id, s.course.name) },
+                onOpenWeb = onOpenWeb,
+                modifier = modifier,
+            )
+        }
 
         is TronSub.Homework -> {
             // 載入由「進入那一門課」觸發（作業接口是課程內的）。

@@ -63,7 +63,7 @@ class LiveTronFeedRepository(
                 // 公告：**必須帶 `conditions={}`**（實測：不帶會 500）。
                 val bulletins = runCatching { client.orgBulletins() }
                 val todos = runCatching { client.todos() }
-                val courses = runCatching { client.recentCourses() }
+                val courses = runCatching { client.myCourses() }
 
                 if (bulletins.isFailure && todos.isFailure && courses.isFailure) {
                     throw bulletins.exceptionOrNull() ?: todos.exceptionOrNull()
@@ -139,7 +139,7 @@ class LiveTronMeRepository(
 
                 // 統計各自獨立：取不到就是 null（**不是 0**）。
                 val todos = runCatching { client.todos() }.getOrNull()
-                val courses = runCatching { client.recentCourses() }.getOrNull()
+                val courses = runCatching { client.myCourses() }.getOrNull()
                 val rollcalls = runCatching { client.ongoingRollcalls(null) }.getOrNull()
 
                 TronMe(

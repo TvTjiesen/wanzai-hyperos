@@ -83,6 +83,8 @@ class AppGraph private constructor(
     val tronFeed: com.muyao.wanzaihyperos.data.tronclass.TronFeedRepository,
     /** 學在城院「我的」（個人資料 + 概覽）。 */
     val tronMe: com.muyao.wanzaihyperos.data.tronclass.TronMeRepository,
+    /** 學在城院某門課的**詳情**（資訊 / 成績 / 出勤 / 大綱 / 作業）。 */
+    val courseDetail: com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository,
     val catalog: PortalCatalogRepository,
     val frequent: PortalFrequentAppsRepository,
     val unread: PortalUnreadRepository,
@@ -216,6 +218,7 @@ class AppGraph private constructor(
                 homework = com.muyao.wanzaihyperos.data.tronclass.LiveHomeworkRepository(tron),
                 tronFeed = com.muyao.wanzaihyperos.data.tronclass.LiveTronFeedRepository(tron),
                 tronMe = com.muyao.wanzaihyperos.data.tronclass.LiveTronMeRepository(tron),
+                courseDetail = com.muyao.wanzaihyperos.data.tronclass.LiveCourseDetailRepository(tron),
                 catalog = LivePortalCatalogRepository(api),
                 frequent = LivePortalFrequentAppsRepository(api),
                 unread = LivePortalUnreadRepository(api),

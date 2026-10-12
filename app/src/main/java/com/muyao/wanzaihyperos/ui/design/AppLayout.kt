@@ -273,3 +273,33 @@ fun <T> LazyListScope.infoItems(
 ) {
     items(items, key = key) { row(it) }
 }
+
+/**
+ * **二級頁面的返回列**。
+ *
+ * 為什麼放進共用層而不是各頁自己寫：它是**同一種語義**（「回上一層」），
+ * 而各頁自己寫的版本會在字級、顏色、內距上各不相同 ——
+ * 使用者在不同二級頁之間切換時，返回列「看起來不是同一個東西」。
+ *
+ * ⚠️ 這裡刻意不用 Miuix 的 `TopAppBar`：二級頁是**滑動內容的一部分**，
+ * 用固定頂欄會讓它與列表一起捲動時閃動。整頁頂欄是外殼（`TronShellPage`）的事。
+ */
+@Composable
+fun BackRow(
+    label: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onBack() },
+    ) {
+        Text(
+            text = "‹ $label",
+            style = MiuixTheme.textStyles.body1,
+            color = MiuixTheme.colorScheme.primary,
+            modifier = Modifier.padding(Dims.cardPadding),
+        )
+    }
+}

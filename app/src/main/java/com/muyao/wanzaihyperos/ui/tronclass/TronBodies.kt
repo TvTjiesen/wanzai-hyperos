@@ -30,6 +30,7 @@ import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
 import com.muyao.wanzaihyperos.ui.design.ActionRow
 import com.muyao.wanzaihyperos.ui.design.AppList
+import com.muyao.wanzaihyperos.ui.design.BackRow
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.HintText
 import com.muyao.wanzaihyperos.ui.design.InfoItem
@@ -54,7 +55,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun TronHomeBody(
     repository: TronHomeRepository,
     onOpenRollcall: () -> Unit,
-    onOpenCourse: (Int, String) -> Unit,
+    onOpenCourse: (com.muyao.wanzaihyperos.data.tronclass.TronCourse) -> Unit,
     onOpenWeb: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -96,12 +97,13 @@ fun TronHomeBody(
             infoItems(home.courses, key = { it.id }) { c ->
                 InfoItem(
                     title = c.name,
-                    subtitle = listOfNotNull(
-                        c.teachingClass.takeIf { it.isNotBlank() },
-                        c.department.takeIf { it.isNotBlank() },
-                        c.courseCode.takeIf { it.isNotBlank() },
-                    ).joinToString("　"),
-                    onClick = { onOpenCourse(c.id, c.name) },
+                    subtitle = c.subtitle.ifBlank {
+                        listOfNotNull(
+                            c.teachingClass.takeIf { it.isNotBlank() },
+                            c.department.takeIf { it.isNotBlank() },
+                        ).joinToString("　")
+                    },
+                    onClick = { onOpenCourse(c) },
                 )
             }
         }
@@ -238,23 +240,6 @@ fun RollcallContent(
                     "失败原因会原样显示服务端的话，便于判断该怎么做。",
             )
         }
-    }
-}
-
-/** 一個返回入口（二級頁面用）。 */
-@Composable
-private fun BackRow(label: String, onBack: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onBack() },
-    ) {
-        Text(
-            text = "‹ $label",
-            style = MiuixTheme.textStyles.body1,
-            color = MiuixTheme.colorScheme.primary,
-            modifier = Modifier.padding(Dims.cardPadding),
-        )
     }
 }
 

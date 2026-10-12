@@ -165,11 +165,69 @@ class TronclassClient(
         parseListOf("/api/todos", "待办") { TronTodoParser.parse(it) }
 
     /**
-     * 首頁要用的「最近訪問的課程」。
+     * 「我的課」：本學期與歷來的**全部**課程。
+     *
+     * 端點是 `/api/my-courses`（實測 20 門），比 `/api/user/recently-visited-courses`
+     * 多出教師、學分、學期三樣，而且是全量而不是「最近點過的」——
+     * 見 [com.muyao.wanzaihyperos.data.tronclass.TronCourse] 的類註釋。
+     *
+     * ⚠️ `conditions={}` **必須帶**：不帶會 500（與公告那支同一個毛病）。
      */
-    suspend fun recentCourses(): List<com.muyao.wanzaihyperos.data.tronclass.TronCourse> =
-        parseListOf("/api/user/recently-visited-courses", "课程") {
+    suspend fun myCourses(pageSize: Int = 30): List<com.muyao.wanzaihyperos.data.tronclass.TronCourse> =
+        parseListOf("/api/my-courses?conditions=%7B%7D&page=1&page_size=$pageSize", "我的课") {
             com.muyao.wanzaihyperos.data.tronclass.TronCourseParser.parse(it)
+        }
+
+    /**
+     * 一門課的詳情（含課程大綱欄位）。
+     *
+     * 取不到（解析不出必要欄位）回 null，由呼叫方決定顯示什麼 ——
+     * **不丟一個空殼物件**（那會讓界面顯示一排空白鍵值）。
+     */
+    suspend fun courseDetail(courseId: Int):
+        com.muyao.wanzaihyperos.data.tronclass.TronCourseDetail? =
+        com.muyao.wanzaihyperos.data.tronclass.TronCourseDetailParser.parse(
+            requestJson("/api/courses/$courseId", "课程详情", method = "GET"),
+        )
+
+    /**
+     * 我在某門課的成績。
+     *
+     * 兩支端點（自評分 + 佔比）**各自 runCatching**：佔比那支掛了不該讓成績也不顯示。
+     * 兩支都失敗才回 null。
+     */
+    suspend fun courseScore(courseId: Int):
+        com.muyao.wanzaihyperos.data.tronclass.TronScore? {
+        val self = runCatching {
+            requestJson("/api/course/$courseId/student-self-score", "成绩", method = "GET")
+        }
+        val percent = runCatching {
+            requestJson("/api/course/$courseId/score-percentages", "成绩占比", method = "GET")
+        }
+        return com.muyao.wanzaihyperos.data.tronclass.TronScoreParser.parse(
+            self.getOrNull(),
+            percent.getOrNull(),
+        )
+    }
+
+    /** 某門課的出勤彙總（老師點名幾次、我參與幾次）。 */
+    suspend fun courseRollcallScore(courseId: Int):
+        com.muyao.wanzaihyperos.data.tronclass.TronRollcallScore? =
+        com.muyao.wanzaihyperos.data.tronclass.TronRollcallScoreParser.parse(
+            requestJson("/api/course/$courseId/rollcall-score", "出勤", method = "GET"),
+        )
+
+    /**
+     * 某門課的**出勤記錄**（每一次點名我到了沒有）。
+     *
+     * ⚠️ 路徑是 `course`（**單數**）+ `/student/{我的 id}`：
+     * 同站的 `/api/courses/{id}/rollcalls` 是老師端的（實測 403）。
+     * 學號不能省 —— 這支問的就是「**我**出席狀況」。
+     */
+    suspend fun courseAttendance(courseId: Int, studentId: Int):
+        List<com.muyao.wanzaihyperos.data.tronclass.TronAttendance> =
+        parseElementOf("/api/course/$courseId/student/$studentId/rollcalls", "出勤记录") {
+            com.muyao.wanzaihyperos.data.tronclass.TronAttendanceParser.parseList(it)
         }
 
     /**

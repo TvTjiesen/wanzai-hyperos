@@ -51,7 +51,7 @@ class LiveTronHomeRepository(
             // 兩塊**各自 runCatching**：學在城院的接口彼此獨立，
             // 課程掛了不該讓待辦也消失（反之亦然）。全掛才當整頁失敗。
             val result = runCatching {
-                val courses = runCatching { client.recentCourses() }
+                val courses = runCatching { client.myCourses() }
                 val todos = runCatching { client.todos() }
                 if (courses.isFailure && todos.isFailure) {
                     // 兩個都失敗：把第一個的異常上拋（它最能說明原因）。
