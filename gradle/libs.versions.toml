@@ -13,6 +13,12 @@ miuix = "0.9.4"
 coroutines = "1.10.2"
 okhttp = "5.1.0"
 kotlinxSerialization = "1.9.0"
+# 掃碼：CameraX（預覽 + 取幀）+ ZXing（解碼）。
+# 為什麼不用 Google 的 play-services-code-scanner（一行就能掃）：
+# 那是 Google Play 服務的一部分，而**國產手機普遍沒裝 GMS** ——
+# 用了等於在目標機型上直接不可用。CameraX + ZXing 純本地，不依賴 GMS。
+camerax = "1.4.2"
+zxing = "3.5.3"
 androidxTestExtJunit = "1.3.0"
 androidxTestRunner = "1.7.0"
 junit = "4.13.2"
@@ -32,6 +38,13 @@ miuix-nav = { group = "top.yukonga.miuix.kmp", name = "miuix-nav-android", versi
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+# 掃碼（見 versions 段的說明：不用 GMS 方案）
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 # 注意：**不引 `androidx.security:security-crypto`** —— 该库公开 API 已整体 deprecated。
 # 憑據加密改為直接用 Android Keystore（AES-256-GCM），見 session/SecureStore.kt
 # 與 docs/BUILD-KOTLIN.md §4.16。

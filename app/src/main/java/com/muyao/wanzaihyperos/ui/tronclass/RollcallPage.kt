@@ -94,6 +94,44 @@ fun RollcallPage(
     var answerOk by remember { mutableStateOf(false) }
     /** 正在提交的簽到 id（避免連點兩次送兩筆）。 */
     var submitting by remember { mutableStateOf<Int?>(null) }
+    /** 正在掃碼的簽到 id（null = 沒在掃）。 */
+    var scanningFor by remember { mutableStateOf<Int?>(null) }
+
+    // ★ 掃碼頁：掃到之後**解析出真正的憑據**再提交。
+    //   碼裡是一層 JSON（憑據在 scan_code.scan_result），
+    //   直接把整串送去會被服務端拒 —— 見 QrPayloadParser 的註釋。
+    if (scanningFor != null) {
+        val targetId = scanningFor!!
+        QrScannerPage(
+            onExit = { scanningFor = null },
+            onScanned = { raw ->
+                scanningFor = null
+                val payload = com.muyao.wanzaihyperos.data.tronclass.QrPayloadParser.extract(raw)
+                if (payload == null) {
+                    answerOk = false
+                    answerMessage = "这不是签到二维码（内容里没有签到信息）"
+                } else {
+                    submitting = targetId
+                    scope.launch {
+                        val result = runCatching {
+                            repository.answer(targetId, RollcallAnswerKind.QR, payload)
+                        }.getOrElse { e ->
+                            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult(
+                                ok = false,
+                                httpStatus = 0,
+                                message = "提交失败：${e.javaClass.simpleName}",
+                            )
+                        }
+                        answerOk = result.ok
+                        answerMessage = if (result.ok) "扫码签到成功" else result.message
+                        submitting = null
+                        if (result.ok) runCatching { repository.refresh() }
+                    }
+                }
+            },
+        )
+        return
+    }
 
     LaunchedEffect(Unit) {
         if (state is ListState.FirstLoad) repository.refresh()
@@ -155,6 +193,7 @@ fun RollcallPage(
                     RollcallCard(
                         rollcall = r,
                         submitting = submitting == r.id,
+                        onScan = { scanningFor = r.id },
                         onSubmit = { kind, code ->
                             submitting = r.id
                             scope.launch {
@@ -195,6 +234,8 @@ private fun RollcallCard(
     rollcall: TronRollcall,
     submitting: Boolean,
     onSubmit: (RollcallAnswerKind, String?) -> Unit,
+    /** 打開相機掃碼（只對掃碼類簽到有意義）。 */
+    onScan: () -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
     var codeInput by remember(rollcall.id) { mutableStateOf("") }
@@ -264,8 +305,16 @@ private fun RollcallCard(
                     }
 
                     rollcall.source.contains("qr", true) || rollcall.source.contains("roomis", true) -> {
+                        // ★ 首選「相機掃碼」（原生自己掃，不依賴微信 JSSDK）。
+                        Button(
+                            onClick = { onScan() },
+                            enabled = !submitting,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("打开相机扫码") }
+
+                        Spacer(Modifier.height(10.dp))
                         Text(
-                            text = "把扫到的内容粘贴到这里（相机扫码稍后支持）",
+                            text = "掃不到？也可以把扫到的内容粘贴到这里",
                             style = MiuixTheme.textStyles.footnote2,
                             color = colors.onSurfaceVariantSummary,
                         )
@@ -282,7 +331,7 @@ private fun RollcallCard(
                             onClick = { onSubmit(RollcallAnswerKind.QR, codeInput) },
                             enabled = codeInput.isNotBlank() && !submitting,
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text(if (submitting) "提交中…" else "提交扫码结果") }
+                        ) { Text(if (submitting) "提交中…" else "提交粘贴的内容") }
                     }
                 }
             }

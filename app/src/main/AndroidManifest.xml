@@ -5,6 +5,22 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!--
+      相機：只給「掃碼簽到」用（學在城院的掃碼在網頁版靠微信 JSSDK，
+      我們的原生頁要自己掃）。**運行時仍會再問一次**（Android 6+），
+      且拒絕後 App 其餘功能完全不受影響 —— 掃碼是唯一用到它的地方。
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!--
+      ★ 不寫 `<uses-feature android:name="android.hardware.camera" android:required="true">`：
+      那會讓「沒有相機的設備」在應用商店裡看不到這個 App。
+      相機只是其中一個功能，不該成為安裝的前提。
+    -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
+    <!--
       ★ 不再用 android:usesCleartextTraffic="true"（那是对全网放行明文）。
       改为只对 hzcu.edu.cn 及其子域放行，见 res/xml/network_security_config.xml 的说明。
     -->

@@ -75,6 +75,14 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
 
+    // 掃碼：CameraX（預覽 + 取幀）+ ZXing（解碼）。
+    // 不用 Google 的 code-scanner（要 GMS，國產機普遍沒有）。
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.zxing.core)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 
