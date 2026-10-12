@@ -59,7 +59,36 @@ data class TronTodo(
     val timeText: String,
     /** 是否已鎖定（`is_locked`）。鎖定的作業通常不能提交。 */
     val locked: Boolean,
-)
+) {
+    /**
+     * 截止時間的**本地**顯示文字（`yyyy-MM-dd HH:mm`）。
+     *
+     * ### ★ 為什麼一定要走這裡，不能直接用 [timeText]
+     *
+     * [timeText] 是服務端原樣字串，帶 `Z` 表示 **UTC**（實測
+     * `2026-10-14T15:30:00Z`，而網頁顯示「截止 2026.10.14 **23:30**」）。
+     * 照原樣顯示會**早 8 小時** —— 那是會讓人**錯過交作業**的錯誤。
+     *
+     * 把它做成模型上的屬性（而不是讓每個頁面各自轉換）：
+     * 一旦有第二個頁面顯示待辦時間，它不可能忘記轉 —— 因為**沒有別的欄位可用**。
+     */
+    val localTimeText: String
+        get() = formatTronLocalTime(endTimeMillis) ?: timeText
+}
+
+/**
+ * 毫秒 → 本地時間 `yyyy-MM-dd HH:mm`。解析不出來回 null（呼叫方退回原字串）。
+ *
+ * 用系統時區：截止時間的意義就是「你當地幾點」。
+ */
+internal fun formatTronLocalTime(millis: Long?): String? {
+    if (millis == null || millis <= 0L) return null
+    return runCatching {
+        java.time.Instant.ofEpochMilli(millis)
+            .atZone(java.time.ZoneId.systemDefault())
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+    }.getOrNull()
+}
 
 object TronTodoParser {
 

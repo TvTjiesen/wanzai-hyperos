@@ -175,8 +175,58 @@ class TronclassClient(
         return getTodos(sid)
     }
 
+    /**
+     * 首頁要用的「最近訪問的課程」。
+     *
+     * 與 [todos] 同一套會話與重試策略 —— 抽成共用是為了**只有一處**
+     * 決定「會話失效時怎麼辦」，避免兩個接口各自演化出不同的補救方式。
+     */
+    suspend fun recentCourses(): List<com.muyao.wanzaihyperos.data.tronclass.TronCourse> {
+        val first = runCatching { getCourses(sessionId()) }
+        val err = first.exceptionOrNull()
+        if (err == null) return first.getOrThrow()
+        if (err !is HzcuException.LoginExpired && !isUnauthorized(err)) throw err
+        android.util.Log.i("WanzaiTron", "课程首次失败（${err.javaClass.simpleName}），重換 sessionID 後重試")
+        return getCourses(exchangeSessionId())
+    }
+
     private fun isUnauthorized(t: Throwable): Boolean =
         t is HzcuException.HttpStatus && t.statusCode.let { it == 401 || it == 403 }
+
+    /** 取最近訪問的課程。錯誤處理與 [getTodos] 同一套判據。 */
+    private suspend fun getCourses(sid: String): List<com.muyao.wanzaihyperos.data.tronclass.TronCourse> =
+        limiter.gate("/api/user/recently-visited-courses") {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val request = Request.Builder()
+                    .url(TRON_BASE + "/api/user/recently-visited-courses")
+                    .header("X-SESSION-ID", sid)
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("Accept", "application/json, text/plain, */*")
+                    .get()
+                    .build()
+                http.newCall(request).execute().use { resp ->
+                    when {
+                        resp.code == 401 || resp.code == 403 ->
+                            throw HzcuException.LoginExpired("学在城院会话已失效")
+                        resp.code != 200 -> throw HzcuException.HttpStatus(
+                            statusCode = resp.code,
+                            requestUri = TRON_BASE + "/api/user/recently-visited-courses",
+                            summary = "课程取数失败",
+                        )
+                        else -> {
+                            val text = resp.body?.string().orEmpty()
+                            // 與 todos 同樣：回 HTML 說明會話被踢，要報錯而不是給空列表。
+                            if (text.trimStart().startsWith("<")) {
+                                throw HzcuException.LoginExpired("学在城院会话已失效（返回了页面而非数据）")
+                            }
+                            val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+                                ?: throw HzcuException.Parse("课程响应不是 JSON 对象")
+                            com.muyao.wanzaihyperos.data.tronclass.TronCourseParser.parse(root)
+                        }
+                    }
+                }
+            }
+        }
 
     private suspend fun getTodos(sid: String): List<TronTodo> = limiter.gate("/api/todos") {
         // 同上：同步 OkHttp 必須在 IO 線程。

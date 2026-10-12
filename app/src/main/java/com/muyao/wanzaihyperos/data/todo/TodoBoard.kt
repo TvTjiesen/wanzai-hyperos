@@ -251,23 +251,10 @@ fun TronTodo.toTodoItem(): TodoItem = TodoItem(
     title = title,
     subtitle = courseName,
     sortTimeMillis = endTimeMillis,
-    timeText = formatLocal(endTimeMillis) ?: timeText,
+    // ★ 用模型上的 localTimeText（內部用 formatTronLocalTime 轉本地時間）。
+    //   這裡**不要**自己再寫一份轉換 —— 兩個地方各寫一份，早晚會有一處忘記改。
+    timeText = localTimeText,
 )
-
-/**
- * 毫秒 → 本地時間 `yyyy-MM-dd HH:mm`。
- *
- * 用 `java.time` + 系統時區：截止時間的意義就是「你當地幾點」，
- * 用固定時區反而會在跨時區時出錯。
- */
-private fun formatLocal(millis: Long?): String? {
-    if (millis == null || millis <= 0L) return null
-    return runCatching {
-        java.time.Instant.ofEpochMilli(millis)
-            .atZone(java.time.ZoneId.systemDefault())
-            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-    }.getOrNull()
-}
 
 /** 門戶的事務 → 統一視圖。 */
 fun PortalBill.toTodoItem(): TodoItem = TodoItem(

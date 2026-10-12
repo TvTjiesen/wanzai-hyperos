@@ -4,6 +4,7 @@ import com.muyao.wanzaihyperos.ui.cjh52.GrowthPage
 import com.muyao.wanzaihyperos.ui.cjh52.ExamPage
 import com.muyao.wanzaihyperos.ui.cjh52.NoticePage
 import com.muyao.wanzaihyperos.ui.cjh52.ClazzPage
+import com.muyao.wanzaihyperos.ui.tronclass.TronHomePage
 import com.muyao.wanzaihyperos.ui.todo.TodoBoardPage
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
 import android.widget.Toast
@@ -265,6 +266,12 @@ fun WanzaiApp() {
                 // - 续期失败 → **回退用旧 token 试一次**（它可能还在寿命内），
                 //   并打日志 —— 旧 token 也失效时 SPA 会落到它自己的登录页，
                 //   那是最后兜底，不是我们的错，但日志要说清楚走到哪一步。
+                // ★ 學在城院：走**原生頁**（我的課 + 待交作業）。
+                //
+                // 只負責導航；取數失敗時由原生頁底部的「改用網頁版」回退，
+                // 回退那條複用下面的 identity-token 邏輯（已驗證的免登路）。
+                is AppOpenPlan.NativeTronclass -> backStack.add(Route.TronHome(tileUrl = plan.tileUrl))
+
                 is AppOpenPlan.TronclassFreeLogin -> scope.launch {
                     val access = app.tronclassSession.accessToken()
                     val refresh = app.tronclassSession.refreshToken()
@@ -587,6 +594,38 @@ fun WanzaiApp() {
                 TodoBoardPage(
                     repository = app.todoBoard,
                     onExit = { backStack.removeLastOrNull() },
+                )
+            }
+
+            // ★ 學在城院原生首頁。
+            entry<Route.TronHome> { route ->
+                TronHomePage(
+                    repository = app.tronHome,
+                    onExit = { backStack.removeLastOrNull() },
+                    // 取不到數 / 需要進階功能時的出口：走已驗證的 WebView 免登路。
+                    onFallbackToWeb = {
+                        scope.launch {
+                            val access = app.tronclassSession.accessToken()
+                            val refresh = app.tronclassSession.refreshToken()
+                            val fresh = if (refresh.isNullOrBlank()) null else runCatching {
+                                app.casService.refreshTronclassTokens(refresh)
+                            }.getOrNull()
+                            val url = when {
+                                fresh != null -> {
+                                    app.tronclassSession.saveTokens(
+                                        fresh.accessToken,
+                                        fresh.refreshToken,
+                                        ssoCookiesJson = app.tronclassSession.ssoCookiesJson(),
+                                    )
+                                    TronclassBoot.identityTokenUrl(fresh.accessToken, fresh.refreshToken)
+                                }
+                                !access.isNullOrEmpty() -> TronclassBoot.identityTokenUrl(access, refresh)
+                                route.tileUrl.isNotBlank() -> route.tileUrl
+                                else -> HzcuEndpoints.TRONCLASS_MOBILE_TILE
+                            }
+                            backStack.add(Route.Web(156, "学在城院", url))
+                        }
+                    },
                 )
             }
 

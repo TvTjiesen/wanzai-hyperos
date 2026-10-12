@@ -83,4 +83,12 @@ sealed interface Route : NavKey {
     /** B6：多來源待辦（按來源分組）。 */
     @Serializable
     data object TodoBoard : Route
+
+    /**
+     * 學在城院原生首頁（我的課 + 待交作業）。
+     *
+     * 帶 `tileUrl` 是為了「改用網頁版」能回退到**同一個**學在城院地址。
+     */
+    @Serializable
+    data class TronHome(val tileUrl: String = "") : Route
 }

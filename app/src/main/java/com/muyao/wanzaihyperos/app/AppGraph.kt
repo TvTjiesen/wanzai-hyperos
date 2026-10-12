@@ -73,6 +73,8 @@ class AppGraph private constructor(
     val cjh52: Cjh52Client,
     /** 學在城院原生接口層（B6 待辦的第二個來源）。 */
     val tronclass: TronclassClient,
+    /** 學在城院原生首頁（我的課 + 待交作業）。 */
+    val tronHome: com.muyao.wanzaihyperos.data.tronclass.TronHomeRepository,
     val catalog: PortalCatalogRepository,
     val frequent: PortalFrequentAppsRepository,
     val unread: PortalUnreadRepository,
@@ -197,6 +199,7 @@ class AppGraph private constructor(
                 api = api,
                 cjh52 = cjh52,
                 tronclass = tron,
+                tronHome = com.muyao.wanzaihyperos.data.tronclass.LiveTronHomeRepository(tron),
                 catalog = LivePortalCatalogRepository(api),
                 frequent = LivePortalFrequentAppsRepository(api),
                 unread = LivePortalUnreadRepository(api),

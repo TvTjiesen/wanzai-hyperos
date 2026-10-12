@@ -47,6 +47,24 @@ sealed interface AppOpenPlan {
     ) : AppOpenPlan
 
     /**
+     * 學在城院走**原生頁**（我的課 + 待交作業）。
+     *
+     * 與 [TronclassFreeLogin] 並存是刻意的：
+     * - 原生頁取不到數（或使用者的學在城院會話失效）時，**回退到**
+     *   [TronclassFreeLogin] 那條已驗證的 WebView 免登路 —— 那不是死路，
+     *   而是有人手動登一次就能繼續用的活路；
+     * - 所以這裡帶上原網頁地址，回退時用它。
+     *
+     * 學在城院功能極多（討論、測驗、點名…），原生只做最常用的兩塊，
+     * 其餘在原生頁底部留「改用網頁版」入口。
+     */
+    data class NativeTronclass(
+        /** 原網頁地址（回退用）。 */
+        val tileUrl: String,
+        val name: String,
+    ) : AppOpenPlan
+
+    /**
      * 只在内网可达（地址是字面内网 IP，或已知仅校园网开放）。
      * 校外打开必然失败，所以**先告诉用户**，而不是让他对着白屏等超时。
      */
@@ -181,9 +199,12 @@ object AppOpenStrategy {
         // 先判校园网的话，这条入口会被错误地提示成「仅校园网可达」，
         // 用户在校外永远看不到免登入口 —— 功能被一个分类标签吃掉。
         if (isTronclass(host, app.name)) {
-            return AppOpenPlan.TronclassFreeLogin(
+            // ★ 走**原生頁**（我的課 + 待交作業）。
+            //
+            // 先前這裡直接回 TronclassFreeLogin（WebView 免登）。現在改原生 ——
+            // 取不到數時由原生頁自己回退到同一條 WebView 路，所以不會變成死路。
+            return AppOpenPlan.NativeTronclass(
                 tileUrl = app.url.ifBlank { "https://${HzcuHosts.TRONCLASS_MOBILE}" },
-                callbackUrl = "https://${HzcuHosts.TRONCLASS_MOBILE}/identity-web-login-callback?_h5=true",
                 name = app.name,
             )
         }

@@ -19,23 +19,26 @@ class AppOpenStrategyTest {
     ) = PortalApp(id = id, name = name, url = url, system = system)
 
     @Test
-    fun `学在城院走手机版免登`() {
+    fun `学在城院走原生页`() {
+        // 2026-10-12 起：学在城院磁贴走**原生页**（我的课 + 待交作业），
+        // 不再直接进 WebView 免登。取不到数时由原生页回退到同一条 WebView 路。
         val plan = AppOpenStrategy.decide(
             app(id = 156, name = "学在城院", url = "https://mobile.hzcu.edu.cn/"),
         )
-        assertTrue("实际是 $plan", plan is AppOpenPlan.TronclassFreeLogin)
+        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeTronclass)
         assertEquals(
-            "https://mobile.hzcu.edu.cn/identity-web-login-callback?_h5=true",
-            (plan as AppOpenPlan.TronclassFreeLogin).callbackUrl,
+            "https://mobile.hzcu.edu.cn/",
+            (plan as AppOpenPlan.NativeTronclass).tileUrl,
         )
     }
 
     @Test
-    fun `桌面版域也走免登`() {
+    fun `桌面版域也走原生页`() {
+        // courses.hzcu.edu.cn 是学在城院的接口域，同样认作学在城院。
         val plan = AppOpenStrategy.decide(
             app(name = "课程平台", url = "https://courses.hzcu.edu.cn/x"),
         )
-        assertTrue("实际是 $plan", plan is AppOpenPlan.TronclassFreeLogin)
+        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeTronclass)
     }
 
     // -------------------------------------------------------------------------
@@ -179,10 +182,12 @@ class AppOpenStrategyTest {
 
     @Test
     fun `名字里有学在城院也认（门户有时不给地址）`() {
+        // 依**名字**识别仍是必要的：门户有时下发一个别处的地址，
+        // 光看 host 会漏判，用户就会被丢进一个陌生的外站。
         val plan = AppOpenStrategy.decide(
             app(name = "学在城院", url = "https://somewhere-else.example.com/"),
         )
-        assertTrue("实际是 $plan", plan is AppOpenPlan.TronclassFreeLogin)
+        assertTrue("实际是 $plan", plan is AppOpenPlan.NativeTronclass)
     }
 
     @Test
