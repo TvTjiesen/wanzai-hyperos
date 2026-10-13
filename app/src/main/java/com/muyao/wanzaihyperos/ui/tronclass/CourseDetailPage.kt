@@ -120,7 +120,6 @@ fun CourseDetailContent(
                 trailingColor = MiuixTheme.colorScheme.error,
             )
         }
-
         // 公告：**預設收起**，點標題展開全文（公告正文可能很長）。
         item { BulletinSection(bundle) }
         infoItems(
@@ -143,7 +142,7 @@ fun CourseDetailContent(
                     trailing = exam.statusLabel,
                     trailingColor = if (exam.submitted) MiuixTheme.colorScheme.primary
                     else MiuixTheme.colorScheme.error,
-                    body = exam.description.takeIf { it.isNotBlank() },
+                    body = exam.plainDescription.takeIf { it.isNotBlank() },
                 )
             }
         }

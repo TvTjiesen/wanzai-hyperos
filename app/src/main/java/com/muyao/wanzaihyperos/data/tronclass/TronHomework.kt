@@ -60,6 +60,26 @@ data class TronHomework(
     /** 截止時間轉本地顯示（服務端給 ISO，可能帶時區）。 */
     val deadlineLocal: String
         get() = formatTronLocalTime(TronTodoParser.parseIsoMillis(deadline)) ?: deadline.ifBlank { "—" }
+
+    /**
+     * **可讀的要求內容**：把 [description] 的 HTML 處理掉。
+     *
+     * ### ★ 這是真機上抓到的第二個同類 bug
+     *
+     * B14 修好了**課程大綱**的 HTML（那是在真機上看到的），
+     * 但**作業說明是同一種東西**，當時沒一起查。真機一開作業清單就看到：
+     * ```
+     * <p class="MsoNormal" style="font-family: DengXian; font-size: 10.5pt;
+     *    line-height: 24px; text-align: center; color: rgb(0, 0, 0);">…
+     * ```
+     * 學生的作業要求常常是老師從 Word 貼進去的，所以**這邊的 HTML 只會更常見**
+     *（`MsoNormal` 就是 Word 的樣式名）。
+     *
+     * 走同一條 [htmlToPlainText]（與公告、大綱共用）。
+     * 教訓：**同一個來源的富文本欄位要一次全部找出來修**，
+     * 一處一處按「看到才修」會漏 —— 這一段就是漏掉的那一處。
+     */
+    val plainDescription: String get() = htmlToPlainText(description)
 }
 
 object TronHomeworkParser {

@@ -69,6 +69,15 @@ data class TronTopicCategory(
      * 所以**不顯示「已參與」這種話**。
      */
     val statusLabel: String get() = if (closed) "已结束" else "进行中"
+
+    /**
+     * **可讀的說明**：把 [description] 的 HTML 處理掉。
+     *
+     * 與 [TronExam.plainDescription] 同一個處置：這一條也**沒有活體樣本**
+     *（實測四門課的 `activity.data.description` 全是空字串），
+     * 但 [htmlToPlainText] 對純文字是等價變換，所以先接上成本是零。
+     */
+    val plainDescription: String get() = htmlToPlainText(description)
 }
 
 object TronTopicCategoryParser {

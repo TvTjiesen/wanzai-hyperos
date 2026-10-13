@@ -75,6 +75,19 @@ data class TronExam(
 
     /** 進行中（還沒結束、且我還沒交）。 */
     val actionable: Boolean get() = started && !closed && !submitted
+
+    /**
+     * **可讀的說明**：把 [description] 的 HTML 處理掉。
+     *
+     * ⚠️ 這一條**沒有活體樣本**（實測六門課的 `description` 全是空字串），
+     * 所以不能像公告那樣宣稱「它一定是 HTML」。
+     *
+     * 還是走同一條 [htmlToPlainText]，理由是它**對純文字是等價變換**：
+     * 沒有 `<` 也沒有 `&` 時直接回原文（見該函式的第一個判斷）。
+     * 而萬一它跟公告、大綱、作業說明一樣是富文本（同一個服務端的同名字段），
+     * 這裡就已經處理好了 —— **代價是零，漏掉的代價是整串標籤**。
+     */
+    val plainDescription: String get() = htmlToPlainText(description)
 }
 
 object TronExamParser {

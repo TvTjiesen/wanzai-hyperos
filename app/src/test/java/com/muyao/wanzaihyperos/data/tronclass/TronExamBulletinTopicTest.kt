@@ -291,3 +291,50 @@ class TronOutlineHtmlTest {
         assertEquals("掌握链表与树", field.plainDescription)
     }
 }
+
+/**
+ * B15：**作業說明**也是 HTML —— 真機上抓到的第二個同類 bug。
+ *
+ * B14 修了課程大綱（真機看到才修的），但作業說明是同一種東西，當時沒一起查。
+ * 學生的作業要求常常是老師從 Word 貼進去的，所以這邊的富文本只會更常見。
+ */
+class TronHomeworkHtmlTest {
+
+    @Test
+    fun `真機作業說明的 Word HTML 被去成可讀文字`() {
+        // 逐字抄自真機（思想道德与法治「思政实践作业」）。
+        val html = "<p class=\"MsoNormal\" style=\"font-family: DengXian; font-size: 10.5pt; " +
+            "line-height: 24px; text-align: center; color: rgb(0, 0, 0);\">" +
+            "<span style=\"line-height: inherit; font-weight: 700;\">实践报告要求</span></p>" +
+            "<p class=\"MsoNormal\">请结合课程内容撰写一份报告。</p>"
+        val hw = TronHomework(
+            id = 342189,
+            title = "思政实践作业",
+            deadline = "2025-11-16T23:57:00Z",
+            endTime = "",
+            closed = true,
+            inProgress = false,
+            homeworkType = "file_upload",
+            description = html,
+            submitTimes = null,
+            scorePercentage = "10.0",
+        )
+        val text = hw.plainDescription
+        assertFalse("作業說明不該留下標籤：$text", text.contains("<"))
+        assertFalse("不該留下 style：$text", text.contains("style"))
+        assertFalse("不該留下 Word 的樣式名：$text", text.contains("MsoNormal"))
+        assertTrue(text.contains("实践报告要求"))
+        assertTrue(text.contains("请结合课程内容撰写一份报告"))
+        assertTrue("兩個 <p> 要分行，實際：$text", text.lines().size >= 2)
+    }
+
+    @Test
+    fun `純文字的作業說明不受影響`() {
+        val hw = TronHomework(
+            id = 1, title = "t", deadline = "", endTime = "", closed = false, inProgress = true,
+            homeworkType = "file_upload", description = "交一份 PDF", submitTimes = 1,
+            scorePercentage = "0.0",
+        )
+        assertEquals("交一份 PDF", hw.plainDescription)
+    }
+}

@@ -14,19 +14,28 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * 某門課的作業清單（含要求）。
+ * 某門課的作業清單 **＋ 我的提交狀態**。
  *
- * ### 為什麼要按課程載入
+ * ### 為什麼把兩者合成一包
  *
- * 作業接口是**課程內**的（`/api/courses/{id}/homework-activities`）——
- * 沒有「全校所有作業」這個端點。所以頁面先給課程清單，選一門課再看它的作業。
+ * 作業清單（`homework-activities`）不含「我交了沒」，
+ * 那資訊在另一支（`homework/submission-status`）。
+ * 但**分開顯示沒有意義** —— 學生看的是「這份作業、截止什麼時候、**我交了沒**」。
+ * 兩個各自獨立的 `ListState` 只會讓界面出現「清單有了、狀態還在轉圈」的中間態。
  *
- * 這也是為什麼「待辦」與「作業」是兩個不同的視圖：
- * - 待辦 = **跨課程**的彙總（哪些要交），只有標題；
- * - 作業 = **單門課內**的完整清單（要求、截止、能交幾次）。
+ * ### 狀態取不到時**不假裝**
+ *
+ * 狀態那支失敗就給空映射，界面退回只顯示截止時間。
+ * 「不知道交了沒」與「沒交」在界面上必須長得不一樣。
  */
+data class ClassHomework(
+    val homework: TronHomework,
+    /** 我的提交狀態。null ＝ **不知道**（不是「沒交」）。 */
+    val myStatus: TronHomeworkStatus?,
+)
+
 interface HomeworkRepository {
-    val state: StateFlow<ListState<TronHomework>>
+    val state: StateFlow<ListState<ClassHomework>>
     /** 目前看的是哪門課（用於界面標題）。 */
     val courseName: StateFlow<String>
     suspend fun load(courseId: Int, courseName: String)
@@ -39,8 +48,8 @@ class LiveHomeworkRepository(
 ) : HomeworkRepository {
 
     private val guard = StaleGuard()
-    private val _state = MutableStateFlow<ListState<TronHomework>>(ListState.FirstLoad)
-    override val state: StateFlow<ListState<TronHomework>> = _state.asStateFlow()
+    private val _state = MutableStateFlow<ListState<ClassHomework>>(ListState.FirstLoad)
+    override val state: StateFlow<ListState<ClassHomework>> = _state.asStateFlow()
 
     private val _courseName = MutableStateFlow("")
     override val courseName: StateFlow<String> = _courseName.asStateFlow()
@@ -64,10 +73,21 @@ class LiveHomeworkRepository(
         inFlight.withLock {
             val token = guard.begin()
             _state.value = _state.value.startRefresh()
-            val result = runCatching { client.homeworks(courseId) }
+
+            val result = runCatching {
+                val homeworks = client.homeworks(courseId)
+                // ★ 狀態那支**獨立 runCatching**：它掛了不該讓整份作業清單消失。
+                //   取不到就是「不知道交了沒」，界面照那個講。
+                val statuses = runCatching { client.homeworkStatus(courseId) }
+                    .getOrDefault(emptyMap())
+                homeworks.map { ClassHomework(it, statuses[it.id]) }
+            }
+
             if (!guard.isCurrent(token)) return
             _state.value = result.fold(
-                onSuccess = { _state.value.settleFirstPage(it, clock()) { h -> h.id } },
+                onSuccess = { list ->
+                    _state.value.settleFirstPage(list, clock()) { h -> h.homework.id }
+                },
                 onFailure = {
                     _state.value.failWith(
                         if (it is HzcuException) it

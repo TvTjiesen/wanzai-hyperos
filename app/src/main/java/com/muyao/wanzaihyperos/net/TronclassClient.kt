@@ -172,8 +172,19 @@ class TronclassClient(
      * 見 [com.muyao.wanzaihyperos.data.tronclass.TronCourse] 的類註釋。
      *
      * ⚠️ `conditions={}` **必須帶**：不帶會 500（與公告那支同一個毛病）。
+     *
+     * ### ★ 頁大小原本是 30，那是**截斷**（真機驗證時抓到）
+     *
+     * 真機上「我的课（30）」看起來很合理，但用 `page_size=40` 探測時實際有
+     * **37 門** —— 也就是說有 7 門課（多為較早的學期）**在 App 裡根本看不到**，
+     * 而且症狀很隱蔽：列表沒有任何「還有更多」的提示，
+     * 使用者只會以為自己沒選那些課。
+     *
+     * 這種「安靜截斷」比報錯更糟（報錯至少知道出事了）。
+     * 所以放大到 [PAGE_SIZE] 並在界面顯示實際門數，兩邊對得上。
      */
-    suspend fun myCourses(pageSize: Int = 30): List<com.muyao.wanzaihyperos.data.tronclass.TronCourse> =
+    suspend fun myCourses(pageSize: Int = PAGE_SIZE):
+        List<com.muyao.wanzaihyperos.data.tronclass.TronCourse> =
         parseListOf("/api/my-courses?conditions=%7B%7D&page=1&page_size=$pageSize", "我的课") {
             com.muyao.wanzaihyperos.data.tronclass.TronCourseParser.parse(it)
         }
@@ -251,6 +262,18 @@ class TronclassClient(
      */
     suspend fun profileUserId(): Int? =
         requestJson("/api/profile", "个人资料", method = "GET")["id"].asIntOrNull()
+
+    /**
+     * 某門課的**我的提交狀態**（每項作業交了沒）。**只讀**。
+     *
+     * 作業清單本身不含「我交了沒」，所以先前那頁只能講截止時間。
+     * 這一支補上那個缺口。能取不到時回空映射 —— 界面就退回「只顯示截止時間」，
+     * **不假裝全部未交**。
+     */
+    suspend fun homeworkStatus(courseId: Int): Map<Int, com.muyao.wanzaihyperos.data.tronclass.TronHomeworkStatus> =
+        com.muyao.wanzaihyperos.data.tronclass.TronHomeworkStatusParser.parse(
+            requestJson("/api/course/$courseId/homework/submission-status", "作业状态", method = "GET"),
+        )
 
     /**
      * 機構的**教學週**（第 N 週 = 哪段日期）。
@@ -546,5 +569,13 @@ class TronclassClient(
         /** 接口域（**不是** mobile.hzcu.edu.cn，見類註釋）。 */
         private const val TRON_BASE = "https://courses.hzcu.edu.cn"
         private val JSON_TYPE = "application/json".toMediaType()
+
+        /**
+         * 課程清單的頁大小。
+         *
+         * 實測我們學校是 37 門（含歷來學期）。取 60 是留一倍餘裕 ——
+         * 寧可多要一點也不要有課看不到（見 [myCourses] 的註釋）。
+         */
+        private const val PAGE_SIZE = 60
     }
 }

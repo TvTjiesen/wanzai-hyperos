@@ -365,7 +365,9 @@ fun HomeworkContent(
             return@AppList
         }
 
-        infoItems(items, key = { it.id }) { hw ->
+        infoItems(items, key = { it.homework.id }) { row ->
+            val hw = row.homework
+            val st = row.myStatus
             InfoItem(
                 title = hw.title.ifBlank { "（无标题）" },
                 subtitle = listOfNotNull(
@@ -375,9 +377,19 @@ fun HomeworkContent(
                         ?.let { "占比 ${hw.scorePercentage}%" },
                     hw.homeworkType.takeIf { it.isNotBlank() },
                 ).joinToString("　"),
-                trailing = if (hw.closed) "已截止" else null,
-                trailingColor = MiuixTheme.colorScheme.error,
-                body = hw.description.takeIf { it.isNotBlank() },
+                trailing = when {
+                    // ★ 三種講法必須分開：
+                    //   已交 / 未交 / **不知道**（狀態那支取不到）。
+                    //   把「不知道」顯示成「未交」會讓人以為自己漏交了。
+                    st == null -> null
+                    else -> st.label
+                },
+                trailingColor = if (st?.submitted == true) {
+                    MiuixTheme.colorScheme.primary
+                } else {
+                    MiuixTheme.colorScheme.error
+                },
+                body = hw.plainDescription.takeIf { it.isNotBlank() },
                 bodyMaxLines = 6,
             )
         }
