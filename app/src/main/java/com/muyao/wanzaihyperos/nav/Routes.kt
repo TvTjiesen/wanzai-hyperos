@@ -108,4 +108,18 @@ sealed interface Route : NavKey {
      */
     @Serializable
     data class Homework(val courseId: Int = 0, val courseName: String = "", val tileUrl: String = "") : Route
+
+    /**
+     * B16：**愛講座**（CJH52）原生清單。**只讀**。
+     *
+     * 帶 `tileUrl` 是為了「改用網頁版」能回退到**同一個**愛講座地址
+     *（它是門戶應用 id 54，`/lecture/lectureList`）。
+     *
+     * 為什麼不併進 [Cjh52Feature]：那個路由的頁面形狀是
+     *「標題 + 一包 cjh52 資料」，而且**不分頁**；
+     * 講座要分頁（實測 2541 場）且要顯示名額，形狀不同。
+     * 硬併進去會讓那個 when 分支塞進兩套邏輯。
+     */
+    @Serializable
+    data class Lectures(val tileUrl: String = "") : Route
 }

@@ -160,15 +160,35 @@ class AppOpenStrategyTest {
 
     @Test
     fun `未做原生页的 cjh52 应用仍走 WebView`() {
-        // ★ 保守：只放行**已經做了原生頁**的路徑（課程/班級/通知/考試/成長）。
+        // ★ 保守：只放行**已經做了原生頁**的路徑（課程/班級/通知/考試/成長/講座）。
         //   導去沒有實作的原生頁只會得到空白。
+        //
+        // ⚠️ 這條測試**故意用具體 URL 當反例**，所以每加一個原生頁都要把它從這裡移走
+        //   —— B16 加愛講座時就是這條測試先紅，提醒我回來更新。
+        //   （若哪天它不再紅，代表沒人在維護這份「已原生」清單。）
         for (url in listOf(
-            "https://cjh52.hzcu.edu.cn/lecture/lectureList",
             "https://cjh52.hzcu.edu.cn/lost/lostList",
             "https://cjh52.hzcu.edu.cn/studentCadre/StudentPostList",
+            "https://cjh52.hzcu.edu.cn/workstudy/student/recruit",
         )) {
             val plan = AppOpenStrategy.decide(app(id = 1, name = "x", url = url, system = PortalSystem.CJH52))
             assertTrue("$url 不該走原生，实际是 $plan", plan is AppOpenPlan.TempCode)
+        }
+    }
+
+    @Test
+    fun `已做原生页的 cjh52 应用走原生`() {
+        // 與上一條成對：這裡是「已原生」的正面清單（B3 三項 + B16 講座）。
+        for (url in listOf(
+            "https://cjh52.hzcu.edu.cn/notice",
+            "https://cjh52.hzcu.edu.cn/examination",
+            "https://cjh52.hzcu.edu.cn/development/home",
+            "https://cjh52.hzcu.edu.cn/clazz/student",
+            // B16：愛講座
+            "https://cjh52.hzcu.edu.cn/lecture/lectureList",
+        )) {
+            val plan = AppOpenStrategy.decide(app(id = 54, name = "爱讲座", url = url, system = PortalSystem.CJH52))
+            assertTrue("$url 應該走原生，实际是 $plan", plan is AppOpenPlan.NativeFeature)
         }
     }
 

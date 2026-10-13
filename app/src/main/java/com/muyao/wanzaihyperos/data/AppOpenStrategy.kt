@@ -311,6 +311,10 @@ object AppOpenStrategy {
             path.startsWith("/examination") -> "EXAM"
             path.startsWith("/development") -> "GROWTH"
             path.startsWith("/clazz") -> "CLAZZ"
+            // B16：愛講座（門戶應用 id 54，路徑 /lecture/lectureList）。
+            // ★ 只放行**做了原生頁**的路徑 —— 其餘 cjh52 應用（學生幹部、
+            //   困難學生、意見直通車…）仍走 WebView，不然會得到空白原生頁。
+            path.startsWith("/lecture") -> "LECTURE"
             else -> null
         }
     }

@@ -4,6 +4,7 @@ import com.muyao.wanzaihyperos.ui.cjh52.GrowthPage
 import com.muyao.wanzaihyperos.ui.cjh52.ExamPage
 import com.muyao.wanzaihyperos.ui.cjh52.NoticePage
 import com.muyao.wanzaihyperos.ui.cjh52.ClazzPage
+import com.muyao.wanzaihyperos.ui.cjh52.LecturePage
 import com.muyao.wanzaihyperos.ui.tronclass.TronShellPage
 import com.muyao.wanzaihyperos.ui.todo.TodoBoardPage
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
@@ -569,6 +570,15 @@ fun WanzaiApp() {
                         }
                     }
                     when (route.feature) {
+                        // B16：愛講座。**重用同一個預熱閘門** ——
+                        // cjh52 的 token 必須先由 WebView 載入一次才生效，
+                        // 這一支也一樣（探測時少了 Authorization 全回 code 401）。
+                        "LECTURE" -> LecturePage(
+                            repository = app.lectures,
+                            onBack = { backStack.removeLastOrNull() },
+                            onOpenWeb = fallback,
+                            modifier = Modifier,
+                        )
                         "EXAM" -> ExamPage(
                             repository = app.exams,
                             onExit = { backStack.removeLastOrNull() },

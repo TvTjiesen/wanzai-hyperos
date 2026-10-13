@@ -102,6 +102,8 @@ class AppGraph private constructor(
     val clazz: ClazzRepository,
     /** B6：多來源待辦看板（聚合門戶審批 + 學在城院作業）。 */
     val todoBoard: TodoRepository,
+    /** B16：CJH52 愛講座（原生清單，只讀）。 */
+    val lectures: com.muyao.wanzaihyperos.data.cjh52.LectureRepository,
 ) {
 
     /** 启动时该落在哪一页：已经登录就直奔主壳，否则先登录。 */
@@ -240,6 +242,7 @@ class AppGraph private constructor(
                 growth = LiveGrowthRepository(cjh52),
                 clazz = LiveClazzRepository(cjh52),
                 todoBoard = LiveTodoRepository(billsRepo, tron),
+                lectures = com.muyao.wanzaihyperos.data.cjh52.LiveLectureRepository(cjh52),
             )
         }
     }
