@@ -134,4 +134,13 @@ sealed interface Route : NavKey {
      */
     @Serializable
     data object Zhgy : Route
+
+    /**
+     * B18：**教務系統**（`ijw.hzcu.edu.cn`，正方 ZFSoft）。
+     *
+     * **不帶參數** —— 帳密存在加密會話裡，不該進導航狀態
+     *（導航狀態會被系統序列化保存/恢復，憑據放進去等於讓它出現在可能被 dump 的地方）。
+     */
+    @Serializable
+    data object Jw : Route
 }

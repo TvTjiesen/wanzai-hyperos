@@ -106,6 +106,12 @@ class AppGraph private constructor(
     val lectures: com.muyao.wanzaihyperos.data.cjh52.LectureRepository,
     /** B17：智慧公寓的會話（一段由使用者提供的 `code`，只進加密存儲）。 */
     val zhgySession: com.muyao.wanzaihyperos.session.ZhgySession,
+    /** B18：教務系統會話（**明文密碼**，全專案唯一一個 —— 見該類的註釋）。 */
+    val jwSession: com.muyao.wanzaihyperos.session.JwSession,
+    /** B18：教務系統引擎（用不可見 WebView 維持 session 與取數）。 */
+    val jwEngine: com.muyao.wanzaihyperos.data.jw.JwEngine,
+    /** B18：教務系統倉庫（兩段登入 + 取資料）。 */
+    val jw: com.muyao.wanzaihyperos.data.jw.JwRepository,
 ) {
 
     /** 启动时该落在哪一页：已经登录就直奔主壳，否则先登录。 */
@@ -126,6 +132,9 @@ class AppGraph private constructor(
         // ★ B17：智慧公寓那段 code 也是凭据（能读报修记录、内务分、生活缴费），
         //   它是**第四套独立登录态**。不清的话下一个人进来会看到前一个人的公寓资料。
         zhgySession.clear()
+        // ★ B18：教務系統的帳密是**第五套獨立登錄態**，而且是全專案唯一的明文密碼。
+        //   退出登錄時**必須**清掉 —— 這是最不能漏的一項。
+        jwSession.clear()
         // ★ 只清自己的凭据还不够：学在城院那个 SPA 的登录态**不在 Cookie 里**，
         //   在 WebView 的 localStorage 里（isLogin / sessionID / identityRefreshToken）。
         //   不清它，下一个登录的人打开学在城院会直接进上一个人的首页。
@@ -208,6 +217,9 @@ class AppGraph private constructor(
             // B6 的待辦看板要複用同一個門戶事務倉庫（它帶單飛與快取），
             // 所以提出區域變數讓兩處指向同一實例。
             val billsRepo = LivePortalBillRepository(api)
+            // B18：教務系統的兩個長命物件。**必須在這裡建一次**（見下面命名實參的註釋）。
+            val jwSessionInstance = com.muyao.wanzaihyperos.session.JwSession(store)
+            val jwEngineInstance = com.muyao.wanzaihyperos.data.jw.JwEngine()
             return AppGraph(
                 appContext = appContext,
                 client = client,
@@ -249,6 +261,11 @@ class AppGraph private constructor(
                 todoBoard = LiveTodoRepository(billsRepo, tron),
                 lectures = com.muyao.wanzaihyperos.data.cjh52.LiveLectureRepository(cjh52),
                 zhgySession = com.muyao.wanzaihyperos.session.ZhgySession(store),
+                // B18：教務系統。引擎與倉庫**共用同一個實例** ——
+                // WebView 裡那份 session 就在引擎裡，分成兩份就等於兩份登入態。
+                jwSession = jwSessionInstance,
+                jwEngine = jwEngineInstance,
+                jw = com.muyao.wanzaihyperos.data.jw.LiveJwRepository(jwEngineInstance, jwSessionInstance),
             )
         }
     }

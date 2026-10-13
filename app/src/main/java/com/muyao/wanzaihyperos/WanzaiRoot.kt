@@ -293,6 +293,9 @@ fun WanzaiApp(
                 // B17：智慧公寓 → 閘門頁（沒憑據就請使用者貼連結）。
                 is AppOpenPlan.ZhgyGate -> backStack.add(Route.Zhgy)
 
+                // B18：教務查詢類入口 → 原生頁（考試／成績）。
+                is AppOpenPlan.JwNative -> backStack.add(Route.Jw)
+
                 // ★ A4：学在城院**手机版免登**（带自动续期）。
                 //
                 // 旧实现只在输入密码那一刻换一次 token 对，之后直接用存的旧值。
@@ -479,6 +482,8 @@ fun WanzaiApp(
                     },
                     // ★ B6：首頁「全部待办」→ 多來源待辦看板。
                     onOpenTodoBoard = { backStack.add(Route.TodoBoard) },
+                    // B18：首頁「教务系统」→ 考試信息 / 學生成績（只讀）。
+                    onOpenJw = { backStack.add(Route.Jw) },
                     onRelogin = {
                         uiState.loggedIn = false
                         uiState.displayAccount = ""
@@ -708,6 +713,16 @@ fun WanzaiApp(
             entry<Route.Zhgy> {
                 com.muyao.wanzaihyperos.ui.web.ZhgyGatePage(
                     session = app.zhgySession,
+                    onExit = { backStack.removeLastOrNull() },
+                )
+            }
+
+            // B18：教務系統 —— 考試信息 / 學生成績（只讀）。
+            entry<Route.Jw> {
+                com.muyao.wanzaihyperos.ui.jw.JwPage(
+                    repository = app.jw,
+                    engine = app.jwEngine,
+                    session = app.jwSession,
                     onExit = { backStack.removeLastOrNull() },
                 )
             }

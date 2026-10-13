@@ -42,6 +42,20 @@ sealed interface AppOpenPlan {
     data object ZhgyGate : AppOpenPlan
 
     /**
+     * B18：**教務系統原生頁**（考試信息 / 學生成績）。
+     *
+     * ### 為什麼只導這一條、而不是整個 `ijw` 域
+     *
+     * 門戶把好幾個應用都指向 `ijw.hzcu.edu.cn`（教材繳費、…），
+     * 而我們**只做了兩個只讀功能**（考試、成績）。
+     * 把整個域都導去原生頁，其餘應用的使用者會落到一個「不是他要的」頁面。
+     *
+     * 所以判據是**應用名**而非 host：只有明確是教務查詢類的才導過去，
+     * 其餘維持 WebView（用 `tileUrl` 當網頁版出口）。
+     */
+    data class JwNative(val tileUrl: String, val appId: Int, val name: String) : AppOpenPlan
+
+    /**
      * 学在城院（TronClass）手机版免登。
      *
      * 链路（真机实测通过）：
@@ -218,6 +232,12 @@ object AppOpenStrategy {
             return AppOpenPlan.ZhgyGate
         }
 
+        // ★ B18：教務系統（ijw）。**只導「教務查詢」類的入口**，
+        //   其餘同域應用（教材繳費等）維持 WebView —— 理由見 JwNative 的註釋。
+        if (host == HzcuHosts.JW && isJwQueryEntry(app.name, app.url)) {
+            return AppOpenPlan.JwNative(tileUrl = app.url, appId = app.id, name = app.name)
+        }
+
         // ★ 顺序要紧：**先判学在城院，再判校园网**。
         //
         // 门户把「学在城院」归在「仅校园网」那一组里（历史实测清单就是这么放的），
@@ -357,8 +377,33 @@ object AppOpenStrategy {
         return normalized == "hzcu.edu.cn" || normalized.endsWith(".hzcu.edu.cn")
     }
 
-    private fun isTronclass(host: String?, name: String): Boolean {
-        if (host != null && host in TRONCLASS_HOSTS) return true
+    /**
+     * 是不是「教務查詢」類的入口（B18）。
+     *
+     * ### 為什麼判據是應用名而不是路徑
+     *
+     * 實測門戶全量目錄（`docs/FEATURE_MAP.md`）：**只有一個應用指向 `ijw`** ——
+     * 「教材缴费」（`id 214`，`/sso/ddszLogin?url=jcjsgl%2FjcjfMobile…`）。
+     * 而那個路徑是**教材繳費**，不是我們做的考試／成績。
+     *
+     * 所以「教材缴费」**維持 WebView**（我們沒做繳費），
+     * 而教務查詢頁由首頁的「教務系統」入口進（見 `HomePage`）。
+     *
+     * 這個函式保留是為了**將來**：門戶哪天新增指向 `ijw` 的查詢類應用，
+     * 在 [JW_QUERY_NAMES] 加一個名字就行，不必改別處。
+     */
+    private fun isJwQueryEntry(name: String, url: String): Boolean =
+        JW_QUERY_NAMES.any { name.contains(it, ignoreCase = true) }
+
+    /**
+     * 教務查詢類的應用名。
+     *
+     * **目前刻意留空**：門戶目前唯一指向 `ijw` 的是「教材缴费」，
+     * 而那是繳費（我們沒做）——放行它會讓使用者落到一個不是他要的頁面。
+     */
+    private val JW_QUERY_NAMES: List<String> = emptyList()
+
+    private fun isTronclass(host: String?, name: String): Boolean {        if (host != null && host in TRONCLASS_HOSTS) return true
         return TRONCLASS_NAMES.any { name.contains(it, ignoreCase = true) }
     }
 
@@ -442,4 +487,13 @@ object HzcuHosts {
      * 見 [AppOpenPlan.ZhgyGate] 與 `docs/B17-WALKTHROUGH.md`。
      */
     const val ZHGY = "zhgy.hzcu.edu.cn"
+
+    /**
+     * 教務系統（B18，正方 ZFSoft）。
+     *
+     * ⚠️ 門戶把「教材缴費」等多個應用都指向這個域。
+     * 目前**只把「教材缴費」那條入口導到原生頁**（考試/成績），
+     * 其餘同域應用仍走 WebView —— 見 [AppOpenPlan.JwNative] 的註釋。
+     */
+    const val JW = "ijw.hzcu.edu.cn"
 }

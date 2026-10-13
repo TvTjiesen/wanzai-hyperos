@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -281,6 +282,27 @@ fun <T> LazyListScope.infoItems(
     row: @Composable (T) -> Unit,
 ) {
     items(items, key = key) { row(it) }
+}
+
+/**
+ * 同 [infoItems]，但**保證 key 唯一**（用下標）。
+ *
+ * ## 為什麼需要它（真機崩過）
+ *
+ * 教務系統的考試清單裡，**同一門課會有多場考試**（補考、期末考）；
+ * 成績清單裡**重修**也會讓同一個課名出現多次。
+ * 用 `courseName + examName` 當 key 會撞，Compose 直接拋
+ * `IllegalArgumentException: Key "大学物理(Ⅰ)" was already used` ——
+ * **整個 App 崩掉**（不是只畫錯）。
+ *
+ * 而資料是**一次抓回來的快照**，順序穩定，所以下標是安全且唯一的 key。
+ * 內部沒有用 `indexOf`：那個方法對「值相等的兩筆」會回同一個下標，等於沒解決問題。
+ */
+fun <T> LazyListScope.infoItemsIndexed(
+    items: List<T>,
+    row: @Composable (T) -> Unit,
+) {
+    itemsIndexed(items, key = { index, _ -> index }) { _, item -> row(item) }
 }
 
 /**

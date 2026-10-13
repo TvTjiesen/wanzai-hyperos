@@ -55,6 +55,8 @@ fun MainShell(
     onOpenBusyness: ((String) -> Unit)? = null,
     /** 點首頁「全部待办」入口（B6）：打開多來源待辦看板。 */
     onOpenTodoBoard: (() -> Unit)? = null,
+    /** B18：點首頁「教务系统」入口 —— 考試信息 / 學生成績（只讀）。 */
+    onOpenJw: (() -> Unit)? = null,
     /**
      * 未读数。**`null` = 不知道**（还没取到、或取失败）。
      *
@@ -114,6 +116,8 @@ fun MainShell(
                 unreadCount = unreadCount,
                 onOpenBusyness = onOpenBusyness,
                 onOpenTodoBoard = onOpenTodoBoard,
+                // B18：教務系統入口（考試／成績）。
+                onOpenJw = onOpenJw,
             )
 
             Tab.Apps -> com.muyao.wanzaihyperos.ui.apps.AppsPage(

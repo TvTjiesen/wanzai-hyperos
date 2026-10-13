@@ -87,6 +87,13 @@ fun HomePage(
      * 給 null 就**不顯示這個入口**，而不是顯示一個點了沒反應的東西。
      */
     onOpenTodoBoard: (() -> Unit)? = null,
+    /**
+     * B18：教務系統原生頁（考試信息 / 學生成績）。
+     *
+     * 為什麼放在首頁而不是等門戶磁貼：門戶**只有一個應用**指向 `ijw`
+     *（「教材缴费」，而且那是繳費不是查詢），所以進教務查詢頁需要一個明確入口。
+     */
+    onOpenJw: (() -> Unit)? = null,
     /** 真实未读数。**null = 不知道**（显示 «—»，绝不显示 0）。 */
     unreadCount: Int? = null,
     modifier: Modifier = Modifier,
@@ -243,7 +250,7 @@ fun HomePage(
 
                 // ---- 待办三计数 -------------------------------------------------------
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    // 標題行右側帶一個「全部待办」入口（B6）。
+                    // 標題行右側帶「教務系統」與「全部待办」兩個入口。
                     // 放這裡而不是另開一格：這一組本來講的就是「要辦的事」，
                     // 多一個區塊會把首頁拉得更長，而語義是同一件事。
                     Row(
@@ -254,6 +261,17 @@ fun HomePage(
                             text = "待办事项",
                             modifier = Modifier.weight(1f),
                         )
+                        // B18：教務系統（考試／成績）。
+                        if (onOpenJw != null) {
+                            Text(
+                                text = "教务系统 ›",
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(end = 12.dp)
+                                    .clickable { onOpenJw() },
+                            )
+                        }
                         if (onOpenTodoBoard != null) {
                             Text(
                                 text = "全部待办 ›",
