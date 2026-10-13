@@ -104,6 +104,8 @@ class AppGraph private constructor(
     val todoBoard: TodoRepository,
     /** B16：CJH52 愛講座（原生清單，只讀）。 */
     val lectures: com.muyao.wanzaihyperos.data.cjh52.LectureRepository,
+    /** B17：智慧公寓的會話（一段由使用者提供的 `code`，只進加密存儲）。 */
+    val zhgySession: com.muyao.wanzaihyperos.session.ZhgySession,
 ) {
 
     /** 启动时该落在哪一页：已经登录就直奔主壳，否则先登录。 */
@@ -121,6 +123,9 @@ class AppGraph private constructor(
         tronclassSession.clear()
         // ★ CJH52 的 tempcode 也是凭据，且是**第三套独立登录态**，同样要清。
         cjh52Session.clear()
+        // ★ B17：智慧公寓那段 code 也是凭据（能读报修记录、内务分、生活缴费），
+        //   它是**第四套独立登录态**。不清的话下一个人进来会看到前一个人的公寓资料。
+        zhgySession.clear()
         // ★ 只清自己的凭据还不够：学在城院那个 SPA 的登录态**不在 Cookie 里**，
         //   在 WebView 的 localStorage 里（isLogin / sessionID / identityRefreshToken）。
         //   不清它，下一个登录的人打开学在城院会直接进上一个人的首页。
@@ -243,6 +248,7 @@ class AppGraph private constructor(
                 clazz = LiveClazzRepository(cjh52),
                 todoBoard = LiveTodoRepository(billsRepo, tron),
                 lectures = com.muyao.wanzaihyperos.data.cjh52.LiveLectureRepository(cjh52),
+                zhgySession = com.muyao.wanzaihyperos.session.ZhgySession(store),
             )
         }
     }

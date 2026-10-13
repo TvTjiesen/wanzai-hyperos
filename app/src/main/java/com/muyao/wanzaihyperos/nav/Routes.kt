@@ -122,4 +122,16 @@ sealed interface Route : NavKey {
      */
     @Serializable
     data class Lectures(val tileUrl: String = "") : Route
+
+    /**
+     * B17：**智慧公寓**（`zhgy.hzcu.edu.cn`）。
+     *
+     * **不帶任何參數** —— 憑據（那段 `code`）存在加密會話裡，
+     * 不該進導航狀態：導航狀態會被系統序列化保存/恢復，
+     * 把憑據放進去等於讓它出現在可能被 dump 的地方。
+     *
+     * 沒設過憑據時，這一頁顯示輸入提示；設過就直接載入頁面。
+     */
+    @Serializable
+    data object Zhgy : Route
 }

@@ -3,8 +3,10 @@ package com.muyao.wanzaihyperos.ui.design
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,7 +22,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
+import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -275,6 +284,75 @@ fun <T> LazyListScope.infoItems(
 }
 
 /**
+ * **二級頁面的標準外殼**：不透明底色 + 頂欄 + 安全區。
+ *
+ * ## 為什麼需要它（同一個坑踩了三次）
+ *
+ * 這個專案的**二級頁**（壓在主殼之上的整屏頁）如果自己用
+ * `AppList` 或 `Column` 拼，會**必然**踩到兩個問題：
+ *
+ * 1. **底色透明** —— `AppList` 只是一個 `LazyColumn`，本身沒有背景；
+ *    而主殼那幾頁之所以沒這問題，是因為 `Scaffold` 給了底色。
+ *    症狀是「下面的頁面透上來」，看起來像疊圖。
+ * 2. **沒有頂部安全區** —— 內容從 y=0 開始畫，返回鍵被狀態列蓋住。
+ *
+ * 實際發生過的位置：B16 的愛講座、B17 的智慧公寓閘門，
+ * 以及第一個自己拼的 cjh52 原生頁。**同一個錯誤連續出現，就是缺一個元件** ——
+ * 所以把它抽成這個外殼，而不是在每一頁各修一次。
+ *
+ * ## 用法
+ *
+ * ```kotlin
+ * SecondaryScaffold(title = "标题", subtitle = "副标题", onBack = onExit) { inner ->
+ *     AppList(modifier = Modifier.padding(top = inner.calculateTopPadding())) { ... }
+ * }
+ * ```
+ *
+ * @param subtitle 頂欄副標題（來源說明之類）。空字串就不顯示。
+ * @param onRefresh 給了就在右上角加一個刷新鈕。
+ */
+@Composable
+fun SecondaryScaffold(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String = "",
+    onRefresh: (() -> Unit)? = null,
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            SmallTopAppBar(
+                title = title,
+                subtitle = subtitle,
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = MiuixIcons.ChevronBackward,
+                            contentDescription = "返回",
+                            modifier = Modifier.size(Dims.iconNav),
+                        )
+                    }
+                },
+                actions = {
+                    if (onRefresh != null) {
+                        IconButton(onClick = onRefresh) {
+                            Icon(
+                                imageVector = MiuixIcons.Refresh,
+                                contentDescription = "刷新",
+                                modifier = Modifier.size(Dims.iconNav),
+                            )
+                        }
+                    }
+                },
+            )
+        },
+        content = content,
+    )
+}
+
+/**
  * **二級頁面的返回列**。
  *
  * 為什麼放進共用層而不是各頁自己寫：它是**同一種語義**（「回上一層」），
@@ -283,6 +361,9 @@ fun <T> LazyListScope.infoItems(
  *
  * ⚠️ 這裡刻意不用 Miuix 的 `TopAppBar`：二級頁是**滑動內容的一部分**，
  * 用固定頂欄會讓它與列表一起捲動時閃動。整頁頂欄是外殼（`TronShellPage`）的事。
+ *
+ * ⚠️ 用了它**不代表**底色與安全區就對了 —— 那是 [SecondaryScaffold] 的事。
+ * 這一列只適合放在已經有外殼的頁面裡（例如 `TronShellPage` 的板塊內部）。
  */
 @Composable
 fun BackRow(

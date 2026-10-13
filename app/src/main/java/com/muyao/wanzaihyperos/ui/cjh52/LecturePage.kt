@@ -1,6 +1,5 @@
 package com.muyao.wanzaihyperos.ui.cjh52
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,24 +19,16 @@ import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
 import com.muyao.wanzaihyperos.ui.design.ActionRow
 import com.muyao.wanzaihyperos.ui.design.AppList
-import com.muyao.wanzaihyperos.ui.design.BackRow
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.HintText
 import com.muyao.wanzaihyperos.ui.design.InfoItem
+import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
 import com.muyao.wanzaihyperos.ui.design.infoItems
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -77,37 +68,17 @@ fun LecturePage(
         if (state is ListState.FirstLoad) runCatching { repository.refresh() }
     }
 
-    // ★ 用 Scaffold + SmallTopAppBar，與其他 cjh52 原生頁（考試/通知/班級/成長）一致。
+    // ★ 用共用的 [SecondaryScaffold]，不要自己拼 Scaffold。
     //   真機上第一版自己用 `BackRow` + `AppList`，結果有兩個問題：
     //   ① 底色透明 → 下面的首頁宮格透上來；
     //   ② 沒有頂部安全區 → 返回鍵被狀態列蓋住。
-    //   Scaffold 一次解決兩者（它會處理 insets），而且與同層頁面長得一樣。
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            SmallTopAppBar(
-                title = "爱讲座",
-                subtitle = "來自場景管理（cjh52）",
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(Dims.iconNav),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { scope.launch { runCatching { repository.refresh() } } }) {
-                        Icon(
-                            imageVector = MiuixIcons.Refresh,
-                            contentDescription = "刷新",
-                            modifier = Modifier.size(Dims.iconNav),
-                        )
-                    }
-                },
-            )
-        },
+    //   那個外殼現在抽到設計層了（同一個坑踩三次之後），改動只需一行。
+    SecondaryScaffold(
+        title = "爱讲座",
+        subtitle = "來自場景管理（cjh52）",
+        onBack = onBack,
+        onRefresh = { scope.launch { runCatching { repository.refresh() } } },
+        modifier = modifier,
     ) { innerPadding ->
         val contentModifier = Modifier
             .fillMaxSize()
@@ -120,7 +91,7 @@ fun LecturePage(
                 onAction = onOpenWeb,
                 actionLabel = "改用网页版",
             )
-            return@Scaffold
+            return@SecondaryScaffold
         }
 
         AppList(modifier = contentModifier) {

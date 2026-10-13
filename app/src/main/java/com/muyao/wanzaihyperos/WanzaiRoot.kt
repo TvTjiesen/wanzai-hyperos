@@ -256,6 +256,9 @@ fun WanzaiApp() {
                 // docs/B1-WALKTHROUGH.md §3。
                 is AppOpenPlan.NativeFeature -> backStack.add(Route.Cjh52Feature(plan.feature))
 
+                // B17：智慧公寓 → 閘門頁（沒憑據就請使用者貼連結）。
+                is AppOpenPlan.ZhgyGate -> backStack.add(Route.Zhgy)
+
                 // ★ A4：学在城院**手机版免登**（带自动续期）。
                 //
                 // 旧实现只在输入密码那一刻换一次 token 对，之后直接用存的旧值。
@@ -654,6 +657,24 @@ fun WanzaiApp() {
                     scheduleRepository = app.schedule,
                     onExit = { backStack.removeLastOrNull() },
                     onOpenWeb = { openTronWeb(route.tileUrl) },
+                )
+            }
+
+            entry<Route.Lectures> { route ->
+                // 愛講座（B16）：自帶頂欄與清單，不需要預熱閘門
+                //（它用的是已激活的 cjh52 會話，由前面的 NativeFeature 那條激活）。
+                com.muyao.wanzaihyperos.ui.cjh52.LecturePage(
+                    repository = app.lectures,
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenWeb = { backStack.add(Route.Web(54, "爱讲座", route.tileUrl)) },
+                )
+            }
+
+            // B17：智慧公寓 —— 沒憑據時問使用者要連結，有就直接開。
+            entry<Route.Zhgy> {
+                com.muyao.wanzaihyperos.ui.web.ZhgyGatePage(
+                    session = app.zhgySession,
+                    onExit = { backStack.removeLastOrNull() },
                 )
             }
 

@@ -27,6 +27,21 @@ sealed interface AppOpenPlan {
     data class TempCode(val url: String, val appId: Int, val name: String) : AppOpenPlan
 
     /**
+     * B17：**智慧公寓**（`zhgy.hzcu.edu.cn`）。
+     *
+     * 它與其他所有 plan 都不同：**App 無法自己完成登入**。
+     * 門戶給的入口 `/mob/zuccding/auth` 是釘釘免登，
+     * 授權碼由釘釘容器簽發，瀏覽器拿不到；
+     * 而真正的入口要一段只存在於使用者手上連結裡的 `code`。
+     *
+     * 所以這裡只負責「導到閘門頁」，由那一頁決定是請使用者貼連結、
+     * 還是直接載入已設好的頁面（見 `ui/web/ZhgyGatePage.kt`）。
+     *
+     * 完整證據：`docs/B17-WALKTHROUGH.md`、`docs/B17-ZHGY-LINK-PROBE.txt`。
+     */
+    data object ZhgyGate : AppOpenPlan
+
+    /**
      * 学在城院（TronClass）手机版免登。
      *
      * 链路（真机实测通过）：
@@ -191,6 +206,17 @@ object AppOpenStrategy {
      */
     fun decide(app: PortalApp): AppOpenPlan {
         val host = hostOf(app.url)
+
+        // ★ B17：**智慧公寓優先判定，而且要在所有 WebView 分支之前**。
+        //
+        // 為什麼不能讓它落到一般的 WebView：門戶給它的入口
+        // `/mob/zuccding/auth` 是釘釘免登，在沒有釘釘的環境裡**必定**顯示
+        // 「[1001] 授權碼已過期或不存在」—— 直接開等於給使用者一個壞頁面。
+        // 它需要的是一段只存在於使用者手上連結裡的 `code`，
+        // 所以導到閘門頁去要那一段（見 ui/web/ZhgyGatePage.kt）。
+        if (host == HzcuHosts.ZHGY) {
+            return AppOpenPlan.ZhgyGate
+        }
 
         // ★ 顺序要紧：**先判学在城院，再判校园网**。
         //
@@ -407,4 +433,13 @@ object HzcuHosts {
 
     /** CJH52（場景管理）。B1 的原生課表走這個域。 */
     const val CJH52 = "cjh52.hzcu.edu.cn"
+
+    /**
+     * 智慧公寓（B17）。
+     *
+     * ⚠️ 這是**唯一一個需要使用者提供憑據**的子系統 ——
+     * 門戶給的入口是釘釘免登，瀏覽器拿不到授權碼。
+     * 見 [AppOpenPlan.ZhgyGate] 與 `docs/B17-WALKTHROUGH.md`。
+     */
+    const val ZHGY = "zhgy.hzcu.edu.cn"
 }
