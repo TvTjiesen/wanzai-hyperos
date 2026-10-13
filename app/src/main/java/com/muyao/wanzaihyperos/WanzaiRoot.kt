@@ -138,7 +138,17 @@ private fun StartupScreen(modifier: Modifier = Modifier) {
  * 这样「底部导航」与「路由栈」不会互相打架。
  */
 @Composable
-fun WanzaiApp() {
+fun WanzaiApp(
+    /**
+     * 從外部 intent 帶進來的智慧公寓連結（B17，見 `MainActivity`）。
+     *
+     * 有值時：**存下憑據並直接跳進智慧公寓** ——
+     * 使用者在別處點連結／分享進來，期望的就是「直接看到那個頁面」，
+     * 而不是先看到一個要他再貼一次的輸入框。
+     */
+    incomingZhgyLink: String? = null,
+    onIncomingZhgyLinkConsumed: () -> Unit = {},
+) {
     val uiState = remember { AppUiState() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -171,6 +181,30 @@ fun WanzaiApp() {
                 AppGraph.StartRoute.Login -> Route.Login
             },
         )
+
+        // ★ B17：收到外部帶進來的智慧公寓連結（使用者在別處點連結／分享進來）。
+        //
+        //   這裡直接**存下憑據並跳進智慧公寓**，而不是落到閘門頁要他再貼一次 ——
+        //   他點連結的意圖就是「看那個頁面」。
+        //
+        //   ⚠️ 只在已登入時處理，否則會出現「沒登入卻直接開了公寓頁」這種半狀態。
+        //     未處理的連結會在登入後再次觸發（MainActivity 的 state 還在）。
+        LaunchedEffect(incomingZhgyLink, uiState.loggedIn) {
+            val link = incomingZhgyLink ?: return@LaunchedEffect
+            if (!uiState.loggedIn) return@LaunchedEffect
+            val code = com.muyao.wanzaihyperos.session.ZhgySession.extractCode(link)
+            if (code.isNullOrBlank()) {
+                // 抽不出碼就別假裝成功 —— 直接無視，使用者仍可從閘門頁手動設定。
+                onIncomingZhgyLinkConsumed()
+                return@LaunchedEffect
+            }
+            app.zhgySession.save(code, System.currentTimeMillis())
+            // 避免重複堆疊：已經在這一頁就不再放一次。
+            if (backStack.lastOrNull() != Route.Zhgy) {
+                backStack.add(Route.Zhgy)
+            }
+            onIncomingZhgyLinkConsumed()
+        }
 
         /**
          * 点应用的**统一入口**：按 [AppOpenStrategy] 决定走哪条路。

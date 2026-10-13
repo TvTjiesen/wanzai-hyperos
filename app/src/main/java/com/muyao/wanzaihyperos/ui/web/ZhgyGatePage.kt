@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import com.muyao.wanzaihyperos.session.ZhgySession
 import com.muyao.wanzaihyperos.ui.design.AppList
@@ -64,6 +65,38 @@ fun ZhgyGatePage(
     var input by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
+    val context = LocalContext.current
+    val clipboard = remember(context) {
+        context.getSystemService(android.content.ClipboardManager::class.java)
+    }
+
+    /**
+     * 從剪貼簿讀一行文字並**只取其中可用的部分**。
+     *
+     * ### ★ 為什麼要做這個按鈕
+     *
+     * 使用者的實際流程是「在別的地方複製連結 → 回到這個 App 貼上」。
+     * 沒有這個按鈕時他要長按輸入框、選貼上 —— 而多數輸入法在這個框裡
+     * 長按的行為不一致（有的只給「粘貼」，有的要先全選）。
+     * 一鍵讀剪貼簿把這件事變成一次點擊。
+     *
+     * ⚠️ 只在使用者**主動點按**時才讀剪貼簿，而且**不保留原文** ——
+     * 讀到的東西除了抽出 `code` 之外不落任何地方。
+     * 這也是 Android 對剪貼簿的禮貌做法：不背景輪詢、不靜默讀取。
+     */
+    fun pasteFromClipboard() {
+        val text = runCatching {
+            clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)?.coerceToText(context)?.toString()
+        }.getOrNull()
+        if (text.isNullOrBlank()) {
+            error = "剪贴板是空的。请先在别处复制智慧公寓的网址。"
+            return
+        }
+        input = text
+        error = null
+    }
+
     val url = remember(hasCode) { if (hasCode) session.entryUrl() else null }
     if (url != null) {
         WebShellPage(
@@ -71,6 +104,12 @@ fun ZhgyGatePage(
             url = url,
             onExit = onExit,
             modifier = modifier,
+            // 設定過之後要留一條**正路**可以撤銷 —— 否則使用者想換帳號或
+            // 單純不想再留著憑據時，只能重裝 App（那是我實際踩過的情況）。
+            onClearCredential = {
+                session.clear()
+                hasCode = false
+            },
         )
         return
     }
@@ -88,7 +127,7 @@ fun ZhgyGatePage(
             item {
                 HintText(
                     "这个系统的登录由「钉钉」签发授权码，本 App 拿不到，所以需要你提供一次入口链接。\n" +
-                        "在能正常打开智慧公寓的地方，把网址（含 code= 的那一串）贴到下面。",
+                        "在能正常打开智慧公寓的地方复制网址（含 code= 的那一串），回到这里贴上。",
                 )
             }
 
@@ -104,6 +143,14 @@ fun ZhgyGatePage(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+
+            // ★ 一鍵從剪貼簿貼上：使用者的實際流程就是「別處複製 → 這裡貼」。
+            item {
+                Button(
+                    onClick = { pasteFromClipboard() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("从剪贴板贴上") }
             }
 
             item {
@@ -128,7 +175,7 @@ fun ZhgyGatePage(
             item {
                 HintText(
                     "说明：只会从你贴的网址里抽出 code 那一段，存在手机的加密存储里；" +
-                        "其余参数不会保留。这个码可以重复使用，设置一次即可。",
+                        "其余参数不会保留。这个码可以重复使用，设置一次即可 —— 重装 App 才会清掉。",
                 )
             }
             item {

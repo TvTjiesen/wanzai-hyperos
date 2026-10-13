@@ -43,6 +43,7 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.ui.common.PageState
@@ -78,6 +79,13 @@ fun WebShellPage(
     title: String,
     url: String,
     onExit: () -> Unit,
+    /**
+     * 可選的「清除憑據」出口（B17）。
+     *
+     * 只有**需要使用者提供憑據**的頁面才傳（目前是智慧公寓閘門）。
+     * 一般 WebView 不需要 —— 它們的登入態在網頁自己那邊。
+     */
+    onClearCredential: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -140,6 +148,20 @@ fun WebShellPage(
                                 tint = colors.onBackground,
                                 modifier = Modifier.size(20.dp),
                             )
+                        }
+                        // ★ B17：可選的「清除憑據」出口。
+                        //   智慧公寓那條路需要使用者提供憑據，而**給了就沒有正路可收回**——
+                        //   想換帳號或不想再留著時只能重裝 App（實際踩過）。
+                        //   所以把它做成頂欄上一個明確的按鈕，而不是藏起來。
+                        if (onClearCredential != null) {
+                            IconButton(onClick = onClearCredential) {
+                                Icon(
+                                    imageVector = MiuixIcons.Delete,
+                                    contentDescription = "清除已保存的登录信息",
+                                    tint = colors.onBackground,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
                         }
                         IconButton(onClick = onExit) {
                             Icon(

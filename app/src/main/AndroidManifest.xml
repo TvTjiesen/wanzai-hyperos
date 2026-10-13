@@ -38,6 +38,33 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!--
+              ★ B17：接收智慧公寓的入口連結（`zhgy.hzcu.edu.cn/mob/zuccindex.html?code=…`）。
+
+              為什麼要這個：那個連結是使用者在**別的 App**（釘釘／瀏覽器／聊天）裡
+              拿到的，而它的 `code` 是**個人憑證**，只能由使用者自己帶過來。
+              有了這個 intent-filter，使用者在任何地方點那個連結、
+              或把它「分享」到本 App，就會直接落到智慧公寓並自動填好 ——
+              不必手動複製再貼。
+
+              ⚠️ 只收 `zhgy.hzcu.edu.cn` 這一個 host、只收 `/mob/` 下的路徑：
+              收得越窄越好。這個 App **不當通用瀏覽器**，
+              也不該被任何網站用奇怪的 scheme 叫起來。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="http"
+                    android:host="zhgy.hzcu.edu.cn"
+                    android:pathPrefix="/mob/" />
+                <data
+                    android:scheme="https"
+                    android:host="zhgy.hzcu.edu.cn"
+                    android:pathPrefix="/mob/" />
+            </intent-filter>
         </activity>
     </application>
 
