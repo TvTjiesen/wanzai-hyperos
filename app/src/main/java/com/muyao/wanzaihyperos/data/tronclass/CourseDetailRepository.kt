@@ -42,6 +42,12 @@ data class TronCourseDetailBundle(
     val rollcallScore: TronRollcallScore?,
     val attendance: List<TronAttendance>,
     val homeworks: List<TronHomework>,
+    /** 課程公告（B14 補上 —— 先前以為全空，實測有課有）。 */
+    val bulletins: List<TronBulletin> = emptyList(),
+    /** 考試（B14 補上）。 */
+    val exams: List<TronExam> = emptyList(),
+    /** 討論區主題（B14 補上，只讀）。 */
+    val topics: List<TronTopicCategory> = emptyList(),
 ) {
     /**
      * 有沒有任何一塊取到了。
@@ -51,7 +57,8 @@ data class TronCourseDetailBundle(
      */
     val hasAnyData: Boolean
         get() = detail != null || score != null || rollcallScore != null ||
-            attendance.isNotEmpty() || homeworks.isNotEmpty()
+            attendance.isNotEmpty() || homeworks.isNotEmpty() ||
+            bulletins.isNotEmpty() || exams.isNotEmpty() || topics.isNotEmpty()
 }
 
 interface CourseDetailRepository {
@@ -124,6 +131,13 @@ class LiveCourseDetailRepository(
                     runCatching { client.courseAttendance(id, me) }
                 }
                 val homeworksR = runCatching { client.homeworks(id) }
+                // B14 補的三塊。**注意請求數**：一堂課要打 8 支，
+                // 而全域限流是 QPS ≤ 1 —— 它們是序列發出的（runCatching 是同步的），
+                // 所以最壞情況這一頁要 ~8 秒。可接受（比顯示錯誤好），
+                // 但**不要再往這裡加端點**：那是使用者真的會等到的秒數。
+                val bulletinsR = runCatching { client.courseBulletins(id) }
+                val examsR = runCatching { client.courseExams(id) }
+                val topicsR = runCatching { client.courseTopicCategories(id) }
 
                 val bundle = TronCourseDetailBundle(
                     course = course,
@@ -132,12 +146,17 @@ class LiveCourseDetailRepository(
                     rollcallScore = rollcallR.getOrNull(),
                     attendance = attendanceR.getOrDefault(emptyList()),
                     homeworks = homeworksR.getOrDefault(emptyList()),
+                    bulletins = bulletinsR.getOrDefault(emptyList()),
+                    exams = examsR.getOrDefault(emptyList()),
+                    topics = topicsR.getOrDefault(emptyList()),
                 )
                 if (!bundle.hasAnyData) {
                     // 有異常 → 整頁失敗（把最能說明原因的那個上拋）。
                     // 全部成功卻都空 → 那是**事實**，照樣顯示（頁首仍有課名）。
-                    val err = listOf(detailR, scoreR, rollcallR, attendanceR, homeworksR)
-                        .firstNotNullOfOrNull { it.exceptionOrNull() }
+                    val err = listOf(
+                        detailR, scoreR, rollcallR, attendanceR, homeworksR,
+                        bulletinsR, examsR, topicsR,
+                    ).firstNotNullOfOrNull { it.exceptionOrNull() }
                     if (err != null) throw err
                 }
                 bundle

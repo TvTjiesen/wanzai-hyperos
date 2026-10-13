@@ -67,9 +67,27 @@ data class TronCourseDetail(
 data class TronOutlineField(
     /** 欄位標題（`title`，如「教學目標」）。 */
     val title: String,
-    /** 內容（`description`）。未填時為空字串。 */
+    /** 內容（`description`）。未填時為空字串。**這是 HTML**。 */
     val description: String,
-)
+) {
+    /**
+     * 可讀的描述：把 `description` 的 HTML 處理掉。
+     *
+     * ### ★ 這是真機上抓到的 bug
+     *
+     * 第一版直接把 `description` 丟給界面，結果課綱長這樣：
+     * ```
+     * <div>平时成绩满分为50分，包含线上考核（20分）、线下考核（30分）</div>
+     * ```
+     * 使用者看到一整串標籤。B12 探測時那門課的大綱**是空的**，
+     * 所以「大綱欄位在、內容空」的樣本讓我以為裡面是純文字 ——
+     * 換一門有填的課才發現它跟公告一樣是 HTML 富文本。
+     *
+     * 走同一條 [htmlToPlainText]（與 [TronBulletin.plainText] 共用），
+     * 理由也一樣：不引入 HTML 渲染器。
+     */
+    val plainDescription: String get() = htmlToPlainText(description)
+}
 
 object TronCourseDetailParser {
 

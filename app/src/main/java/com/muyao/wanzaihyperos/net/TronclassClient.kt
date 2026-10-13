@@ -300,6 +300,31 @@ class TronclassClient(
             "课程公告",
         ) { com.muyao.wanzaihyperos.data.tronclass.TronBulletinParser.parseList(it) }
 
+    /**
+     * 某門課的**考試**清單。
+     *
+     * ⚠️ 先前（B12）以為它對所有課都空 —— 那是只掃 8 門課的結論。
+     * B14 掃全部 37 門後**6 門有考試**，見 [com.muyao.wanzaihyperos.data.tronclass.TronExam]。
+     */
+    suspend fun courseExams(courseId: Int):
+        List<com.muyao.wanzaihyperos.data.tronclass.TronExam> =
+        parseElementOf("/api/courses/$courseId/exams", "考试") {
+            com.muyao.wanzaihyperos.data.tronclass.TronExamParser.parseList(it)
+        }
+
+    /**
+     * 某門課的**討論區主題**（只讀）。
+     *
+     * ⚠️ 回應裡只給貼文 `id` 與回覆數，**沒有貼文內容** ——
+     * 要讀內容得逐條打 `/api/topics/{id}`。所以這一層只做「有哪些討論」，
+     * 見 [com.muyao.wanzaihyperos.data.tronclass.TronTopicCategory] 的類註釋。
+     */
+    suspend fun courseTopicCategories(courseId: Int):
+        List<com.muyao.wanzaihyperos.data.tronclass.TronTopicCategory> =
+        parseElementOf("/api/courses/$courseId/topic-categories", "讨论区") {
+            com.muyao.wanzaihyperos.data.tronclass.TronTopicCategoryParser.parseList(it)
+        }
+
     /** 個人資訊（「我的」頁）。 */
     suspend fun profile(): com.muyao.wanzaihyperos.data.tronclass.TronProfile? =
         com.muyao.wanzaihyperos.data.tronclass.TronProfileParser.parse(

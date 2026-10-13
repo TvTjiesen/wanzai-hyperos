@@ -9,9 +9,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository
+import com.muyao.wanzaihyperos.data.tronclass.TronBulletin
 import com.muyao.wanzaihyperos.data.tronclass.TronCourseDetailBundle
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
@@ -68,10 +72,13 @@ fun CourseDetailContent(
     val pageState = state.toPageState()
     val bundle = (state as? ListState.Content)?.items?.firstOrNull()
 
+    // 公告是否全部展開。切換課程（bundle 換人）時自動收合 ——
+    // 否則會帶著上一門課的展開狀態進來。
+    var showAllBulletins by remember(bundle?.course?.id) { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         if (state is ListState.FirstLoad) runCatching { repository.refresh() }
     }
-
     if (bundle == null) {
         StatePlaceholder(
             state = pageState,
@@ -113,6 +120,51 @@ fun CourseDetailContent(
                 trailingColor = MiuixTheme.colorScheme.error,
             )
         }
+
+        // 公告：**預設收起**，點標題展開全文（公告正文可能很長）。
+        item { BulletinSection(bundle) }
+        infoItems(
+            bundle.bulletins.take(if (showAllBulletins) bundle.bulletins.size else PREVIEW_COUNT),
+            key = { "b${it.id}" },
+        ) { b ->
+            BulletinItem(b)
+        }
+
+        // 考試 / 討論區：有才顯示（多數課沒有，出現空區塊只是噪音）。
+        if (bundle.exams.isNotEmpty()) {
+            item { SmallTitle(text = "考试（${bundle.exams.size}）") }
+            infoItems(bundle.exams, key = { "e${it.id}" }) { exam ->
+                InfoItem(
+                    title = exam.title,
+                    subtitle = listOfNotNull(
+                        exam.startLocal.takeIf { it.isNotBlank() }?.let { "开始 $it" },
+                        exam.endLocal.takeIf { it.isNotBlank() }?.let { "结束 $it" },
+                    ).joinToString("　"),
+                    trailing = exam.statusLabel,
+                    trailingColor = if (exam.submitted) MiuixTheme.colorScheme.primary
+                    else MiuixTheme.colorScheme.error,
+                    body = exam.description.takeIf { it.isNotBlank() },
+                )
+            }
+        }
+        if (bundle.topics.isNotEmpty()) {
+            item { SmallTitle(text = "讨论区（${bundle.topics.size}）") }
+            infoItems(bundle.topics, key = { "t${it.id}" }) { topic ->
+                InfoItem(
+                    title = topic.title.ifBlank { "（无标题讨论）" },
+                    subtitle = listOfNotNull(
+                        "${topic.topicCount} 条发言",
+                        "回复 ${topic.replyCount}",
+                        topic.endLocal.takeIf { it.isNotBlank() }?.let { "结束 $it" },
+                    ).joinToString("　"),
+                    trailing = topic.statusLabel,
+                )
+            }
+            item {
+                HintText("讨论区只能看「有哪些讨论」，看不了正文 —— 贴文内容要逐条单独取，这里不假装能读。")
+            }
+        }
+
         item { OutlineSection(bundle) }
 
         item {
@@ -121,6 +173,9 @@ fun CourseDetailContent(
         item { ActionRow(title = "更多功能", action = "改用网页版", onClick = onOpenWeb) }
     }
 }
+
+/** 公告在列表裡的預覽條數（其餘靠 `showAllBulletins` 展開）。 */
+private const val PREVIEW_COUNT = 2
 
 /** 頁首：課名 + 教師／學期／學分 + 課程資訊鍵值行。 */
 @Composable
@@ -251,6 +306,49 @@ private fun HomeworkSection(bundle: TronCourseDetailBundle, onOpenHomework: () -
     }
 }
 
+/**
+ * 公告區塊的**標題與展開控制**。
+ *
+ * ⚠️ 公告條目本身不在這裡（它們是 `LazyListScope` 的項目，
+ * 只能由 [AppList] 的 scope 產生）。這個函式只畫標題那一行。
+ */
+@Composable
+private fun BulletinSection(bundle: TronCourseDetailBundle) {
+    Column {
+        SmallTitle(text = "课程公告（${bundle.bulletins.size}）")
+        if (bundle.bulletins.isEmpty()) {
+            HintText("这门课没有公告。")
+        } else if (bundle.bulletins.size > PREVIEW_COUNT) {
+            HintText("共 ${bundle.bulletins.size} 条。")
+        }
+    }
+}
+
+/**
+ * 一條公告：標題 + 時間 + 正文。
+ *
+ * ### ★ 正文顯示的是**去過 HTML 標籤**的文字
+ *
+ * 服務端回的 `content` 是 HTML 富文本（`<p><span style=...>…`）。
+ * 直接用會看到一堆標籤 —— 所以走 [TronBulletin.plainText]，
+ * 而不是在這裡開一個 WebView。理由見那個屬性的註釋。
+ *
+ * 正文預設**最多 6 行**：公告動輒整頁，列表裡不該被一條佔滿。
+ */
+@Composable
+private fun BulletinItem(bulletin: TronBulletin) {
+    val text = bulletin.plainText
+    InfoItem(
+        title = bulletin.title.ifBlank { "（无标题公告）" },
+        subtitle = listOfNotNull(
+            bulletin.createdAtLocal.takeIf { it.isNotBlank() && it != "—" },
+            bulletin.authorName.takeIf { it.isNotBlank() },
+        ).joinToString("　").ifBlank { null },
+        body = text.takeIf { it.isNotBlank() },
+        bodyMaxLines = 6,
+    )
+}
+
 /** 課程大綱。老師沒填時要說清楚「沒填」而不是「取不到」。 */
 @Composable
 private fun OutlineSection(bundle: TronCourseDetailBundle) {
@@ -263,7 +361,22 @@ private fun OutlineSection(bundle: TronCourseDetailBundle) {
                     detail == null -> HintText("没有取到课程大纲。")
                     !detail.outlineFilled -> HintText("老师尚未填写课程大纲（栏位有 ${detail.outline.size} 个，内容都是空的）。")
                     else -> detail.filledOutline.forEach { field ->
-                        KeyValueRow(field.title, field.description, labelWidth = Dims.labelColumnWide)
+                        // ⚠️ 用**直排**（標題一行、內容在下），不用 KeyValueRow：
+                        //   大綱的內容是整段文字（實測「平時成績」那段近百字），
+                        //   塞進 72dp 標籤欄旁邊會變成一條窄柱，極難讀。
+                        //   真機上第一版就是這樣，換了才正常。
+                        Text(
+                            text = field.title,
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                        Spacer(Modifier.height(Dims.tight))
+                        Text(
+                            text = field.plainDescription,
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(Dims.loose))
                     }
                 }
             }

@@ -47,6 +47,71 @@ data class TronBulletin(
     /** 發佈時間轉本地顯示。 */
     val createdAtLocal: String
         get() = formatTronLocalTime(TronTodoParser.parseIsoMillis(createdAt)) ?: createdAt.ifBlank { "—" }
+
+    /**
+     * **可讀的正文**：把 `content` 的 HTML 標籤與實體處理掉。
+     *
+     * ### ★ 為什麼一定要走這裡，不能直接把 [content] 丟給 `Text`
+     *
+     * 課程公告的 `content` 是 **HTML 富文本**（實測）：
+     * ```
+     * <p><span style="font-size: 13.5pt;">各位同学好，本课程将采用线下为主，…</span></p>
+     * ```
+     * 直接顯示會看到一堆 `<p><span style=...>` 標籤。
+     *
+     * 這裡**不引入 HTML 渲染器**（不開 WebView）：公告是**閱讀**用的，
+     * 粗體斜體丟掉不影響理解；而引入一套渲染會帶回它自己的問題
+     * （捲動、返回鍵、深色模式、以及一個藏在列表裡的瀏覽器）。
+     */
+    val plainText: String get() = htmlToPlainText(content)
+}
+
+/**
+ * HTML → 純文字（**保守**轉換，只用於顯示）。
+ *
+ * 只做四件事，其餘原樣保留：
+ *
+ * 1. **區塊級標籤換行** —— `<p>` `<br>` `<div>` `<li>` 變成 `\n`，
+ *    否則整篇公告會擠成一行。
+ * 2. **其餘標籤直接刪掉** —— `<span style=...>` 這種對閱讀沒有貢獻。
+ * 3. **還原常見實體** —— `&nbsp; &amp; &lt; &gt; &quot; &#39;`。
+ *    刻意**只做這幾個**：`&#x4e2d;` 這種數字實體在公告樣本裡沒出現過，
+ *    為它寫一套解碼只是多一個會出錯的地方。
+ * 4. **收掉多餘空行** —— 標籤被刪掉後常留下 `\n\n\n`。
+ *
+ * ⚠️ **不做**的事：不解析 `<script>` 內容（樣本裡沒有）、
+ * 不處理表格（變成一行，可接受）、不還原 `<img>`（公告圖片會靜默消失，
+ * 但那個代價比開一個 WebView 小）。
+ */
+internal fun htmlToPlainText(html: String): String {
+    if (html.isBlank()) return ""
+    // 沒有標籤又不是實體的東西 → 直接回原文（省掉下面所有處理）。
+    if (!html.contains('<') && !html.contains('&')) return html.trim()
+
+    var text = html
+    // ① 區塊級標籤 → 換行（先做，避免與行內標籤的處理順序打架）。
+    text = Regex("""<\s*(br|/p|/div|/li|/tr|/h[1-6])\s*/?\s*>""", RegexOption.IGNORE_CASE)
+        .replace(text, "\n")
+    // ② 其餘標籤刪掉（連同屬性）。
+    text = Regex("""<[^>]*>""").replace(text, "")
+    // ③ 實體還原。`&nbsp;` 換成**普通空格**：在等寬中文字體裡它不換行，
+    //    留著會讓一行變得超寬。
+    text = text
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        // `&amp;` **必須最後做**：先做的話 `&amp;lt;` 會變成 `<`，
+        // 那是把「使用者真的想顯示 &lt; 這個字」誤解成標籤。
+        .replace("&amp;", "&")
+    // ④ 收空行與行首尾空白。
+    return text
+        .lines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .joinToString("\n")
 }
 
 object TronBulletinParser {
