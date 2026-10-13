@@ -173,9 +173,19 @@ fun WebShellPage(
                         }
                     },
                 )
-                if (progress < 100f) {
+                // ★ 進度條的顯示條件是「**正在載入**」，不是 `progress < 100f`。
+                //
+                //   真機 bug（B17）：先前用 `progress < 100f` 判斷，
+                //   但 `onProgressChanged` 在 `onPageFinished` **之後**仍會回呼
+                //   小於 100 的值（Chromium 的行為），於是那條動畫進度條**永遠在跑** ——
+                //   `LinearProgressIndicator` 是不斷重繪的動畫，它讓整頁每幀重組，
+                //   GPU 佔用跑到 98%、畫面看起來一直在閃。
+                //
+                //   改用 `loadState`（它由 onPageStarted/onPageFinished 精確驅動），
+                //   載入完成就不再顯示進度條，閃爍從根上消失。
+                if (loadState is WebLoadState.Loading) {
                     LinearProgressIndicator(
-                        progress = progress / 100f,
+                        progress = (progress / 100f).coerceIn(0f, 1f),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -247,7 +257,11 @@ fun WebShellPage(
                         webChromeClient = object : android.webkit.WebChromeClient() {
                             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                 super.onProgressChanged(view, newProgress)
-                                progress = newProgress.toFloat()
+                                // ⚠️ 只在**值真的變了**才寫 state。
+                                //   這個回呼在載入期間會高頻觸發，每次都寫 state 等於
+                                //   每一幀都重組一次整棵樹（含下面的 AndroidView）。
+                                val next = newProgress.toFloat()
+                                if (progress != next) progress = next
                             }
                         }
                         loadUrl(url)
