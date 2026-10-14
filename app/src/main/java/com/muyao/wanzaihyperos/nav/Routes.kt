@@ -143,4 +143,30 @@ sealed interface Route : NavKey {
      */
     @Serializable
     data object Jw : Route
+
+    /**
+     * B19：**智雲課堂**（`livemobileapp.hzcu.edu.cn`）。
+     *
+     * **不帶參數** —— 認證沿用既有的統一身份認證會話（cookie），
+     * 不該進導航狀態。
+     */
+    @Serializable
+    data object Zy : Route
+
+    /**
+     * B19：智雲課堂的**回放播放頁**。
+     *
+     * 這裡帶 `url` 是**刻意的、也是不得已的**：播放頁的網址由服務端在
+     * 「點某一節課」時才給（不是固定模板）。
+     *
+     * ⚠️ 本專案的通則是「**憑據永不進導航狀態**」（見 [Zhgy] 的註釋：
+     * 導航狀態會被系統序列化保存/恢復）。所以這裡先確認過：
+     * 這個 URL **不含憑據** —— 實測它只帶 `course_id` / `sub_id` / `tenant_code`
+     * 這些**識別碼**，認證在 cookie 裡。識別碼不是憑據，可以進導航狀態。
+     *
+     *（`Route.Cjh52Feature` 那條路曾被提醒同一件事：billlist/todos 的 URL
+     *  可能**一次性**帶 SSO 憑據，那種一律不能顯示或點擊。）
+     */
+    @Serializable
+    data class ZyReplay(val url: String, val title: String) : Route
 }

@@ -56,6 +56,14 @@ sealed interface AppOpenPlan {
     data class JwNative(val tileUrl: String, val appId: Int, val name: String) : AppOpenPlan
 
     /**
+     * B19：**智雲課堂原生頁**（本週課表 + 回放入口）。
+     *
+     * 帶 `tileUrl` 是為了「改用網頁版」能回退到**同一個**智雲課堂地址
+     *（與 [NativeTronclass] 同一個理由：原生取不到數時不是死路）。
+     */
+    data class ZyNative(val tileUrl: String, val name: String) : AppOpenPlan
+
+    /**
      * 学在城院（TronClass）手机版免登。
      *
      * 链路（真机实测通过）：
@@ -236,6 +244,15 @@ object AppOpenStrategy {
         //   其餘同域應用（教材繳費等）維持 WebView —— 理由見 JwNative 的註釋。
         if (host == HzcuHosts.JW && isJwQueryEntry(app.name, app.url)) {
             return AppOpenPlan.JwNative(tileUrl = app.url, appId = app.id, name = app.name)
+        }
+
+        // ★ B19：智雲課堂（`livemobileapp.hzcu.edu.cn`）→ 原生週課表頁。
+        //
+        // 它與門戶／學在城院**共用同一套統一身份認證**，所以不必再問帳密；
+        // 課表與回放清單都是標準 JSON 介面（實測），適合原生。
+        // 播放仍用它自己的頁面（見 `ZyReplayPage` 的註釋：觀看進度要上報）。
+        if (host == HzcuHosts.ZY_LIVE) {
+            return AppOpenPlan.ZyNative(tileUrl = app.url, name = app.name)
         }
 
         // ★ 顺序要紧：**先判学在城院，再判校园网**。
@@ -496,4 +513,7 @@ object HzcuHosts {
      * 其餘同域應用仍走 WebView —— 見 [AppOpenPlan.JwNative] 的註釋。
      */
     const val JW = "ijw.hzcu.edu.cn"
+
+    /** B19：智雲課堂（智慧雲課堂 CMC）。 */
+    const val ZY_LIVE = "livemobileapp.hzcu.edu.cn"
 }

@@ -296,6 +296,9 @@ fun WanzaiApp(
                 // B18：教務查詢類入口 → 原生頁（考試／成績）。
                 is AppOpenPlan.JwNative -> backStack.add(Route.Jw)
 
+                // B19：智雲課堂 → 原生週課表頁。
+                is AppOpenPlan.ZyNative -> backStack.add(Route.Zy)
+
                 // ★ A4：学在城院**手机版免登**（带自动续期）。
                 //
                 // 旧实现只在输入密码那一刻换一次 token 对，之后直接用存的旧值。
@@ -723,6 +726,35 @@ fun WanzaiApp(
                     repository = app.jw,
                     engine = app.jwEngine,
                     session = app.jwSession,
+                    onExit = { backStack.removeLastOrNull() },
+                )
+            }
+
+            // B19：智雲課堂 —— 本週課表 + 回放入口。
+            entry<Route.Zy> {
+                com.muyao.wanzaihyperos.ui.zy.ZyPage(
+                    repository = app.zy,
+                    engine = app.zyEngine,
+                    onOpenReplay = { item ->
+                        backStack.add(
+                            Route.ZyReplay(
+                                url = com.muyao.wanzaihyperos.data.zy.ZyReplayUrls.detail(
+                                    courseId = item.courseId,
+                                    subId = item.id,
+                                ),
+                                title = item.title,
+                            ),
+                        )
+                    },
+                    onExit = { backStack.removeLastOrNull() },
+                )
+            }
+
+            // B19：智雲課堂回放播放（用它的頁面 —— 見 ZyReplayPage 的註釋）。
+            entry<Route.ZyReplay> { route ->
+                com.muyao.wanzaihyperos.ui.zy.ZyReplayPage(
+                    url = route.url,
+                    title = route.title,
                     onExit = { backStack.removeLastOrNull() },
                 )
             }

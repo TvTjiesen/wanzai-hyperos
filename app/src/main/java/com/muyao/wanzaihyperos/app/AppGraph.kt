@@ -112,6 +112,10 @@ class AppGraph private constructor(
     val jwEngine: com.muyao.wanzaihyperos.data.jw.JwEngine,
     /** B18：教務系統倉庫（兩段登入 + 取資料）。 */
     val jw: com.muyao.wanzaihyperos.data.jw.JwRepository,
+    /** B19：智雲課堂引擎（沿用既有統一身份認證會話，用不可見 WebView 取數）。 */
+    val zyEngine: com.muyao.wanzaihyperos.data.zy.ZyEngine,
+    /** B19：智雲課堂倉庫（週課表 + 回放）。 */
+    val zy: com.muyao.wanzaihyperos.data.zy.ZyRepository,
 ) {
 
     /** 启动时该落在哪一页：已经登录就直奔主壳，否则先登录。 */
@@ -220,6 +224,8 @@ class AppGraph private constructor(
             // B18：教務系統的兩個長命物件。**必須在這裡建一次**（見下面命名實參的註釋）。
             val jwSessionInstance = com.muyao.wanzaihyperos.session.JwSession(store)
             val jwEngineInstance = com.muyao.wanzaihyperos.data.jw.JwEngine()
+            // B19：智雲課堂。同樣**只能建一份** —— WebView 裡那份會話就在引擎裡。
+            val zyEngineInstance = com.muyao.wanzaihyperos.data.zy.ZyEngine()
             return AppGraph(
                 appContext = appContext,
                 client = client,
@@ -266,6 +272,8 @@ class AppGraph private constructor(
                 jwSession = jwSessionInstance,
                 jwEngine = jwEngineInstance,
                 jw = com.muyao.wanzaihyperos.data.jw.LiveJwRepository(jwEngineInstance, jwSessionInstance),
+                zyEngine = zyEngineInstance,
+                zy = com.muyao.wanzaihyperos.data.zy.LiveZyRepository(zyEngineInstance),
             )
         }
     }
