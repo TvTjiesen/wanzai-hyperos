@@ -134,22 +134,25 @@ fun GlassSurface(
                             dispersion = spec.chromaticAberration * f,
                         )
                     }
-                },
-                // ④ 邊緣高光。
-                //
-                // ⚠️ 這一層如果給「一圈均勻白線」就是業主說的「奇怪邊緣白光」。
-                //   真高光應該是有位置的光源（左上亮、右下暗），
-                //   那需要雙光源模型（Miuix 的 BloomStroke），屬下一步。
-                //   在此之前：寧可很淡，也不要那圈假白線。
-                highlight = {
+                    // ③b 高光：**雙光源 + 曲面法線**（真的是光，不是白線）。
+                    //
+                    // 這一層放在 effects 裡（與折射同一個效果鏈），
+                    // 因為它要疊在折射結果上、並且讀 `content` 取樣。
+                    //
+                    // 之前我用庫的 `Highlight(...)` 畫一圈 0.6dp 白線 ——
+                    // 那是平面均勻的，業主說「奇怪邊緣白光」。
+                    // 真玻璃的高光是有方向的：左上一段亮、右下一段暗，
+                    // 因為邊緣是圓角曲面，法線不同。
                     if (spec.highlightAlpha > 0f) {
-                        Highlight(
-                            width = 0.6.dp,
-                            blurRadius = 2.dp,
-                            alpha = spec.highlightAlpha * pressFraction.coerceIn(0f, 1f),
+                        val f = pressFraction.coerceIn(0f, 1f)
+                        bloomStrokeHighlight(
+                            highlight = GlassHighlight(
+                                strokeWidth = 1.2.dp,
+                                innerBlurRadius = 2.8.dp,
+                                alpha = spec.highlightAlpha * f,
+                            ),
+                            shape = shape,
                         )
-                    } else {
-                        null
                     }
                 },
                 // ⑤ 外陰影：讓玻璃「浮」在內容上。
