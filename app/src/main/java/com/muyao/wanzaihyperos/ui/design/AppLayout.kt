@@ -73,10 +73,20 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun AppList(
     modifier: Modifier = Modifier,
+    /**
+     * 清單的滾動狀態。
+     *
+     * 給了才能把滾動進度交給 [SecondaryScaffold] 去驅動頂欄漸變紗
+     *（見 [rememberScrollProgress]）。不給就自己建一個 —— 這對
+     *「不需要紗」的頁面沒有影響。
+     */
+    state: androidx.compose.foundation.lazy.LazyListState =
+        androidx.compose.foundation.lazy.rememberLazyListState(),
     header: (LazyListScope.() -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     LazyColumn(
+        state = state,
         modifier = modifier.fillMaxWidth(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             horizontal = Dims.screenH,
@@ -463,6 +473,34 @@ fun SecondaryScaffold(
     modifier: Modifier = Modifier,
     subtitle: String = "",
     onRefresh: (() -> Unit)? = null,
+    /**
+     * 內容的滾動進度（0~1），用來驅動頂欄漸變紗。
+     *
+     * ## 為什麼要由頁面傳進來
+     *
+     * 每個二級頁的列表狀態（`LazyListState` / `LazyGridState`）是**頁面自己的**，
+     * 殼層拿不到。硬要在殼層內部再建一個滾動容器會變成「兩個列表」。
+     *
+     * 所以：頁面把自己列表的滾動進度算好傳進來。
+     * 不傳（預設 0）就**沒有紗** —— 與「停在頂部時無紗」的行為一致，
+     * 不會出現「一進頁面就有一層灰」的錯誤。
+     *
+     * 怎麼算（頁面側）：
+     * ```kotlin
+     * val progress by remember {
+     *     derivedStateOf {
+     *         val info = listState.layoutInfo
+     *         val first = info.visibleItemsInfo.firstOrNull() ?: return@derivedStateOf 0f
+     *         val scrolled = -first.offset.toFloat()
+     *         val total = (info.totalItemsCount * first.size - info.viewportEndOffset)
+     *             .coerceAtLeast(1)
+     *         (scrolled / total).coerceIn(0f, 1f)
+     *     }
+     * }
+     * SecondaryScaffold(…, scrollProgress = progress)
+     * ```
+     */
+    scrollProgress: Float = 0f,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     // 背景漸層交給 [ThemedScaffold] —— 不在這裡再寫一份。
@@ -470,45 +508,56 @@ fun SecondaryScaffold(
     ThemedScaffold(
         modifier = modifier,
         topBar = {
-            SmallTopAppBar(
-                title = title,
-                subtitle = subtitle,
-                // ★ 頂欄底色**透明**，露出後面的漸層。
-                //
-                // 真機踩到的：預設底色是主題的 `background`（純色），
-                // 於是頂部出現**一條純黑/純白的色帶**壓在漸層上 ——
-                // 規範 §7 明確點名過這個毛病（「頂欄不許有不透明色帶壓在內容上」）。
-                //
-                // 參數名 `color` 是從 0.9.4 位元組碼的 Kotlin 元數據讀出來的
-                //（`C(SmallTopAppBar)N(title,modifier,color:c#ui.graphics.Color,…)`），
-                // 不是猜的。
-                color = Color.Transparent,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(Dims.iconNav),
-                        )
-                    }
-                },
-                actions = {
-                    if (onRefresh != null) {
-                        IconButton(onClick = onRefresh) {
+            // ★ 頂欄 = 漸變紗 + 透明頂欄。
+            //
+            // 順序要緊：**紗在下、文字在上**。
+            // 反過來（文字先、紗後）會把標題糊掉。
+            Box {
+                // 紗只覆蓋「欄身 + 尾巴」那一條，不是整頁。
+                // progress 為 0 時 [TopVeil] 內部直接 return，連合成層都不建。
+                TopVeil(
+                    progress = scrollProgress,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+                SmallTopAppBar(
+                    title = title,
+                    subtitle = subtitle,
+                    // ★ 頂欄底色**透明**，露出後面的紗與漸層。
+                    //
+                    // 真機踩到的：預設底色是主題的 `background`（純色），
+                    // 於是頂部出現**一條純黑/純白的色帶**壓在漸層上 ——
+                    // 規範 §7 明確點名過這個毛病（「頂欄不許有不透明色帶壓在內容上」）。
+                    //
+                    // 參數名 `color` 是從 0.9.4 位元組碼的 Kotlin 元數據讀出來的
+                    //（`C(SmallTopAppBar)N(title,modifier,color:c#ui.graphics.Color,…)`），
+                    // 不是猜的。
+                    color = Color.Transparent,
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
                             Icon(
-                                imageVector = MiuixIcons.Refresh,
-                                contentDescription = "刷新",
+                                imageVector = MiuixIcons.ChevronBackward,
+                                contentDescription = "返回",
                                 modifier = Modifier.size(Dims.iconNav),
                             )
                         }
-                    }
-                },
-            )
+                    },
+                    actions = {
+                        if (onRefresh != null) {
+                            IconButton(onClick = onRefresh) {
+                                Icon(
+                                    imageVector = MiuixIcons.Refresh,
+                                    contentDescription = "刷新",
+                                    modifier = Modifier.size(Dims.iconNav),
+                                )
+                            }
+                        }
+                    },
+                )
+            }
         },
         content = content,
     )
 }
-
 /**
  * **二級頁面的返回列**。
  *

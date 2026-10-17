@@ -39,6 +39,7 @@ import com.muyao.wanzaihyperos.ui.design.InfoItem
 import com.muyao.wanzaihyperos.ui.design.ResultBanner
 import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
 import com.muyao.wanzaihyperos.ui.design.infoItemsIndexed
+import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -112,10 +113,16 @@ fun JwPage(
         }
     }.orEmpty()
 
+    // 清單的滾動狀態提到外面：頂欄漸變紗要靠它算進度
+    //（見 SecondaryScaffold 的 scrollProgress 參數說明）。
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val veilProgress by com.muyao.wanzaihyperos.ui.design.rememberScrollProgress(listState)
+
     SecondaryScaffold(
         title = "教务系统",
         subtitle = "正方教学管理信息服务平台",
         onBack = onExit,
+        scrollProgress = veilProgress,
         onRefresh = if (hasCredential) {
             { scope.launch { runCatching { repository.load(feature, force = true) } } }
         } else null,
@@ -126,7 +133,7 @@ fun JwPage(
                 .fillMaxSize()
                 .padding(top = innerPadding.calculateTopPadding()),
         ) {
-            AppList(modifier = Modifier.fillMaxSize()) {
+            AppList(modifier = Modifier.fillMaxSize(), state = listState) {
                 if (!hasCredential) {
                     // ── 還沒設過憑據 ──────────────────────────────────
                     item {
