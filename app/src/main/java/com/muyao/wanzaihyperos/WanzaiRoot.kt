@@ -472,36 +472,23 @@ fun WanzaiApp(
             }
 
             entry<Route.Main> {
-                MainShell(
-                    uiState = uiState,
+                // ★ 新主殼：五個板塊 + 液態玻璃底欄。
+                //
+                // 舊的 `MainShell`（四 tab，Scaffold + NavigationBar）已被取代：
+                // 業主要求「把已重構和未重構分開、按功能分類」，
+                // 而舊版把原生頁與網頁入口混在一個宮格裡。
+                com.muyao.wanzaihyperos.ui.main.WanzaiMainShell(
                     graph = app,
-                    unreadCount = unreadCount,
+                    uiState = uiState,
                     onOpenApp = openApp,
                     onOpenSearch = { backStack.add(Route.Search) },
-                    onOpenMessages = { uiState.selectedTab = 2 },
-                    // ★ B3：首頁「待辦 / 申請 / 已辦」三格 → 我的事務對應清單。
-                    onOpenBusyness = { bucketName ->
-                        backStack.add(Route.Busyness(bucket = bucketName))
-                    },
-                    // ★ B6：首頁「全部待办」→ 多來源待辦看板。
-                    onOpenTodoBoard = { backStack.add(Route.TodoBoard) },
-                    // B18：首頁「教务系统」→ 考試信息 / 學生成績（只讀）。
+                    onOpenSection = { /* 板塊切換由主殼內部處理 */ },
                     onOpenJw = { backStack.add(Route.Jw) },
-                    onRelogin = {
-                        uiState.loggedIn = false
-                        uiState.displayAccount = ""
-                        backStack.resetTo(Route.Login)
-                    },
-                    onLogout = {
-                        // 登出要清凭据与 cookie 罐；在后台做，别卡界面。
-                        // 用 composition 自己的 scope，别 new 一个游离的 —— 页面销毁后
-                        // 游离 scope 仍会跑完，写回已失效的状态。
-                        scope.launch { runCatching { app.logout() } }
-                        uiState.loggedIn = false
-                        uiState.displayAccount = ""
-                        uiState.selectedTab = 0
-                        backStack.resetTo(Route.Login)
-                    },
+                    onOpenTimetable = { uiState.selectedTab = 1 },
+                    onOpenMessages = { uiState.selectedTab = 2 },
+                    onOpenNews = { backStack.add(Route.Cjh52Feature("NOTICE")) },
+                    onOpenTodos = { backStack.add(Route.TodoBoard) },
+                    onOpenSettings = { uiState.selectedTab = 4 },
                 )
             }
 

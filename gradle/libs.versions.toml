@@ -10,6 +10,9 @@ activityCompose = "1.12.4"
 coreKtx = "1.17.0"
 lifecycle = "2.9.4"
 miuix = "0.9.4"
+# 液態玻璃（iOS 26/27 style）。Apache-2.0，minSdk 21（我們 24 可用）。
+# 為何不用 miuix-blur：它要 minSdk 33，會丟掉 Android 13 以下全部機型。
+backdrop = "2.0.1"
 coroutines = "1.10.2"
 okhttp = "5.1.0"
 kotlinxSerialization = "1.9.0"
@@ -34,6 +37,8 @@ miuix-ui = { group = "top.yukonga.miuix.kmp", name = "miuix-ui-android", version
 miuix-preference = { group = "top.yukonga.miuix.kmp", name = "miuix-preference-android", version.ref = "miuix" }
 miuix-icons = { group = "top.yukonga.miuix.kmp", name = "miuix-icons-android", version.ref = "miuix" }
 miuix-nav = { group = "top.yukonga.miuix.kmp", name = "miuix-nav-android", version.ref = "miuix" }
+# 液態玻璃：真實折射 + 模糊 + 高光（見 docs/BEAUTY-GLASS.md）
+backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
 
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }

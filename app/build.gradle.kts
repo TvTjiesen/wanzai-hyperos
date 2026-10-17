@@ -70,6 +70,8 @@ dependencies {
     implementation(libs.miuix.preference)
     implementation(libs.miuix.icons)
     implementation(libs.miuix.nav)
+    // 液態玻璃（iOS 26/27 style）：真實折射 + 模糊 + 高光。Apache-2.0，minSdk 21。
+    implementation(libs.backdrop)
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
