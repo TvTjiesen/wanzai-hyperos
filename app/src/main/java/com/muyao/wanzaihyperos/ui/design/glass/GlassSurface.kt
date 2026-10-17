@@ -110,13 +110,40 @@ fun GlassSurface(
 
     Box(
         modifier = modifier.hazeGlass(
-            // 折射來源：取 HazeState 裡標記的所有 hazeSource 區域。
-            // 不用 HazeState 本身 —— 它不是 HazeInput，要包一層 Sources。
-            input = HazeInput.Sources(backdrop),
-            style = style,
-        ),
-        content = content,
-    )
+                // 折射來源：取 HazeState 裡標記的所有 hazeSource 區域。
+                input = HazeInput.Sources(backdrop),
+                style = style,
+                // ★★ 這一項決定「有沒有折射」。
+                //
+                // Haze 的折射要往外採樣（邊緣會「吸」到元件外的像素），
+                // 預設 `expandLayerBounds = false` 時採樣層只覆蓋元件自身，
+                // 邊緣採到的是空白 —— 結果就是**看起來完全沒有折射**。
+                //
+                // 業主三次說「沒有折射扭曲」，根因就是這個。
+                expandLayerBounds = true,
+            ),
+    ) {
+        // ★★ 在玻璃**之上**再鋪一層表面色。
+        //
+        // 為什麼是「之上」而不是「之下」：
+        // Haze 的玻璃會把底下的內容折射上來（那是折射的本質），
+        // 但底欄必須讓圖標清晰可讀 —— 完全透會變成「內容和圖標疊在一起」。
+        //
+        // 加在之上 = 背後的內容被**壓淡**成淡淡的輪廓（看得出有東西），
+        // 但圖標與文字仍然清楚；折射與色散在邊緣照樣可見。
+        // 這是 iOS 玻璃的實際做法：玻璃本體有一層極淡的乳白底色。
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    color = spec.surfaceTint.copy(
+                        alpha = if (isDark) 0.72f else 0.80f,
+                    ),
+                    shape = RoundedCornerShape(cornerRadius),
+                ),
+        )
+        content()
+    }
 }
 
 /**

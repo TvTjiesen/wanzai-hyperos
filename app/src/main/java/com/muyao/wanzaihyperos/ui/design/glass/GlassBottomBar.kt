@@ -341,10 +341,10 @@ fun GlassBottomBar(
                                     },
                                     modifier = Modifier.size(ICON_SIZE),
                                 )
-                                Spacer(Modifier.height(1.dp))
+                                Spacer(Modifier.height(2.dp))
                                 Text(
                                     text = item.label,
-                                    fontSize = 9.sp,
+                                    fontSize = 11.sp,
                                     // 選中只用顏色表達，不改字重
                                     // （改字重會讓整排字橫向抖動，規範紅線 #6）
                                     fontWeight = FontWeight.Normal,
@@ -381,22 +381,22 @@ private fun bubbleColor(isDark: Boolean): Color =
 // ══════════════════════════════════════════════════════════════════════════
 
 /** 底欄左右外邊距：量到 100px / 3.5 = 28.6dp。 */
-private val BAR_SIDE_PADDING = 22.dp
+private val BAR_SIDE_PADDING = 26.dp
 
 /** 底欄上下外邊距：讓它「浮」起來而不是貼死屏幕邊。 */
-private val BAR_VERTICAL_PADDING = 12.dp
+private val BAR_VERTICAL_PADDING = 14.dp
 
 /** 底欄內容高度。 */
-private val BAR_HEIGHT = 46.dp
+private val BAR_HEIGHT = 62.dp
 
 /** 選中氣泡寬度：量到 174px / 3.5 = **49.7dp**。 */
-private val BUBBLE_WIDTH = 50.dp
+private val BUBBLE_WIDTH = 66.dp
 
 /** 選中氣泡高度：量到 124px / 3.5 = 35.4dp，取 42dp 給玻璃邊緣留餘量。 */
-private val BUBBLE_HEIGHT = 42.dp
+private val BUBBLE_HEIGHT = 56.dp
 
 /** 圖標尺寸。 */
-private val ICON_SIZE = 16.dp
+private val ICON_SIZE = 22.dp
 
 /**
  * 選中格比其他格多出的寬度（dp）。

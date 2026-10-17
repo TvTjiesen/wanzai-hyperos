@@ -116,7 +116,7 @@ data class GlassSpec(
             blurDp = 6.dp,
             frostBlurDp = 18.dp,
             specularIntensity = 0.62f,
-            surfaceAlpha = 0.70f,
+            surfaceAlpha = 0.55f,
             surfaceTint = Color(0xFFF4F7FF),
             cornerRadius = 26.dp,
         )
@@ -131,7 +131,7 @@ data class GlassSpec(
             blurDp = 8.dp,
             frostBlurDp = 22.dp,
             specularIntensity = 0.72f,
-            surfaceAlpha = 0.62f,
+            surfaceAlpha = 0.50f,
             surfaceTint = Color(0xFFF2F5FC),
             cornerRadius = 26.dp,
         )
