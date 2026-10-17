@@ -81,16 +81,24 @@ data class GlassSpec(
     companion object {
         /** 淺色定稿。表面底色用米白 —— 純白在淺色背景上會「白上白」。 */
         val LIGHT = GlassSpec(
-            blurDp = 8.dp,
-            frostBlurDp = 18.dp,
-            lensHeightDp = 20.dp,
-            lensAmountDp = 16.dp,
-            chromaticAberration = 1.1f,
-            depthEffect = 0.5f,
-            // ★ 量自參考 app：淺色下底欄幾乎是**實心白**（(255,255,255)），
-            //   不是半透明玻璃。我原本用 0.34 + 米白，導致背景粉紫透上來，
-            //   看起來「髒」。玻璃質感主要由折射/陰影提供，不靠表面透明度。
-            surfaceAlpha = 0.92f,
+            // 對齊參考 app 的上限：BlurMaxDp = 12（我原來只給 8，太輕）
+            blurDp = 12.dp,
+            frostBlurDp = 24.dp,
+            lensHeightDp = 26.dp,
+            lensAmountDp = 22.dp,
+            // 色散 1.8：參考的 chromaticAberration 是「看得見一點彩虹但不明顯」
+            chromaticAberration = 1.8f,
+            depthEffect = 0.8f,
+            // ★★ 這裡我來回錯過一次，記下來：
+            //
+            // 曾為「讓底欄看起來白」把 surfaceAlpha 拉到 0.92 ——
+            // 但這一層是畫在**折射結果之上**的，
+            // 92% 不透明 = 把折射整個蓋死 → 玻璃變成白板，業主說「折射都沒了」。
+            //
+            // 正解：表面要**透**（0.30），白感靠
+            //   ① 模糊後的背景本身偏亮  ② 高光  ③ 陰影
+            // 而不是靠堆白漆。參考 app 的底欄在**深色內容上**也是透的。
+            surfaceAlpha = 0.30f,
             surfaceTint = Color.White,
             highlightAlpha = 0.30f,
             innerShadowDp = 8.dp,

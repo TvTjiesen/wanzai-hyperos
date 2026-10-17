@@ -6,46 +6,46 @@ import com.kyant.backdrop.BackdropEffectScope
 import com.kyant.backdrop.effects.runtimeShaderEffect
 
 /**
- * 液態玻璃的**折射 + 色散** shader（AGSL）。
+ * 娑叉厠鐜荤拑鐨?*鎶樺皠 + 鑹叉暎** shader锛圓GSL锛夈€?
  *
- * ## 來源：逆向 `xyz.nextalone.hyperzoomring` 1.34.0-beta（萬能變焦環）
+ * ## 渚嗘簮锛氶€嗗悜 `xyz.nextalone.hyperzoomring` 1.34.0-beta锛堣惉鑳借畩鐒︾挵锛?
  *
- * 業主提供那個 APK 說「你那個抄不明白就抄我這個變焦環模組的玻璃吧」。
- * 它的實作在 `defpackage.js.F(scope, refractionHeight, refractionAmount,
- * depthEffect, chromaticAberration)`，兩段 AGSL 原樣在字串裡。
- * 本檔是**逐字移植**（只改了縮排與註釋），數學一行沒動。
+ * 妤富鎻愪緵閭ｅ€?APK 瑾€屼綘閭ｅ€嬫妱涓嶆槑鐧藉氨鎶勬垜閫欏€嬭畩鐒︾挵妯＄祫鐨勭幓鐠冨惂銆嶃€?
+ * 瀹冪殑瀵︿綔鍦?`defpackage.js.F(scope, refractionHeight, refractionAmount,
+ * depthEffect, chromaticAberration)`锛屽叐娈?AGSL 鍘熸ǎ鍦ㄥ瓧涓茶！銆?
+ * 鏈獢鏄?*閫愬瓧绉绘**锛堝彧鏀逛簡绺帓鑸囪ɑ閲嬶級锛屾暩瀛镐竴琛屾矑鍕曘€?
  *
- * ## 為什麼要自己寫 shader，而不是用 backdrop 的 `lens()`
+ * ## 鐐轰粈楹艰鑷繁瀵?shader锛岃€屼笉鏄敤 backdrop 鐨?`lens()`
  *
- * `kyant/backdrop` 的 `lens()` 只有**均勻折射**（整片朝一個方向偏）。
- * 而真正的液態玻璃要三件事，它做不到：
+ * `kyant/backdrop` 鐨?`lens()` 鍙湁**鍧囧嫽鎶樺皠**锛堟暣鐗囨湞涓€鍊嬫柟鍚戝亸锛夈€?
+ * 鑰岀湡姝ｇ殑娑叉厠鐜荤拑瑕佷笁浠朵簨锛屽畠鍋氫笉鍒帮細
  *
- * 1. **只在邊緣折射** —— 內部必須原樣透出（`if (-sd >= refractionHeight) return content.eval(coord)`）。
- *    `lens()` 是整片一起扭，所以邊緣和中心一樣糊，看起來像「隔著水看」而不是「隔著玻璃看」。
- * 2. **色散** —— 邊緣要出現彩虹分離。這是「通透 + 折射」的靈魂，`lens()` 完全沒有。
- * 3. **圓角支撐** —— 折射方向要跟著圓角走（`cornerRadii` 四角分別算），
- *    `lens()` 只認一個統一形狀。
+ * 1. **鍙湪閭婄罚鎶樺皠** 鈥斺€?鍏ч儴蹇呴爤鍘熸ǎ閫忓嚭锛坄if (-sd >= refractionHeight) return content.eval(coord)`锛夈€?
+ *    `lens()` 鏄暣鐗囦竴璧锋壄锛屾墍浠ラ倞绶ｅ拰涓績涓€妯ｇ硦锛岀湅璧蜂締鍍忋€岄殧钁楁按鐪嬨€嶈€屼笉鏄€岄殧钁楃幓鐠冪湅銆嶃€?
+ * 2. **鑹叉暎** 鈥斺€?閭婄罚瑕佸嚭鐝惧僵铏瑰垎闆€傞€欐槸銆岄€氶€?+ 鎶樺皠銆嶇殑闈堥瓊锛宍lens()` 瀹屽叏娌掓湁銆?
+ * 3. **鍦撹鏀拹** 鈥斺€?鎶樺皠鏂瑰悜瑕佽窡钁楀湏瑙掕蛋锛坄cornerRadii` 鍥涜鍒嗗垾绠楋級锛?
+ *    `lens()` 鍙獚涓€鍊嬬当涓€褰㈢媭銆?
  *
- * ## 數學怎麼運作（看懂這三行就懂液態玻璃）
+ * ## 鏁稿鎬庨杭閬嬩綔锛堢湅鎳傞€欎笁琛屽氨鎳傛恫鎱嬬幓鐠冿級
  *
  * ```
- * sd  = 到圓角矩形邊界的「有向距離」（負 = 在內部）
+ * sd  = 鍒板湏瑙掔煩褰㈤倞鐣岀殑銆屾湁鍚戣窛闆€嶏紙璨?= 鍦ㄥ収閮級
  * d   = circleMap(1 - (-sd)/refractionHeight) * refractionAmount
- *     ↑ 只在離邊界 refractionHeight 以內非零，且越靠邊越大（圓弧映射）
- * grad = 邊界法線 + depthEffect × 指向中心的向量
- *     ↑ 兩項相加 = 折射方向既「朝內」又「繞著邊緣走」→ 玻璃會鼓起來
+ *     鈫?鍙湪闆㈤倞鐣?refractionHeight 浠ュ収闈為浂锛屼笖瓒婇潬閭婅秺澶э紙鍦撳姬鏄犲皠锛?
+ * grad = 閭婄晫娉曠窔 + depthEffect 脳 鎸囧悜涓績鐨勫悜閲?
+ *     鈫?鍏╅爡鐩稿姞 = 鎶樺皠鏂瑰悜鏃€屾湞鍏с€嶅張銆岀篂钁楅倞绶ｈ蛋銆嶁啋 鐜荤拑鏈冮紦璧蜂締
  * refractedCoord = coord + d * grad
  * ```
  *
- * 色散版再多做 7 次採樣（紅橙黃綠青藍紫各偏一點），
- * 按通道加權求和 → 邊緣出現真實色散。
+ * 鑹叉暎鐗堝啀澶氬仛 7 娆℃帯妯ｏ紙绱呮榛冪稜闈掕棈绱悇鍋忎竴榛烇級锛?
+ * 鎸夐€氶亾鍔犳瑠姹傚拰 鈫?閭婄罚鍑虹従鐪熷鑹叉暎銆?
  */
 object LiquidGlassShader {
 
     /**
-     * **無色散版**（只有折射）。
+     * **鐒¤壊鏁ｇ増**锛堝彧鏈夋姌灏勶級銆?
      *
-     * 用於：大面積玻璃、效能敏感處。
+     * 鐢ㄦ柤锛氬ぇ闈㈢鐜荤拑銆佹晥鑳芥晱鎰熻檿銆?
      */
     const val REFRACT_ONLY: String = """
 uniform shader content;
@@ -96,7 +96,7 @@ half4 main(float2 coord) {
     float radius = radiusAt(coord, cornerRadii);
 
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
-    // 離邊界超過 refractionHeight → 直接原樣透出（內部不折射）
+    // 闆㈤倞鐣岃秴閬?refractionHeight 鈫?鐩存帴鍘熸ǎ閫忓嚭锛堝収閮ㄤ笉鎶樺皠锛?
     if (-sd >= refractionHeight) {
         return content.eval(coord);
     }
@@ -112,12 +112,12 @@ half4 main(float2 coord) {
 """
 
     /**
-     * **色散版**（折射 + 7 色分離）。
+     * **鑹叉暎鐗?*锛堟姌灏?+ 7 鑹插垎闆級銆?
      *
-     * 用於：底欄、滑塊、按鈕等「要看出是玻璃」的小面積元件。
+     * 鐢ㄦ柤锛氬簳娆勩€佹粦濉娿€佹寜閳曠瓑銆岃鐪嬪嚭鏄幓鐠冦€嶇殑灏忛潰绌嶅厓浠躲€?
      *
-     * 代價：每個像素採樣 **7 次**而不是 1 次。所以只給小元件用，
-     * 大面積（整頁卡片）用 [REFRACT_ONLY]。
+     * 浠ｅ児锛氭瘡鍊嬪儚绱犳帯妯?**7 娆?*鑰屼笉鏄?1 娆°€傛墍浠ュ彧绲﹀皬鍏冧欢鐢紝
+     * 澶ч潰绌嶏紙鏁撮爜鍗＄墖锛夌敤 [REFRACT_ONLY]銆?
      */
     const val REFRACT_DISPERSION: String = """
 uniform shader content;
@@ -222,34 +222,34 @@ half4 main(float2 coord) {
 }
 
 /**
- * 對 [BackdropEffectScope] 套用折射（+ 可選色散）。
+ * 灏?[BackdropEffectScope] 濂楃敤鎶樺皠锛? 鍙伕鑹叉暎锛夈€?
  *
- * ## 參數順序照逆向結果
+ * ## 鍙冩暩闋嗗簭鐓ч€嗗悜绲愭灉
  *
- * 逆向出來的 uniform 設定（`defpackage.rv0`）：
+ * 閫嗗悜鍑轰締鐨?uniform 瑷畾锛坄defpackage.rv0`锛夛細
  * ```java
  * setFloatUniform("size", w, h)
- * setFloatUniform("offset", -padding, -padding)     // 注意是負的
+ * setFloatUniform("offset", -padding, -padding)     // 娉ㄦ剰鏄矤鐨?
  * setFloatUniform("cornerRadii", radii[4])
  * setFloatUniform("refractionHeight", h)
- * setFloatUniform("refractionAmount", -amount)      // ★ 負值
+ * setFloatUniform("refractionAmount", -amount)      // 鈽?璨犲€?
  * setFloatUniform("depthEffect", depth ? 1 : 0)
  * setFloatUniform("chromaticAberration", ca)
  * ```
  *
- * `refractionAmount` 是**負**的 —— 因為 shader 裡 `coord + d * grad`，
- * 要往內凹就得是負方向。這個符號我試錯一次才明白（正的會往外凸，看起來像放大鏡）。
+ * `refractionAmount` 鏄?*璨?*鐨?鈥斺€?鍥犵偤 shader 瑁?`coord + d * grad`锛?
+ * 瑕佸線鍏у嚬灏卞緱鏄矤鏂瑰悜銆傞€欏€嬬铏熸垜瑭﹂尟涓€娆℃墠鏄庣櫧锛堟鐨勬渻寰€澶栧嚫锛岀湅璧蜂締鍍忔斁澶ч彙锛夈€?
  *
- * ## padding 必須先設
+ * ## padding 蹇呴爤鍏堣ō
  *
- * shader 會採樣超出元件邊界的像素（折射要往外抓），
- * 不設 padding 邊緣會被裁掉，出現黑邊。
- * 逆向裡是 `if (padding < refractionAmount) padding = refractionAmount`。
+ * shader 鏈冩帯妯ｈ秴鍑哄厓浠堕倞鐣岀殑鍍忕礌锛堟姌灏勮寰€澶栨姄锛夛紝
+ * 涓嶈ō padding 閭婄罚鏈冭瑁佹帀锛屽嚭鐝鹃粦閭娿€?
+ * 閫嗗悜瑁℃槸 `if (padding < refractionAmount) padding = refractionAmount`銆?
  *
- * @param height 折射高度（px）：離邊界多遠開始折射
- * @param amount 折射量（px）：邊緣最多偏移多少
- * @param depth 是否加入「朝中心收」的深度項（讓玻璃鼓起來）
- * @param dispersion 色散強度（0 = 無色散）
+ * @param height 鎶樺皠楂樺害锛坧x锛夛細闆㈤倞鐣屽閬犻枊濮嬫姌灏?
+ * @param amount 鎶樺皠閲忥紙px锛夛細閭婄罚鏈€澶氬亸绉诲灏?
+ * @param depth 鏄惁鍔犲叆銆屾湞涓績鏀躲€嶇殑娣卞害闋咃紙璁撶幓鐠冮紦璧蜂締锛?
+ * @param dispersion 鑹叉暎寮峰害锛? = 鐒¤壊鏁ｏ級
  */
 fun BackdropEffectScope.liquidGlassRefraction(
     height: Float,
@@ -259,15 +259,15 @@ fun BackdropEffectScope.liquidGlassRefraction(
 ) {
     if (height <= 0f || amount <= 0f) return
 
-    // ① padding：折射要往元件外抓像素，不給會裁出黑邊
+    // 鈶?padding锛氭姌灏勮寰€鍏冧欢澶栨姄鍍忕礌锛屼笉绲︽渻瑁佸嚭榛戦倞
     if (padding < amount) {
         padding = amount
     }
 
-    // ② 只支援圓角矩形。其它形狀直接跳過（不猜）。
+    // 鈶?鍙敮鎻村湏瑙掔煩褰€傚叾瀹冨舰鐙€鐩存帴璺抽亷锛堜笉鐚滐級銆?
     val rr = shape as? androidx.compose.foundation.shape.RoundedCornerShape ?: return
 
-    // ③ 取四角半徑（依 LayoutDirection 調整左右）
+    // 鈶?鍙栧洓瑙掑崐寰戯紙渚?LayoutDirection 瑾挎暣宸﹀彸锛?
     val sizePx = size
     val w = sizePx.width
     val h = sizePx.height
@@ -277,7 +277,7 @@ fun BackdropEffectScope.liquidGlassRefraction(
     val topEnd = (if (isLtr) rr.topEnd else rr.topStart).toPx(sizePx, this)
     val bottomStart = (if (isLtr) rr.bottomStart else rr.bottomEnd).toPx(sizePx, this)
     val bottomEnd = (if (isLtr) rr.bottomEnd else rr.bottomStart).toPx(sizePx, this)
-    // 半徑不能超過短邊一半
+    // 鍗婂緫涓嶈兘瓒呴亷鐭倞涓€鍗?
     val radii = floatArrayOf(
         minOf(topStart, halfMin),
         minOf(topEnd, halfMin),
@@ -298,13 +298,13 @@ fun BackdropEffectScope.liquidGlassRefraction(
         shaderString = source,
         uniformShaderName = "content",
     ) {
-        // receiver 是 RuntimeShader，直接呼叫
+        // receiver 鏄?RuntimeShader锛岀洿鎺ュ懠鍙?
         setFloatUniform("size", w, h)
         val negPadding = -padding
         setFloatUniform("offset", negPadding, negPadding)
         setFloatUniform("cornerRadii", radii)
         setFloatUniform("refractionHeight", height)
-        // ★ 負值：正的會往外凸（放大鏡），負的才往內凹（玻璃）
+        // 鈽?璨犲€硷細姝ｇ殑鏈冨線澶栧嚫锛堟斁澶ч彙锛夛紝璨犵殑鎵嶅線鍏у嚬锛堢幓鐠冿級
         setFloatUniform("refractionAmount", -amount)
         setFloatUniform("depthEffect", if (depth) 1f else 0f)
         if (useDispersion) {
