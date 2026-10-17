@@ -164,8 +164,22 @@ fun HomePage(
             ) {
                 Text(
                     text = "玩在城院",
-                    style = MiuixTheme.textStyles.title4,
+                    // ★ 規範 §7「大標題（32 Bold）**是列表的第一個 item**，
+                    //   不是頂欄的一部分，隨列表滾出」。
+                    //
+                    //   這個結構本來就是對的（標題在 item 裡），
+                    //   只是字號用 `title4` 偏小。改成 Type.largeTitle（32sp Bold）
+                    //   才拿到 iOS 那種「大標題隨滾動縮小」的觀感基座。
+                    //
+                    //   為什麼不加「滾動時頂欄出現小標題」那層：
+                    //   本頁沒有頂欄（MainShell 的 Scaffold 沒給 topBar），
+                    //   硬加會在滾動時多出一條色帶 —— 正是規範紅線 #14 禁止的東西。
+                    //   等確定要加頂欄時再一起做，兩件事不能拆開。
+                    fontSize = com.muyao.wanzaihyperos.ui.design.Type.largeTitle,
+                    fontWeight = com.muyao.wanzaihyperos.ui.design.Type.weightTitle,
                     color = colors.onBackground,
+                    lineHeight = com.muyao.wanzaihyperos.ui.design.Type.largeTitle *
+                        com.muyao.wanzaihyperos.ui.design.Type.LINE_HEIGHT_TITLE,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(
