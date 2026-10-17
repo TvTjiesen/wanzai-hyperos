@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,6 +43,7 @@ import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.data.PortalApp
 import com.muyao.wanzaihyperos.data.portal.toUiApp
 import com.muyao.wanzaihyperos.net.shortErrorText
+import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.ui.common.AppRow
 import com.muyao.wanzaihyperos.ui.common.DemoBanner
 import com.muyao.wanzaihyperos.ui.common.PageState
@@ -105,11 +107,12 @@ fun SearchPage(
         runCatching { focusRequester.requestFocus() }
     }
 
-    Scaffold(
+    ThemedScaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             SmallTopAppBar(
                 title = "搜索应用",
+color = Color.Transparent,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(

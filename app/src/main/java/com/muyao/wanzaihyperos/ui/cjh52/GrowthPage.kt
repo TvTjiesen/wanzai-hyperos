@@ -21,9 +21,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52ActivityMonth
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52CreditProgress
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52KqaScore
@@ -91,11 +93,12 @@ fun GrowthPage(
         if (ready && state is ListState.FirstLoad) repository.refresh()
     }
 
-    Scaffold(
+    ThemedScaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             SmallTopAppBar(
                 title = "我的成长",
+color = Color.Transparent,
                 subtitle = "來自場景管理（cjh52）",
                 navigationIcon = {
                     IconButton(onClick = onExit) {

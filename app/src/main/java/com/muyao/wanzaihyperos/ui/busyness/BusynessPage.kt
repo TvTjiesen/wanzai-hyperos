@@ -23,10 +23,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.portal.PortalBill
 import com.muyao.wanzaihyperos.data.portal.PortalBillBucket
 import com.muyao.wanzaihyperos.data.portal.PortalBillRepository
@@ -83,12 +85,13 @@ fun BusynessPage(
         }
     }
 
-    Scaffold(
+    ThemedScaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             Column {
                 SmallTopAppBar(
                     title = "我的事务",
+color = Color.Transparent,
                     subtitle = "来自学校门户",
                     navigationIcon = {
                         IconButton(onClick = onExit) {

@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -33,6 +34,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.zxing.MultiFormatReader
 import com.muyao.wanzaihyperos.data.tronclass.QrDecoder
+import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -110,11 +112,12 @@ fun QrScannerPage(
         }
     }
 
-    Scaffold(
+    ThemedScaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             SmallTopAppBar(
                 title = "扫码签到",
+color = Color.Transparent,
                 subtitle = "对准二维码",
                 navigationIcon = {
                     IconButton(onClick = onExit) {

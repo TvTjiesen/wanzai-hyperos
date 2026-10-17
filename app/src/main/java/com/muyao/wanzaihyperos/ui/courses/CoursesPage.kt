@@ -23,11 +23,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.cjh52.Course
 import com.muyao.wanzaihyperos.data.cjh52.CourseRepository
 import com.muyao.wanzaihyperos.data.cjh52.CourseSlot
@@ -95,11 +97,12 @@ fun CoursesPage(
         if (ready && state is ListState.FirstLoad) repository.refresh()
     }
 
-    Scaffold(
+    ThemedScaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             SmallTopAppBar(
                 title = "我的課程",
+color = Color.Transparent,
                 subtitle = "來自場景管理（cjh52）",
                 navigationIcon = {
                     IconButton(onClick = onExit) {

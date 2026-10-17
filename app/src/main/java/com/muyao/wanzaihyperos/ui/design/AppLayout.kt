@@ -337,21 +337,38 @@ fun <T> LazyListScope.infoItemsIndexed(
  * @param subtitle 頂欄副標題（來源說明之類）。空字串就不顯示。
  * @param onRefresh 給了就在右上角加一個刷新鈕。
  */
+/**
+ * **帶漸層背景的 `Scaffold`**。
+ *
+ * ## 為什麼需要它（真機踩到的）
+ *
+ * 第 3 步把背景漸層接到主殼與 [SecondaryScaffold] 之後，
+ * 真機上發現**有一部分二級頁仍是純黑底** —— 因為它們自己 `Scaffold(...)`，
+ * 沒有走共用殼層（當時全倉 12 個頁面是這樣）。
+ *
+ * 那不是那些頁面寫錯，而是**「漸層」這個決策沒有落進共用層**：
+ * 每加一個新頁面就得記得自己套一次，忘一次就出現一塊純色。
+ *
+ * 所以把「漸層 + 透明 Scaffold」收成這一個函式，
+ * 頁面改用 `ThemedScaffold` 就自動一致。
+ *
+ * ## 為什麼不能只給 `containerColor` 一個漸層色
+ *
+ * Miuix `Scaffold` 的 `containerColor` 型別是 `Color`（**純色**），
+ * 吃不下 `Brush`。所以只能外層包一層 `Box` 畫漸層、
+ * 再把 Scaffold 底色設 `Color.Transparent`。
+ */
 @Composable
-fun SecondaryScaffold(
-    title: String,
-    onBack: () -> Unit,
+fun ThemedScaffold(
     modifier: Modifier = Modifier,
-    subtitle: String = "",
-    onRefresh: (() -> Unit)? = null,
+    topBar: @Composable () -> Unit = {},
+    bottomBar: @Composable () -> Unit = {},
+    floatingActionButton: @Composable () -> Unit = {},
+    floatingToolbar: @Composable () -> Unit = {},
+    snackbarHost: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    // ★ 與主殼同一套背景漸層。
-    //
-    // 為什麼二級頁也要：主殼有漸層而二級頁是純色，**從列表點進詳情時
-    // 背景會「啪」地換一下**（純色 vs 漸層），看起來像換了個 App。
-    //
-    // 判據同主殼：比 `background` 的亮度，而不是猜系統設定
+    // 判據：比 `background` 的亮度，而不是猜系統設定
     //（使用者可以強制淺色而系統是深色）。
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
     Box(
@@ -362,35 +379,67 @@ fun SecondaryScaffold(
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
-            topBar = {
-                SmallTopAppBar(
-                    title = title,
-                    subtitle = subtitle,
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = MiuixIcons.ChevronBackward,
-                                contentDescription = "返回",
-                                modifier = Modifier.size(Dims.iconNav),
-                            )
-                        }
-                    },
-                    actions = {
-                        if (onRefresh != null) {
-                            IconButton(onClick = onRefresh) {
-                                Icon(
-                                    imageVector = MiuixIcons.Refresh,
-                                    contentDescription = "刷新",
-                                    modifier = Modifier.size(Dims.iconNav),
-                                )
-                            }
-                        }
-                    },
-                )
-            },
+            topBar = topBar,
+            bottomBar = bottomBar,
+            floatingActionButton = floatingActionButton,
+            floatingToolbar = floatingToolbar,
+            snackbarHost = snackbarHost,
             content = content,
         )
     }
+}
+
+@Composable
+fun SecondaryScaffold(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String = "",
+    onRefresh: (() -> Unit)? = null,
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    // 背景漸層交給 [ThemedScaffold] —— 不在這裡再寫一份。
+    // 兩份的後果是「改了一處另一處沒改」，本專案已經吃過這種虧。
+    ThemedScaffold(
+        modifier = modifier,
+        topBar = {
+            SmallTopAppBar(
+                title = title,
+                subtitle = subtitle,
+                // ★ 頂欄底色**透明**，露出後面的漸層。
+                //
+                // 真機踩到的：預設底色是主題的 `background`（純色），
+                // 於是頂部出現**一條純黑/純白的色帶**壓在漸層上 ——
+                // 規範 §7 明確點名過這個毛病（「頂欄不許有不透明色帶壓在內容上」）。
+                //
+                // 參數名 `color` 是從 0.9.4 位元組碼的 Kotlin 元數據讀出來的
+                //（`C(SmallTopAppBar)N(title,modifier,color:c#ui.graphics.Color,…)`），
+                // 不是猜的。
+                color = Color.Transparent,
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = MiuixIcons.ChevronBackward,
+                            contentDescription = "返回",
+                            modifier = Modifier.size(Dims.iconNav),
+                        )
+                    }
+                },
+                actions = {
+                    if (onRefresh != null) {
+                        IconButton(onClick = onRefresh) {
+                            Icon(
+                                imageVector = MiuixIcons.Refresh,
+                                contentDescription = "刷新",
+                                modifier = Modifier.size(Dims.iconNav),
+                            )
+                        }
+                    }
+                },
+            )
+        },
+        content = content,
+    )
 }
 
 /**

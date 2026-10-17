@@ -10,8 +10,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.tronclass.HomeworkRepository
+import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.tronclass.RollcallRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronFeedRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronHomeRepository
@@ -65,12 +67,13 @@ fun TronShellPage(
     // 少一個需要維護的型別（板塊就三個，不會再長）。
     var tab by remember { mutableIntStateOf(TAB_HOME) }
 
-    Scaffold(
+    ThemedScaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             Column {
                 SmallTopAppBar(
                     title = "学在城院",
+color = Color.Transparent,
                     subtitle = TABS[tab].second,
                     navigationIcon = {
                         IconButton(onClick = onExit) {

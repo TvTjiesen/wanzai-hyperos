@@ -18,9 +18,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.cjh52.ClazzInfo
 import com.muyao.wanzaihyperos.data.cjh52.ClazzRepository
 import com.muyao.wanzaihyperos.ui.common.PageState
@@ -61,11 +63,12 @@ fun ClazzPage(
         if (ready && state is ListState.FirstLoad) repository.refresh()
     }
 
-    Scaffold(
+    ThemedScaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             SmallTopAppBar(
                 title = "我的班级",
+color = Color.Transparent,
                 subtitle = "来自场景管理（cjh52）",
                 navigationIcon = {
                     IconButton(onClick = onExit) {

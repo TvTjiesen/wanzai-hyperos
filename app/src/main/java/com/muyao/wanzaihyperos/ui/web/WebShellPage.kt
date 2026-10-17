@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,6 +48,7 @@ import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.ui.common.PageState
+import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 
 /** 加载状态：进度 / 内容 / 失败。**不把失败显示成空白页**。 */
@@ -123,12 +125,13 @@ fun WebShellPage(
         }
     }
 
-    Scaffold(
+    ThemedScaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             Column {
                 SmallTopAppBar(
                     title = title,
+color = Color.Transparent,
                     subtitle = hostOf(currentUrl),
                     navigationIcon = {
                         IconButton(onClick = onExit) {
