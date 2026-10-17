@@ -166,44 +166,39 @@ half4 main(float2 coord) {
     float2 grad = normalize(gradSdRoundedRect(centeredCoord, halfSize, gradRadius) + depthEffect * normalize(centeredCoord));
 
     float2 refractedCoord = coord + d * grad;
-    float dispersionIntensity = chromaticAberration * ((centeredCoord.x * centeredCoord.y) / (halfSize.x * halfSize.y));
-    float2 dispersedCoord = d * grad * dispersionIntensity;
 
-    half4 color = half4(0.0);
+    // ── 色散（chromatic aberration）────────────────────────────────
+    //
+    // ★ 這裡換掉了原參考實作的 7 色採樣，理由（真機實測）：
+    //
+    //   原實作：dispersionIntensity = ca * ((x*y) / (hx*hy))，再按 7 個色相
+    //   各偏移一點、用 color.r/g/b 分別累加**半通道**。
+    //   問題有兩個：
+    //     1. `x*y` 在四個象限正負號不同 → 四個角的色散方向不一致，
+    //        疊出來不是「彩虹邊」而是**一片綠/青色塊**
+    //        （業主看到的「綠色塑料片」就是它）。
+    //     2. 通道累加沒歸一化（red.r/3.5 + orange.r/3.5 + yellow.r/3.5 …），
+    //        總量超過 1，整體偏色。
+    //
+    //   正解：**沿折射方向對 R/G/B 做對稱偏移**，這才是物理上的色散 ——
+    //   不同波長折射率不同，所以三個通道分開一點。偏移量與 `d`（折射量）
+    //   成正比，所以只在邊緣可見；內部 d=0，三通道重合，沒有色偏。
+    //
+    //   強度係數直接用 chromaticAberration，範圍 0~1。
+    if (chromaticAberration > 0.0) {
+        float2 dir = normalize(grad + float2(0.0001, 0.0));
+        float split = chromaticAberration * abs(d) * 0.5;
+        float2 off = dir * split;
 
-    half4 red = content.eval(refractedCoord + dispersedCoord);
-    color.r += red.r / 3.5;
-    color.a += red.a / 7.0;
+        half4 cr = content.eval(refractedCoord + off);
+        half4 cg = content.eval(refractedCoord);
+        half4 cb = content.eval(refractedCoord - off);
 
-    half4 orange = content.eval(refractedCoord + dispersedCoord * (2.0 / 3.0));
-    color.r += orange.r / 3.5;
-    color.g += orange.g / 7.0;
-    color.a += orange.a / 7.0;
+        // 保留 alpha 取中間通道（三通道 alpha 幾乎相同）
+        return half4(cr.r, cg.g, cb.b, cg.a);
+    }
 
-    half4 yellow = content.eval(refractedCoord + dispersedCoord * (1.0 / 3.0));
-    color.r += yellow.r / 3.5;
-    color.g += yellow.g / 3.5;
-    color.a += yellow.a / 7.0;
-
-    half4 green = content.eval(refractedCoord);
-    color.g += green.g / 3.5;
-    color.a += green.a / 7.0;
-
-    half4 cyan = content.eval(refractedCoord - dispersedCoord * (1.0 / 3.0));
-    color.g += cyan.g / 3.5;
-    color.b += cyan.b / 3.0;
-    color.a += cyan.a / 7.0;
-
-    half4 blue = content.eval(refractedCoord - dispersedCoord * (2.0 / 3.0));
-    color.b += blue.b / 3.0;
-    color.a += blue.a / 7.0;
-
-    half4 purple = content.eval(refractedCoord - dispersedCoord);
-    color.r += purple.r / 7.0;
-    color.b += purple.b / 3.0;
-    color.a += purple.a / 7.0;
-
-    return color;
+    return content.eval(refractedCoord);
 }
 """
 }

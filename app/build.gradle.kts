@@ -12,7 +12,17 @@ android {
 
     defaultConfig {
         applicationId = "com.muyao.wanzaihyperos"
-        minSdk = 24
+        // ★ 抬到 33（Android 13）以使用 Miuix 的完整玻璃方案。
+        //
+        // 為什麼之前定 24 是錯的決策：
+        //   `miuix-blur`（BloomStroke 雙光源高光 / ProgressiveBlur / textureBlur）
+        //   的 minSdk 是 33。為了支援 24 而放棄它，結果是手搓了幾個小時
+        //   的 shader 仍然不像 —— 而它自帶的就是成品。
+        //
+        // 代價：失去 Android 12 及以下機型。這個代價對「校園工具 App」可接受：
+        //   - targetSdk 37（Android 16）的機型本來就覆蓋絕大多數在用設備
+        //   - 沒有能力（時間/正確性）做出真的玻璃，才是更大的損失
+        minSdk = 33
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
@@ -72,6 +82,9 @@ dependencies {
     implementation(libs.miuix.nav)
     // 液態玻璃（iOS 26/27 style）：真實折射 + 模糊 + 高光。Apache-2.0，minSdk 21。
     implementation(libs.backdrop)
+    // Miuix 的玻璃模組：BloomStroke（雙光源高光）/ ProgressiveBlur / textureBlur。
+    // ⚠️ 它要 minSdk 33 —— 所以上面的 minSdk 已抬到 33。
+    implementation(libs.miuix.blur)
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)

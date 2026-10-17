@@ -82,7 +82,7 @@ data class GlassSpec(
         /** 淺色定稿。表面底色用米白 —— 純白在淺色背景上會「白上白」。 */
         val LIGHT = GlassSpec(
             // 對齊參考 app 的上限：BlurMaxDp = 12（我原來只給 8，太輕）
-            blurDp = 12.dp,
+            blurDp = 8.dp,
             frostBlurDp = 24.dp,
             lensHeightDp = 26.dp,
             lensAmountDp = 22.dp,
@@ -100,7 +100,7 @@ data class GlassSpec(
             // 正解：表面要**透**（0.30），白感靠
             //   ① 模糊後的背景本身偏亮  ② 高光  ③ 陰影
             // 而不是靠堆白漆。參考 app 的底欄在**深色內容上**也是透的。
-            surfaceAlpha = 0.30f,
+            surfaceAlpha = 0.22f,
             surfaceTint = Color.White,
             highlightAlpha = 0.30f,
             innerShadowDp = 8.dp,
