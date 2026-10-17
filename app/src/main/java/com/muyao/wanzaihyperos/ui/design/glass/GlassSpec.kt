@@ -87,8 +87,11 @@ data class GlassSpec(
             lensAmountDp = 16.dp,
             chromaticAberration = 1.1f,
             depthEffect = 0.5f,
-            surfaceAlpha = 0.34f,
-            surfaceTint = Color(0xFFF7F2E8),
+            // ★ 量自參考 app：淺色下底欄幾乎是**實心白**（(255,255,255)），
+            //   不是半透明玻璃。我原本用 0.34 + 米白，導致背景粉紫透上來，
+            //   看起來「髒」。玻璃質感主要由折射/陰影提供，不靠表面透明度。
+            surfaceAlpha = 0.92f,
+            surfaceTint = Color.White,
             highlightAlpha = 0.30f,
             innerShadowDp = 8.dp,
             innerShadowAlpha = 0.50f,

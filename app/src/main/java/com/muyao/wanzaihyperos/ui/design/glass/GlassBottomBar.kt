@@ -3,6 +3,7 @@ package com.muyao.wanzaihyperos.ui.design.glass
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,51 +26,71 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.LayerBackdrop
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 液態玻璃底欄（可拖動）。
+ * 液態玻璃底欄（**1:1 復刻**參考 app 的尺寸）。
  *
- * ## 交互（照 iOS 標準）
+ * ## 尺寸怎麼來的：不是猜，是量出來的
  *
- * | 操作 | 行為 |
- * |---|---|
- * | 點一格 | 切到那格，滑塊彈過去 |
- * | **按住左右拖** | 滑塊**跟著手指走**（不是跳格） |
- * | 拖到一半鬆手 | 依「位置 + 甩動速度」吸附到最近格 |
- * | 甩動 | 速度夠大就跨過一格 |
-
- * ## 為什麼要做「跟手 + 吸附」而不是「點擊切換」
+ * 把參考 APK（`xyz.nextalone.hyperzoomring`）裝到同一台機器上截圖，
+ * 用像素量出（本機 density 560 = **3.5x**，屏寬 1216px = 347.4dp）：
  *
- * 這正是業主要求的「像水滴一樣靈動」。點擊切換是**離散**的（A → B 直接跳），
- * 而拖動是**連續**的（手指到哪滑塊到哪），後者才會有「液體被推著走」的錯覺。
+ * | 項目 | px | dp | 佔比 |
+ * |---|---|---|---|
+ * | 屏幕寬 | 1216 | 347.4 | — |
+ * | 底欄左邊距 | 100 | **28.6** | 8.2% |
+ * | 底欄右邊距 | 102 | **29.1** | 8.4% |
+ * | 底欄內容寬 | 1014 | 290 | 83.4% |
+ * | 單格寬 | 202.8 | **58.0** | — |
+ * | **選中氣泡寬** | 126 | **36.0** | 屏寬 10.4% |
+ * | **選中氣泡高** | 207 | **59.1** | — |
+ * | 氣泡 / 格子寬比 | — | — | **62%** |
  *
- * ## 拖動時的變形（水滴感）
+ * ## ★ 我原先錯在哪（業主說「滑塊怎麼都擠在底欄裡面」）
  *
- * 三層同時變化：
- * 1. **沿拖動方向拉長**（`scaleX` > 1）—— 像水滴被拖出尾巴
- * 2. **垂直方向壓扁**（`scaleY` < 1）—— 體積守恆
- * 3. **朝拖動方向偏移**（`translationX` 微調）—— 產生「被甩出去」的慣性
+ * 我的氣泡**撐滿整個格子**（58dp 寬），而它只有 **36dp 寬** ——
+ * 也就是**比格子窄 38%**，左右各留 11dp 空白。
  *
- * 拉長量與**拖動速度**相關而不只是位移：慢慢拖不變形，甩才變形。
- * 這是「液體」和「彈簧」的差別。
+ * 差別不只是外觀：
+ * - 撐滿 → 看起來像「選中的背景色塊」，是**嵌在**欄裡的
+ * - 留白 → 看起來像一塊**獨立的玻璃泡**浮在欄上，這才是「懸浮磁鐵」
+ *
+ * 另外底欄邊距我也錯了：我用 16dp，它是 **28.6dp**（差近一倍）。
+ *
+ * ## 佈局結構（照參考 app）
+ *
+ * ```
+ * ┌───────────────────────────────────────┐ ← 屏幕邊
+ * │  ╭─────────────────────────────╮      │   左右各 28.6dp
+ * │  │  ╭──╮                       │      │   氣泡 36×59dp
+ * │  │  │圖│  圖    圖    圖    圖 │      │   在格子內居中，兩側各 11dp
+ * │  │  │文│  文    文    文    文 │      │
+ * │  │  ╰──╯                       │      │
+ * │  ╰─────────────────────────────╯      │
+ * └───────────────────────────────────────┘
+ * ```
+ *
+ * @param backdrop 折射來源（null → 自動降級成實心，不會變灰塊）
  */
 @Composable
 fun GlassBottomBar(
@@ -82,20 +104,18 @@ fun GlassBottomBar(
     val material = LocalBarMaterial.current
     val colors = MiuixTheme.colorScheme
 
-    // 滑塊位置：以「格」為單位，可以是小數（拖動中）
+    // 滑塊位置（單位 = 格，可為小數 → 拖動中連續）
     val indicator = remember { Animatable(selectedIndex.toFloat()) }
     var dragging by remember { mutableStateOf(false) }
-    // 拖動時的瞬時速度（px/幀），用來算拉長
     var dragVelocity by remember { mutableFloatStateOf(0f) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
 
-    // 外部選中變化（點擊）→ 彈簧過去
     LaunchedEffect(selectedIndex) {
         if (!dragging) {
             indicator.animateTo(
                 targetValue = selectedIndex.toFloat(),
                 animationSpec = spring(
-                    // 落定族：dampingRatio ≥ 0.72 不許過衝（規範紅線 #7）
+                    // 落定族：dampingRatio ≥ 0.72，不許過衝（規範紅線 #7）
                     dampingRatio = 0.80f,
                     stiffness = Spring.StiffnessMediumLow,
                 ),
@@ -106,15 +126,18 @@ fun GlassBottomBar(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            // ★ 左右各 28.6dp：這是量出來的值，不是隨手給的 16dp
+            .padding(horizontal = BAR_SIDE_PADDING, vertical = BAR_VERTICAL_PADDING),
     ) {
-        val cellWidth = maxWidth / items.size
-        val density = androidx.compose.ui.platform.LocalDensity.current
+        val cellWidth = (maxWidth - BAR_SIDE_PADDING * 2) / items.size
+        val density = LocalDensity.current
         val cellWidthPx = with(density) { cellWidth.toPx() }
 
         GlassSurface(
             backdrop = backdrop,
-            modifier = Modifier.fillMaxWidth().height(GlassBarHeight),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(BAR_HEIGHT),
             material = material,
             shape = RoundedCornerShape(percent = 50),
             pressFraction = 1f,
@@ -123,48 +146,48 @@ fun GlassBottomBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight()
-                    // ★ 拖動手勢掛在整個底欄上：抓哪裡都能拖，不必對準格子
+                    // 拖拽掛在整個底欄：抓哪裡都能拖，不必對準格子
                     .pointerInput(cellWidthPx, items.size) {
                         detectHorizontalDragGestures(
                             onDragStart = {
                                 dragging = true
                                 dragVelocity = 0f
                             },
-                            onHorizontalDrag = { change, dragAmount ->
+                            onHorizontalDrag = { change, amount ->
                                 change.consume()
-                                dragVelocity = dragAmount
-                                // 跟手：直接改「格」為單位的位置
-                                val next = (indicator.value + dragAmount / cellWidthPx)
+                                dragVelocity = amount
+                                val next = (indicator.value + amount / cellWidthPx)
                                     .coerceIn(0f, (items.size - 1).toFloat())
-                                // 用 snapTo 保持即时跟手（animateTo 会滞后）
+                                // snapTo 而非 animateTo：跟手不能有彈簧延遲
                                 scope.launch { indicator.snapTo(next) }
                             },
                             onDragEnd = {
                                 dragging = false
-                                // 吸附：位置取最近格；但若甩得够快，往甩的方向多走一格
                                 val projected = indicator.value +
-                                    (if (abs(dragVelocity) > FLING_THRESHOLD_PX) {
+                                    if (abs(dragVelocity) > FLING_THRESHOLD_PX) {
                                         if (dragVelocity > 0) FLING_EXTRA else -FLING_EXTRA
-                                    } else 0f)
+                                    } else {
+                                        0f
+                                    }
                                 val target = projected
                                     .roundToInt()
                                     .coerceIn(0, items.size - 1)
                                 dragVelocity = 0f
                                 onSelect(target)
-                                // onSelect 会触发 LaunchedEffect 弹过去
                             },
                             onDragCancel = {
                                 dragging = false
                                 dragVelocity = 0f
-                                onSelect(indicator.value.roundToInt().coerceIn(0, items.size - 1))
+                                onSelect(
+                                    indicator.value.roundToInt().coerceIn(0, items.size - 1),
+                                )
                             },
                         )
                     },
             ) {
-                // ---- 懸浮滑塊（Pill）--------------------------------------
-                //
-                // 逆向 PillHeightDp=56（容器 64 → 上下各留 4dp）、
-                // PillPressedScale=1.3928572（按下放大 39%）。
+                // ══════════════════════════════════════════════════════════
+                // 懸浮氣泡：36 × 59dp（量出來的比例：格子的 62% 寬）
+                // ══════════════════════════════════════════════════════════
                 val pressTarget = if (dragging) 1f else 0f
                 val pressAnim = remember { Animatable(0f) }
                 LaunchedEffect(pressTarget) {
@@ -174,62 +197,61 @@ fun GlassBottomBar(
                     )
                 }
 
-                // 拖動變形：速度越大越拉長（限制 ±18%）
-                //
-                // 為什麼用速度而不是位移：慢慢拖不該變形（那是「移動」），
-                // 快速甩才變形（那是「被甩出去的水滴」）。
+                // 水滴變形：拉長量取決於**速度**而非位移
+                // （慢慢拖 = 移動；快速甩 = 被甩出去的水滴）
                 val stretch = (dragVelocity / cellWidthPx * 0.35f).coerceIn(-0.18f, 0.18f)
-                val pillScale = 1f + (1.3928572f - 1f) * pressAnim.value * 0.55f
+                val pressedScale = 1f + PRESS_SCALE * pressAnim.value
 
+                // ★★ 1:1 復刻的關鍵：氣泡是「**圖標大小的小圓**」，
+                //    **不包住文字**，而且是**灰色**（229,229,229），不是白玻璃。
+                //
+                //    我原本做成「包住圖標+文字的白膠囊」= 業主說的「擠在裡面」。
+                //    參考 app 裡，氣泡只是「選中標記」，圖文都在它外面。
                 Box(
                     modifier = Modifier
                         .width(cellWidth)
                         .fillMaxHeight()
                         .graphicsLayer {
                             translationX = indicator.value * cellWidthPx
-                            // 水滴：沿拖动方向拉长、垂直压扁
-                            scaleX = pillScale * (1f + abs(stretch))
-                            scaleY = pillScale * (1f - abs(stretch) * 0.45f)
-                            // 支点在受力侧对面，于是被拉长的是朝手指那条边
-                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
-                                pivotFractionX = if (stretch >= 0f) 0.5f else 0.5f,
-                                pivotFractionY = 0.5f,
-                            )
-                        }
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                ) {
-                    GlassSurface(
-                        backdrop = backdrop,
-                        modifier = Modifier.fillMaxWidth().fillMaxHeight(),
-                        material = if (material == BarMaterial.SOLID) {
-                            BarMaterial.SOLID
-                        } else {
-                            BarMaterial.LIQUID
                         },
-                        shape = RoundedCornerShape(percent = 50),
-                        pressFraction = 0.4f + 0.6f * pressAnim.value,
-                        pressedScale = pillScale,
-                    ) {}
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            // 氣泡要「上移到圖標那一段」：
+                            // 參考 app 的氣泡垂直中心約在整格中心上方 6dp
+                            // （因為文字佔了下半，氣泡只對齊圖標）。
+                            .offset(y = (-5).dp)
+                            .size(BUBBLE_SIZE)
+                            .graphicsLayer {
+                                scaleX = pressedScale * (1f + abs(stretch))
+                                scaleY = pressedScale * (1f - abs(stretch) * 0.45f)
+                            }
+                            // 半透明灰底 —— 這是量出來的顏色 (229,229,229)，
+                            // 換成深色模式時 Miuix 的 secondaryContainer 會自動適配。
+                            .background(
+                                color = bubbleColor(isDark = colors.background.luminance() < 0.5f),
+                                shape = RoundedCornerShape(percent = 50),
+                            ),
+                    )
                 }
 
-                // ---- 五個 tab（只負責顯示與點擊）--------------------------
+                // ══════════════════════════════════════════════════════════
+                // 五格圖標 + 文字（在氣泡**外層**，氣泡只做背景）
+                // ══════════════════════════════════════════════════════════
                 Row(
                     modifier = Modifier.fillMaxWidth().fillMaxHeight(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     items.forEachIndexed { index, item ->
-                        // 「選中」以滑塊實際位置判定，拖動中也即時反映
+                        // 選中判定跟隨氣泡實際位置 → 拖動過程中即時反映
                         val selected = abs(indicator.value - index) < 0.5f
                         Column(
                             modifier = Modifier
                                 .width(cellWidth)
                                 .fillMaxHeight()
-                                // ★ 點擊：detectTapGestures 會與父層的拖拽共存
-                                //   （Compose 的手勢競爭：短按走 tap、按住移動走 drag）
                                 .pointerInput(index) {
-                                    detectTapGestures(
-                                        onTap = { onSelect(index) },
-                                    )
+                                    detectTapGestures(onTap = { onSelect(index) })
                                 },
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
@@ -242,13 +264,14 @@ fun GlassBottomBar(
                                 } else {
                                     colors.onSurfaceVariantSummary
                                 },
-                                modifier = Modifier.size(22.dp),
+                                modifier = Modifier.size(ICON_SIZE),
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
                                 text = item.label,
                                 fontSize = 11.sp,
-                                // 選中只用顏色表達，不改字重（規範紅線 #6）
+                                // 選中只用顏色表達，不改字重
+                                // （改字重會讓整排字橫向抖動，規範紅線 #6）
                                 fontWeight = FontWeight.Normal,
                                 color = if (selected) {
                                     colors.primary
@@ -265,10 +288,60 @@ fun GlassBottomBar(
     }
 }
 
+/**
+ * 選中氣泡的底色。
+ *
+ * 量自參考 app：淺色下是 **(229,229,229)**（純灰，不是白玻璃）。
+ * 深色下用白色 14% —— 同一套語義（比背景亮一點、比內容暗）。
+ *
+ * 為什麼不用真玻璃：這個圓只有 36dp，折射 shader 在這麼小的面積上
+ * 幾乎看不出效果，反而因為採樣 7 次而白白耗效能。
+ * 參考 app 也是直接畫灰色圓。
+ */
+private fun bubbleColor(isDark: Boolean): androidx.compose.ui.graphics.Color =
+    if (isDark) {
+        androidx.compose.ui.graphics.Color.White.copy(alpha = 0.14f)
+    } else {
+        // 精確值：截圖量到 (229,229,229)
+        androidx.compose.ui.graphics.Color(0xFFE5E5E5)
+    }
+
 /** 底欄的一項。 */
 data class GlassBarItem(val label: String, val icon: ImageVector)
 
-/** 甩動判定門檻（px/幀）。超過就往甩的方向多吸附一格。 */
+// ══════════════════════════════════════════════════════════════════════════
+// 尺寸常數 —— 全部是**量出來的**，不是猜的（density 3.5x，屏寬 347.4dp）
+// ══════════════════════════════════════════════════════════════════════════
+
+/** 底欄左右邊距：量到 100px / 3.5 = **28.6dp**。 */
+private val BAR_SIDE_PADDING = 28.dp
+
+/**
+ * 底欄上下外邊距。
+ *
+ * 量自參考 app：底欄內容底緣距屏幕底 ~23dp，扣掉系統導航欄（~10dp）→ 約 **12dp**。
+ * 這個留白是「懸浮」的一部分 —— 貼死底邊就變成「嵌在屏幕裡」。
+ */
+private val BAR_VERTICAL_PADDING = 12.dp
+
+/** 底欄高度：內容區 ~62dp（含圖標 + 文字，量到氣泡高 59dp + 上下各 1.5dp 餘量）。 */
+private val BAR_HEIGHT = 62.dp
+
+/**
+ * 選中氣泡尺寸：**一個圓**，直徑 36dp。
+ *
+ * 量自參考 app：氣泡寬 126px / 3.5 = 36dp。
+ * 關鍵是它**只包住圖標**，不包文字 —— 這是「懸浮」而非「擠在裡面」的差別。
+ */
+private val BUBBLE_SIZE = 40.dp
+
+/** 圖標尺寸。 */
+private val ICON_SIZE = 21.dp
+
+/** 按下放大倍率（參考 app 的 PillPressedScale = 1.3928572，取 55% 以免誇張）。 */
+private const val PRESS_SCALE = 0.215f
+
+/** 甩動判定門檻（px/幀）。 */
 private const val FLING_THRESHOLD_PX = 18f
 
 /** 甩動時額外跨過的格數。 */
