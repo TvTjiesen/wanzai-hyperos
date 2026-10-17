@@ -90,6 +90,15 @@ fun GlassSurface(
                 // depth 在 Haze 裡是**比例**（0~1），不是長度
                 depth = spec.depthFraction,
                 refractionDetailIntensity = spec.refractionDetailIntensity * p,
+                // ★★ 折射輪廓：**這一項沒設就沒有折射**。
+                //
+                // Haze 用 `RefractionProfile` 決定「哪裡折射」：
+                //   Edge(width)  只在邊緣 width 這一圈折射（= 玻璃的正確行為）
+                //   Surface      整片都折射（像隔著水看，不是玻璃）
+                // 不指定時它不會自己猜 —— 所以折射計算了但沒有套用。
+                refractionProfile = dev.chrisbanes.haze.glass.RefractionProfile.Edge(
+                    spec.refractionDisplacement,
+                ),
             )
             // 高光（玻璃感的直接來源）
             specularIntensity(spec.specularIntensity)
