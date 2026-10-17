@@ -28,8 +28,10 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.muyao.wanzaihyperos.R
 import com.muyao.wanzaihyperos.data.PortalApp
 import com.muyao.wanzaihyperos.ui.design.AppCard
+import com.muyao.wanzaihyperos.ui.design.DelayedLoading
 import com.muyao.wanzaihyperos.ui.design.Dims
 
 /**
@@ -112,7 +114,7 @@ enum class PageState {
 }
 
 /**
- * 状态占位视图。[onRetry] 为 null 时不画重试按钮（例如「登录失效」应引导去登录）。
+ * 状态占位视图。[onRetry] 为 null 时不画重試按钮（例如「登录失效」应引导去登录）。
  *
  * 文案纪律：说人话、不说内部接口名，并且纠正「未知当 0」——
  * 「取不到」必须与「没有」分开说（这是 Flutter 版业主提过的原始问题）。
@@ -127,7 +129,21 @@ fun StatePlaceholder(
     actionLabel: String? = null,
 ) {
     val colors = MiuixTheme.colorScheme
+    // 重試按鈕的文字要走資源（docs/COPY-TERMS.md §2：術語全倉一致）。
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     if (state == PageState.Content) return
+
+    // ★ 載入中走**延遲 spinner**（規範 §10：超過 1.5s 才顯示，更快就別閃）。
+    //
+    // 為什麼不讓下面的 Column 統一處理：
+    // 延遲機制需要自己的 LaunchedEffect 與「什麼都不畫」的分支，
+    // 混進那個 Column 會讓它多一個「有時整塊不存在」的狀態，
+    // 反而不好推理。分開之後語義清楚：載入中 = 交給 DelayedLoading，
+    // 其它狀態 = 走下面的通用外殼。
+    if (state == PageState.Loading) {
+        DelayedLoading(loading = true, modifier = modifier)
+        return
+    }
 
     Column(
         modifier = modifier
@@ -136,22 +152,15 @@ fun StatePlaceholder(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (state == PageState.Loading) {
-            top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator(
-                color = colors.primary,
-                modifier = Modifier.size(28.dp),
-            )
-        } else {
-            Icon(
-                imageVector = if (state == PageState.Error || state == PageState.Offline) MiuixIcons.Refresh else MiuixIcons.Info,
-                contentDescription = null,
-                tint = when (state) {
-                    PageState.Error, PageState.SessionExpired -> colors.error
-                    else -> colors.onSurfaceVariantSummary
-                },
-                modifier = Modifier.size(28.dp),
-            )
-        }
+        Icon(
+            imageVector = if (state == PageState.Error || state == PageState.Offline) MiuixIcons.Refresh else MiuixIcons.Info,
+            contentDescription = null,
+            tint = when (state) {
+                PageState.Error, PageState.SessionExpired -> colors.error
+                else -> colors.onSurfaceVariantSummary
+            },
+            modifier = Modifier.size(28.dp),
+        )
 
         Text(
             text = titleFor(state),
@@ -172,7 +181,7 @@ fun StatePlaceholder(
 
         if (onRetry != null) {
             Button(onClick = onRetry, modifier = Modifier.padding(top = 4.dp)) {
-                Text(text = "重试")
+                Text(text = ctx.getString(R.string.action_retry))
             }
         }
         if (onAction != null && actionLabel != null) {
@@ -181,24 +190,56 @@ fun StatePlaceholder(
     }
 }
 
-private fun titleFor(state: PageState): String = when (state) {
-    PageState.Loading -> "正在加载…"
-    PageState.Empty -> "暂无内容"
-    PageState.Error -> "加载失败"
-    PageState.Offline -> "网络不可达"
-    PageState.Stale -> "显示的是缓存数据"
-    PageState.SessionExpired -> "登录状态已失效"
+/**
+ * 狀態標題。
+ *
+ * ## 文案紀律（規範 §12）
+ *
+ * 1. **繁體**（專案 UI 就是繁體；機器轉換會留錯，所以下面是手寫的）；
+ * 2. 陳述句、**無感嘆號、無 emoji**；
+ * 3. **不指責使用者**（「網絡不可達」而不是「你的網絡有問題」）；
+ * 4. 標題只講**發生了什麼**，下一步交給 [detailFor]。
+ */
+@Composable
+private fun titleFor(state: PageState): String {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    return when (state) {
+    PageState.Loading -> ctx.getString(R.string.state_loading)
+    PageState.Empty -> ctx.getString(R.string.state_empty_title)
+    PageState.Error -> ctx.getString(R.string.state_error_title)
+    PageState.Offline -> ctx.getString(R.string.state_offline_title)
+    PageState.Stale -> ctx.getString(R.string.state_stale_title)
+    PageState.SessionExpired -> ctx.getString(R.string.state_session_expired_title)
     PageState.Content -> ""
+    }
 }
 
-private fun detailFor(state: PageState): String = when (state) {
+/**
+ * 狀態說明。
+ *
+ * ## 規範 §10：「文案結構固定為『發生了什麼 + 下一步做什麼』」
+ *
+ * 「只寫『載入失敗』 = 沒做設計」—— 所以下面每一條都有**下一步**。
+ *
+ * ## 為什麼 [PageState.Empty] 要特別寫「不是載入失敗」
+ *
+ * 這是本專案反覆栽的坑（B18 那次界面顯示「沒有查到考試安排」而其實取數失敗）。
+ * 「空」與「失敗」在界面上長得一樣，但**使用者的下一步完全不同**：
+ * 空 → 沒事了；失敗 → 該重試。
+ * 所以這裡明確寫出「服務端明確返回了空結果」，讓使用者知道不必重試。
+ */
+@Composable
+private fun detailFor(state: PageState): String {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    return when (state) {
     PageState.Loading -> ""
-    PageState.Empty -> "服务端明确返回了空结果（不是加载失败）"
-    PageState.Error -> "取不到内容：网络不可达或服务端异常（不是「没有内容」）"
-    PageState.Offline -> "请检查网络后重试；已显示的内容可能不是最新的"
-    PageState.Stale -> "下拉刷新可获取最新内容"
-    PageState.SessionExpired -> "请到「我的」重新登录后再试"
+    PageState.Empty -> ctx.getString(R.string.state_empty_detail)
+    PageState.Error -> ctx.getString(R.string.state_error_detail)
+    PageState.Offline -> ctx.getString(R.string.state_offline_detail)
+    PageState.Stale -> ctx.getString(R.string.state_stale_detail)
+    PageState.SessionExpired -> ctx.getString(R.string.state_session_expired_detail)
     PageState.Content -> ""
+    }
 }
 
 /**

@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +16,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
+import com.muyao.wanzaihyperos.R
 import com.muyao.wanzaihyperos.ui.design.SmearMath
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.NavigationBar
@@ -28,12 +31,18 @@ import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Messages
 import com.muyao.wanzaihyperos.data.PortalApp
 
-/** 底部四个 tab。索引与 [MainShell] 的 `selectedTab` 一一对应。 */
-private enum class Tab(val label: String) {
-    Home("首页"),
-    Apps("应用"),
-    Messages("消息"),
-    Mine("我的"),
+/**
+ * 底部四個 tab。索引與 [MainShell] 的 `selectedTab` 一一對應。
+ *
+ * ⚠️ 標籤走**字串資源**而不是寫死中文（`docs/COPY-TERMS.md` §2）：
+ * - 繁體字容易打錯（「訊息」不是「消息」）；
+ * - 集中在一處才看得出「四個 tab 的字數/語氣是否一致」。
+ */
+private enum class Tab(@StringRes val labelRes: Int) {
+    Home(R.string.tab_home),
+    Apps(R.string.tab_apps),
+    Messages(R.string.tab_messages),
+    Mine(R.string.tab_mine),
 }
 
 /**
@@ -215,7 +224,7 @@ fun MainShell(
                                 Tab.Messages -> MiuixIcons.Messages
                                 Tab.Mine -> MiuixIcons.Contacts
                             },
-                            label = tab.label,
+                            label = stringResource(tab.labelRes),
                             // 消息 tab 直接显示未读数；其它 tab 不硬塞角标。
                             // 未知（null）时不画 —— 见 unreadCount 的说明。
                             badge = if (tab == Tab.Messages) {

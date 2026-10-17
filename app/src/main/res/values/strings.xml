@@ -1,4 +1,86 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    全 App 的文案資源。
+
+    ══════════════════════════════════════════════════════════════════════
+    規則（見 docs/COPY-TERMS.md，那是本檔的依據）
+    ══════════════════════════════════════════════════════════════════════
+
+    1. 一律**繁體中文**。機器轉換會留錯（「登录」→「登錄」是錯的，
+       正確是「登入」），所以每條都要能對回術語表。
+    2. 陳述句、**無感嘆號、無 emoji、無語氣詞**。
+    3. **不指責使用者**：講系統狀態，不講「你的網絡有問題」。
+    4. 狀態文案的結構固定為「**發生了什麼 + 下一步做什麼**」
+       （規範 §10：「只寫『載入失敗』= 沒做設計」）。
+    5. 「未知」與「0」**必須分開**：未知用 `—`，確實 0 才寫 `0`。
+
+    ══════════════════════════════════════════════════════════════════════
+    命名慣例
+    ══════════════════════════════════════════════════════════════════════
+
+    state_*      狀態佔位（載入/空/錯誤/無網/舊資料/登入失效）
+    action_*     動作（重試、重新整理、退出登入…）
+    common_*     通用名詞（確定、取消…）
+    page_*       頁面標題
+    meta_*       弱化資訊（版本、免責）
+
+    目前**只遷移了最高頻的部分**（狀態文案 + 主殼 + 常用動作）。
+    其餘約 100 處仍在 Composable 裡，遷移順序見 docs/COPY-TERMS.md §7。
+-->
 <resources>
     <string name="app_name">玩在城院</string>
+
+    <!-- ══════════════ 狀態佔位（docs/COPY-TERMS.md §3 定稿，可直接抄）══════════════ -->
+
+    <!-- 載入中。省略號用單個 U+2026，不是三個點。 -->
+    <string name="state_loading">正在載入…</string>
+
+    <!-- 空。★ 說明裡必須寫「不是載入失敗」——
+         本專案栽過「界面顯示沒有資料、而其實取數失敗」的坑（B18）。 -->
+    <string name="state_empty_title">暫無內容</string>
+    <string name="state_empty_detail">服務端明確返回了空結果（不是載入失敗，不必重試）</string>
+
+    <!-- 錯誤。★ 必須有下一步（下方「重試」）。 -->
+    <string name="state_error_title">載入失敗</string>
+    <string name="state_error_detail">取不到內容，可能是網絡或服務端異常。下方「重試」可再試一次；若一直失敗，請稍後再看。</string>
+
+    <!-- 無網。不指責使用者：「網絡不可達」而不是「你的網絡有問題」。 -->
+    <string name="state_offline_title">網絡不可達</string>
+    <string name="state_offline_detail">請檢查網絡後重試。已顯示的內容可能不是最新的。</string>
+
+    <!-- 舊資料。 -->
+    <string name="state_stale_title">顯示的是快取資料</string>
+    <string name="state_stale_detail">下拉重新整理可取得最新內容。</string>
+
+    <!-- 登入失效。★ 必須與「錯誤」分開：這個要引導去登入，重試沒用。 -->
+    <string name="state_session_expired_title">登入狀態已失效</string>
+    <string name="state_session_expired_detail">請到「我的」重新登入後再試。</string>
+
+    <!-- ══════════════ 動作 ══════════════ -->
+
+    <string name="action_retry">重試</string>
+    <string name="action_refresh">重新整理</string>
+    <string name="action_back">返回</string>
+    <string name="action_close">關閉</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_confirm">確定</string>
+    <string name="action_search">搜尋</string>
+    <string name="action_logout">退出登入</string>
+    <string name="action_relogin">重新登入</string>
+
+    <!-- ══════════════ 底部導航（主殼）══════════════ -->
+
+    <string name="tab_home">首頁</string>
+    <string name="tab_apps">應用</string>
+    <string name="tab_messages">訊息</string>
+    <string name="tab_mine">我的</string>
+
+    <!-- ══════════════ 弱化資訊（規範 §12 第 5 條：11~12sp 小灰字）══════════════ -->
+
+    <string name="meta_loading_please_wait">請稍候</string>
+
+    <!-- ══════════════ 未知數量（docs/COPY-TERMS.md §4）══════════════ -->
+
+    <!-- 「不知道」用破折號，**不能用 0** —— 顯示 0 等於說「確實沒有」。 -->
+    <string name="value_unknown">—</string>
 </resources>

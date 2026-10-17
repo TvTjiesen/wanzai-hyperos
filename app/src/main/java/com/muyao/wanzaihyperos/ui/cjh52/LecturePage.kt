@@ -73,7 +73,12 @@ fun LecturePage(
     //   ① 底色透明 → 下面的首頁宮格透上來；
     //   ② 沒有頂部安全區 → 返回鍵被狀態列蓋住。
     //   那個外殼現在抽到設計層了（同一個坑踩三次之後），改動只需一行。
+    // 頂欄漸變紗要靠它算進度（見 SecondaryScaffold 的 scrollProgress 說明）。
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val veilProgress by com.muyao.wanzaihyperos.ui.design.rememberScrollProgress(listState)
+
     SecondaryScaffold(
+        scrollProgress = veilProgress,
         title = "爱讲座",
         subtitle = "來自場景管理（cjh52）",
         onBack = onBack,
@@ -94,7 +99,7 @@ fun LecturePage(
             return@SecondaryScaffold
         }
 
-        AppList(modifier = contentModifier) {
+        AppList(modifier = contentModifier, state = listState) {
             item { SmallTitle(text = "讲座（${items.size}）") }
 
             infoItems(items, key = { it.id }) { lecture ->

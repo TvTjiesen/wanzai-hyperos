@@ -75,7 +75,12 @@ fun ZyPage(
     val needsLogin = failed?.error is HzcuException.LoginExpired
     val items: List<ZyScheduleItem> = (state as? ListState.Content)?.items.orEmpty()
 
+    // 頂欄漸變紗要靠它算進度（見 SecondaryScaffold 的 scrollProgress 說明）。
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val veilProgress by com.muyao.wanzaihyperos.ui.design.rememberScrollProgress(listState)
+
     SecondaryScaffold(
+        scrollProgress = veilProgress,
         title = "智云课堂",
         subtitle = "本週課表與回放",
         onBack = onExit,
@@ -87,7 +92,7 @@ fun ZyPage(
                 .fillMaxSize()
                 .padding(top = innerPadding.calculateTopPadding()),
         ) {
-            AppList(modifier = Modifier.fillMaxSize()) {
+            AppList(modifier = Modifier.fillMaxSize(), state = listState) {
                 when {
                     // 沒登入 → 給他一個明確的出口（用網頁登入一次）。
                     // 不做原生登入表單：那是學校統一身份認證的頁面，
