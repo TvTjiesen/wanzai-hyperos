@@ -10,3 +10,8 @@ _probe/
 # 联调用的账号密码只放这里，写完立刻在 .gitignore 里（本条目）。
 # 一次真机联调结束后应当把整个目录删掉。
 .secrets/
+
+# 逆向参考的 APK 与 dex（41MB+64MB，不入库；产物见 docs/reverse-ref）
+build/ref-apk/
+build/jadx/
+build/jadx.zip

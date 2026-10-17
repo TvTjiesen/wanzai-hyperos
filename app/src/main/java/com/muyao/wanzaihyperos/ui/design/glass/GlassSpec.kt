@@ -10,203 +10,192 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * **液態玻璃的全部光學參數**（iOS 26/27 風格）。
+ * 液態玻璃的全部光學參數。
  *
- * ## 為什麼要集中成一個 data class
+ * 數值來源：逆向 com.linxin.demo 1.3.9-beta63（安大信）。
+ * 業主提供了那個 APK 說「細節直接參考這個」。
+ * 玻璃常數在 com.linxin.feature.home.ui.LxGlass：
  *
- * 業主要求「玻璃的**一切參數可調節**」。散在調用點的話，
- * 調一個參數要翻遍所有用到玻璃的地方，而且**改一處漏一處**的後果是
- * 「底欄和頂欄的玻璃看起來不是同一種材質」——那種不一致肉眼看得出來，
- * 但很難定位。
+ *   BlurMinDp = 2.0f;        BlurMaxDp = 12.0f;
+ *   FrostBlurMinDp = 6.0f;   FrostBlurMaxDp = 30.0f;
+ *   LensHeightMinDp = 14.0f; LensHeightMaxDp = 28.0f;
+ *   LensAmountMaxDp = 24.0f;
+ *   SurfaceAlphaLight = 0.34f; SurfaceAlphaDark = 0.16f;
+ *   PillHeightDp = 56.0f;
+ *   PillPressedScale = 1.3928572f;
+ *   PillRefractionHeightDp = 10.0f; PillRefractionAmountDp = 14.0f;
+ *   PillInnerShadowDp = 8.0f;
+ *   BarPressGrow = 16.dp;
  *
- * 集中在這裡之後：
- * - 調參只改一處（或傳一份新的 [GlassSpec]）；
- * - 有 [GlassSpec.LIGHT] / [GlassSpec.DARK] 兩套定稿；
- * - 有 [GlassSpecTuning] 給 debug 調參頁直接綁 slider。
+ * 插值公式在 LxBottomBar（blur/refraction/distortion 三個 0~1 強度）：
+ *   blurDp       = 10.0f * blur + 2.0f;
+ *   frostBlurDp  = blur * 24.0f + 6.0f;
+ *   lensHeightDp = refraction * 14.0f + 14.0f;
+ *   lensAmountDp = distortion * 24.0f;
  *
- * ## 庫與許可
- *
- * 用的是 **[io.github.kyant0:backdrop](https://github.com/Kyant0/AndroidLiquidGlass) 2.0.1**
- * （Apache-2.0，minSdk 21 —— 我們是 24，可用）。
- *
- * 為什麼不用 `miuix-blur`：它**要 minSdk 33**，抬上去會丟掉 Android 13 以下全部機型
- *（`miuix-skill/references/styling-icons-and-effects.md`：
- * 「On Android, blur requires API 33」）。規範 §0.2 也是這個判斷。
- *
- * ## 各參數的物理意義（改之前先讀）
- *
- * | 參數 | 作用 | 調大的後果 |
- * |---|---|---|
- * | [blurRadius] | 背後內容糊多深 | 越大越「磨砂」，太大就看不出背後是什麼 |
- * | [refractionHeight] | 邊緣折射的高度（玻璃「厚度」） | 越大邊緣越厚，像厚鏡片 |
- * | [refractionAmount] | 折射強度（邊緣扭曲程度） | 太大會變哈哈鏡 |
- * | [saturation] | 飽和度 | >1 讓背後顏色更濃，玻璃才「有顏色」 |
- * | [surfaceAlpha] | 表面底色透明度 | 太實=灰塊，太透=看起來沒材質 |
- * | [highlightAlpha] | 邊緣高光 | 這是「玻璃感」的關鍵，沒有它就是一塊半透明色 |
- * | [lightAngle] | 光源方向（度） | 要跟環境一致；固定值比跟重力穩 |
- * | [cornerRadius] | 圓角 | 要與容器一致，否則高光會浮在圓角外 |
- *
- * @property blurRadius 模糊半徑（dp）。iOS 導航欄大約 20~30。
- * @property refractionHeight 折射高度（dp）。越大玻璃越「厚」。
- * @property refractionAmount 折射量。0 = 不折射（純模糊），1 = 全量。
- * @property saturation 飽和度倍數。1 = 原樣，1.5~2 讓玻璃有「顏色感」。
- * @property surfaceAlpha 表面底色 alpha。深色 0.10 / 淺色 0.34 是 iOS 的做法。
- * @property surfaceTint 表面底色（通常白色或主題色）。
- * @property highlightAlpha 邊緣高光 alpha。0 = 沒有玻璃感。
- * @property highlightWidth 高光寬度（dp）。
- * @property lightAngleDeg 光源角度（度）。0 = 從右來，-45 = 右上。
- * @property shadowAlpha 外陰影 alpha（讓玻璃「浮起來」）。
- * @property shadowRadius 外陰影半徑（dp）。
- * @property innerShadowAlpha 內陰影（讓玻璃邊緣「有厚度」）。
- * @property cornerRadius 圓角（dp）。**必須與容器一致**。
+ * 我原先錯在哪（重點，別再犯）：
+ * 1. blurRadius 用了 34dp —— 是它 BlurMaxDp 的三倍。糊到看不出背後的東西，
+ *    那就不是玻璃而是磨砂板。真正的液態玻璃只糊 2~12dp，
+ *    靠的是「邊緣折射扭曲」而不是「糊」。
+ * 2. 把 refractionAmount 當 0~1 係數直接用，而庫的
+ *    lens(scope, refractionHeight, refractionAmount, …) 兩個參數都是長度。
+ * 3. 完全沒做內陰影與色散。沒有內陰影 = 玻璃沒厚度 = 像半透明貼紙；
+ *    沒有色散 = 邊緣沒彩色 = 不像光線折射。
  */
 @Immutable
 data class GlassSpec(
-    val blurRadius: Dp = 24.dp,
-    val refractionHeight: Dp = 16.dp,
-    val refractionAmount: Float = 0.7f,
-    val saturation: Float = 1.8f,
-    val surfaceAlpha: Float = 0.18f,
-    val surfaceTint: Color = Color.White,
-    val highlightAlpha: Float = 0.75f,
-    val highlightWidth: Dp = 1.dp,
-    val lightAngleDeg: Float = -45f,
-    val shadowAlpha: Float = 0.20f,
-    val shadowRadius: Dp = 12.dp,
-    val innerShadowAlpha: Float = 0.12f,
-    val cornerRadius: Dp = 26.dp,
+    /** 模糊半徑。2~12dp，不是 30+。 */
+    val blurDp: Dp = 8.dp,
+    /** 磨砂模式的模糊（6~30）。只在 FROSTED 用。 */
+    val frostBlurDp: Dp = 18.dp,
+    /** 折射邊緣高度。14~28dp。 */
+    val lensHeightDp: Dp = 20.dp,
+    /** 折射位移量。0~24dp。 */
+    val lensAmountDp: Dp = 16.dp,
+    /** 色散強度（0~1）。彩色邊緣，這是「真玻璃」的關鍵。 */
+    val chromaticAberration: Float = 0.35f,
+    /** 深度感（0~1）。讓折射朝中心收，玻璃會「鼓起來」。 */
+    val depthEffect: Float = 0.5f,
+    /** 表面底色 alpha。淺 0.34 / 深 0.16。 */
+    val surfaceAlpha: Float = 0.34f,
+    /** 表面底色。逆向出來用的是米白（LxParchment），不是純白。 */
+    val surfaceTint: Color = Color(0xFFF7F2E8),
+    /** 邊緣高光 alpha。 */
+    val highlightAlpha: Float = 0.85f,
+    /** 內陰影（厚度感）。沒有它玻璃看起來像貼紙。 */
+    val innerShadowDp: Dp = 8.dp,
+    val innerShadowAlpha: Float = 0.55f,
+    val shadowAlpha: Float = 0.18f,
+    val shadowRadiusDp: Dp = 12.dp,
+    /** 圓角。底欄用 Capsule（全圓）。 */
+    val cornerRadius: Dp = 999.dp,
 ) {
+    fun blurFor(material: BarMaterial): Dp = when (material) {
+        BarMaterial.SOLID -> 0.dp
+        BarMaterial.FROSTED -> frostBlurDp
+        BarMaterial.LIQUID -> blurDp
+    }
+
+    fun usesGlass(material: BarMaterial): Boolean = material != BarMaterial.SOLID
+
     companion object {
-        /**
-         * **淺色定稿**。
-         *
-         * iOS 在亮色下需要**更實**的「托盤感」（背後是亮的，玻璃太透就看不見）。
-         * 所以 surfaceAlpha 取 0.34 而不是深色那套的 0.10 —— **差 3 倍多**。
-         */
+        /** 淺色定稿。表面底色用米白 —— 純白在淺色背景上會「白上白」。 */
         val LIGHT = GlassSpec(
-            blurRadius = 34.dp,
-            refractionHeight = 26.dp,
-            refractionAmount = 2.2f,
-            saturation = 2.6f,
-            surfaceAlpha = 0.55f,
-            // ★ 淺色下用**極淡的藍紫**而不是純白：
-            //   純白玻璃疊在白色卡片上等於「白上白」，看不出材質（真機實測）。
-            surfaceTint = Color(0xFFEFF3FF),
-            highlightAlpha = 1.0f,
-            highlightWidth = 1.2.dp,
-            lightAngleDeg = -45f,
+            blurDp = 8.dp,
+            frostBlurDp = 18.dp,
+            lensHeightDp = 20.dp,
+            lensAmountDp = 16.dp,
+            chromaticAberration = 0.35f,
+            depthEffect = 0.5f,
+            surfaceAlpha = 0.34f,
+            surfaceTint = Color(0xFFF7F2E8),
+            highlightAlpha = 0.90f,
+            innerShadowDp = 8.dp,
+            innerShadowAlpha = 0.50f,
             shadowAlpha = 0.14f,
-            shadowRadius = 14.dp,
-            innerShadowAlpha = 0.10f,
-            cornerRadius = 26.dp,
+            shadowRadiusDp = 12.dp,
         )
 
-        /**
-         * **深色定稿**。
-         *
-         * 深色下表面只用 10% 白（比淺色低 3 倍多）——
-         * 因為背景本來就暗，加太多白會變成「灰塊」而不是玻璃。
-         */
+        /** 深色定稿。SurfaceAlphaDark = 0.16（淺色的不到一半）。 */
         val DARK = GlassSpec(
-            blurRadius = 24.dp,
-            refractionHeight = 20.dp,
-            refractionAmount = 0.7f,
-            saturation = 1.5f,
-            surfaceAlpha = 0.10f,
-            surfaceTint = Color.White,
-            highlightAlpha = 0.60f,
-            highlightWidth = 1f.dp,
-            lightAngleDeg = -45f,
+            blurDp = 10.dp,
+            frostBlurDp = 24.dp,
+            lensHeightDp = 22.dp,
+            lensAmountDp = 18.dp,
+            chromaticAberration = 0.40f,
+            depthEffect = 0.55f,
+            surfaceAlpha = 0.16f,
+            surfaceTint = Color(0xFFEDE7DC),
+            highlightAlpha = 0.75f,
+            innerShadowDp = 8.dp,
+            innerShadowAlpha = 0.65f,
             shadowAlpha = 0.40f,
-            shadowRadius = 16.dp,
-            innerShadowAlpha = 0.16f,
-            cornerRadius = 26.dp,
+            shadowRadiusDp = 16.dp,
         )
 
-        /**
-         * **降級**：設備不支援時用的近似外觀。
-         *
-         * 規範與庫都提到「低版本上模糊不是降級，是崩或不畫」。
-         * 所以必須有一份「不依賴 shader 也好看」的參數：
-         * 只有表面底色 + 高光描邊，沒有模糊與折射。
-         */
+        /** 降級：API < 33 無 RuntimeShader 時。只有表面色 + 高光描邊。 */
         val FALLBACK = GlassSpec(
-            blurRadius = 0.dp,
-            refractionHeight = 0.dp,
-            refractionAmount = 0f,
-            saturation = 1f,
-            surfaceAlpha = 0.92f,
-            surfaceTint = Color.White,
+            blurDp = 0.dp,
+            frostBlurDp = 0.dp,
+            lensHeightDp = 0.dp,
+            lensAmountDp = 0.dp,
+            chromaticAberration = 0f,
+            depthEffect = 0f,
+            surfaceAlpha = 0.94f,
+            surfaceTint = Color(0xFFF7F2E8),
             highlightAlpha = 0.9f,
-            highlightWidth = 1.dp,
-            lightAngleDeg = -45f,
-            shadowAlpha = 0.10f,
-            shadowRadius = 8.dp,
+            innerShadowDp = 0.dp,
             innerShadowAlpha = 0f,
-            cornerRadius = 26.dp,
+            shadowAlpha = 0.10f,
+            shadowRadiusDp = 8.dp,
         )
 
-        /** 依深淺挑定稿。 */
         fun forDark(isDark: Boolean): GlassSpec = if (isDark) DARK else LIGHT
     }
 }
 
 /**
- * 給 debug 調參頁用的可寫狀態。
+ * 底欄材質（逆向自 com.linxin.core.settings.BarMaterial）。
  *
- * ## 為什麼要多這一層
- *
- * [GlassSpec] 是 `@Immutable` 的（好處：Compose 能跳過重組）。
- * 但調參頁要**邊拖 slider 邊看效果**，所以需要一份可寫的、
- * 能即時轉成 [GlassSpec] 的狀態。
- *
- * 規範 §15 的建議：「一次只改一個變量，並**同時給新舊兩組值讓業主二選一**；
- * 連著猜三個參數是最省不了時間的做法。」——這個類就是為此存在。
+ * 它的設定頁真的給了這三個選項（bar_solid / bar_frosted / bar_liquid）=>
+ * 純色 / 磨砂 / 液態。我們也照做。
  */
-class GlassSpecTuning(initial: GlassSpec) {
-    var blurRadius by mutableStateOf(initial.blurRadius)
-    var refractionHeight by mutableStateOf(initial.refractionHeight)
-    var refractionAmount by mutableStateOf(initial.refractionAmount)
-    var saturation by mutableStateOf(initial.saturation)
-    var surfaceAlpha by mutableStateOf(initial.surfaceAlpha)
-    var highlightAlpha by mutableStateOf(initial.highlightAlpha)
-    var lightAngleDeg by mutableStateOf(initial.lightAngleDeg)
-    var shadowAlpha by mutableStateOf(initial.shadowAlpha)
-    var cornerRadius by mutableStateOf(initial.cornerRadius)
+enum class BarMaterial(val label: String) {
+    /** 純色，無玻璃。最省電。 */
+    SOLID("純色"),
 
-    /** 目前值。每次讀都組一份新的（`data class` 很便宜）。 */
-    fun current(base: GlassSpec = GlassSpec.LIGHT): GlassSpec = base.copy(
-        blurRadius = blurRadius,
-        refractionHeight = refractionHeight,
-        refractionAmount = refractionAmount,
-        saturation = saturation,
-        surfaceAlpha = surfaceAlpha,
-        highlightAlpha = highlightAlpha,
-        lightAngleDeg = lightAngleDeg,
-        shadowAlpha = shadowAlpha,
-        cornerRadius = cornerRadius,
-    )
+    /** 磨砂玻璃（只有模糊，沒有折射）。 */
+    FROSTED("磨砂"),
 
-    /** 還原到某份定稿。 */
-    fun resetTo(spec: GlassSpec) {
-        blurRadius = spec.blurRadius
-        refractionHeight = spec.refractionHeight
-        refractionAmount = spec.refractionAmount
-        saturation = spec.saturation
-        surfaceAlpha = spec.surfaceAlpha
-        highlightAlpha = spec.highlightAlpha
-        lightAngleDeg = spec.lightAngleDeg
-        shadowAlpha = spec.shadowAlpha
-        cornerRadius = spec.cornerRadius
-    }
+    /** 液態玻璃（模糊 + 折射 + 色散 + 內陰影）。 */
+    LIQUID("液態"),
 }
 
 /**
- * 目前生效的 [GlassSpec]。
+ * 調參用的可寫狀態。
  *
- * 用 CompositionLocal 而不是到處傳參數：玻璃出現在底欄、頂欄、卡片、
- * 懸浮鈕等**很多地方**，逐個傳會讓每個函式簽名都多一個參數。
- *
- * 默認給 [GlassSpec.LIGHT]（淺色定稿）—— 由 [GlassTheme] 依深淺覆蓋。
+ * 對應逆向出來的 ThemePrefs.setGlassBlur/setGlassRefraction/setGlassDistortion/
+ * setGlassDispersion —— 它真的把這四個做成使用者可調的設定項
+ *（SP key: glass_blur / glass_refraction / glass_distortion / glass_dispersion）。
  */
+class GlassSpecTuning(initial: GlassSpec) {
+    var blurDp by mutableStateOf(initial.blurDp)
+    var frostBlurDp by mutableStateOf(initial.frostBlurDp)
+    var lensHeightDp by mutableStateOf(initial.lensHeightDp)
+    var lensAmountDp by mutableStateOf(initial.lensAmountDp)
+    var chromaticAberration by mutableStateOf(initial.chromaticAberration)
+    var depthEffect by mutableStateOf(initial.depthEffect)
+    var surfaceAlpha by mutableStateOf(initial.surfaceAlpha)
+    var highlightAlpha by mutableStateOf(initial.highlightAlpha)
+    var innerShadowDp by mutableStateOf(initial.innerShadowDp)
+
+    fun current(base: GlassSpec = GlassSpec.LIGHT): GlassSpec = base.copy(
+        blurDp = blurDp,
+        frostBlurDp = frostBlurDp,
+        lensHeightDp = lensHeightDp,
+        lensAmountDp = lensAmountDp,
+        chromaticAberration = chromaticAberration,
+        depthEffect = depthEffect,
+        surfaceAlpha = surfaceAlpha,
+        highlightAlpha = highlightAlpha,
+        innerShadowDp = innerShadowDp,
+    )
+
+    fun resetTo(spec: GlassSpec) {
+        blurDp = spec.blurDp
+        frostBlurDp = spec.frostBlurDp
+        lensHeightDp = spec.lensHeightDp
+        lensAmountDp = spec.lensAmountDp
+        chromaticAberration = spec.chromaticAberration
+        depthEffect = spec.depthEffect
+        surfaceAlpha = spec.surfaceAlpha
+        highlightAlpha = spec.highlightAlpha
+        innerShadowDp = spec.innerShadowDp
+    }
+}
+
+/** 目前生效的 [GlassSpec]。 */
 val LocalGlassSpec = staticCompositionLocalOf { GlassSpec.LIGHT }
+
+/** 目前的底欄材質。 */
+val LocalBarMaterial = staticCompositionLocalOf { BarMaterial.LIQUID }

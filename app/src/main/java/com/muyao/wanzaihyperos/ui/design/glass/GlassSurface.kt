@@ -4,8 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -13,7 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.backdrops.LayerBackdrop
@@ -22,167 +20,163 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.highlight.HighlightStyle
+import com.kyant.backdrop.shadow.InnerShadow
+import com.kyant.backdrop.shadow.Shadow
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * **液態玻璃容器**（iOS 26/27 風格）。
+ * 液態玻璃容器。
  *
- * ## 它是什麼
+ * 光學層次（由下到上）—— 這是逆向 com.linxin.demo 的 LxBottomBar 學到的：
  *
- * 一層「真的會折射背後內容」的玻璃：模糊 + 邊緣折射（lens）+ 高光 + 陰影。
- * 用的是 [io.github.kyant0:backdrop](https://github.com/Kyant0/AndroidLiquidGlass)
- * 2.0.1（Apache-2.0，minSdk 21）。
+ *   1. vibrancy()          增飽和，讓背後的顏色更濃（玻璃才有「顏色」）
+ *   2. blur(radius)        模糊 2~12dp（**不是** 30+）
+ *   3. lens(h, amount)     邊緣折射 —— 液態玻璃的靈魂
+ *   4. Highlight           邊緣高光
+ *   5. Shadow              外陰影（讓玻璃浮起來）
+ *   6. InnerShadow         內陰影（讓玻璃有厚度）★ 我第一版完全沒做
+ *   7. onDrawSurface       表面底色（米白 34% 淺 / 16% 深）
  *
- * ## ★ 為什麼這裡是「兩段式」用法
+ * 少任何一層都不像玻璃：
+ * - 沒有 lens → 只是磨砂板
+ * - 沒有 InnerShadow → 像半透明貼紙，沒有厚度
+ * - 沒有 vibrancy → 背後的顏色發灰
  *
- * 這個庫的模型是：
- * 1. 先把**要折射的內容**畫進一個 [LayerBackdrop]（[GlassBackdropHost] 負責）；
- * 2. 玻璃元件（本函式）從那個 backdrop 取像並折射。
+ * 用法必須是兩段式（見 [GlassBackdropHost]），否則折射到空白。
  *
- * 所以順序是：`GlassBackdropHost { 內容 }` 裡再放 `GlassSurface { ... }`。
- * 直接把 `GlassSurface` 放在沒有 host 的地方，它會折射到**空白**——
- * 表現是「一塊灰玻璃」，而且**不報錯**（規範 §6.4 警告的那類靜默失效）。
- *
- * ## 降級
- *
- * [GlassSpec.FALLBACK] 是「沒有模糊也好看」的那套（實心 + 高光描邊）。
- * 由 [GlassTheme] 依裝置能力與深淺選定，這裡照 [LocalGlassSpec] 用。
- *
- * @param modifier 修飾符
- * @param shape 容器形狀。**圓角必須與 [GlassSpec.cornerRadius] 一致**，
- *              否則高光會浮在圓角外面。
+ * @param backdrop 折射來源。null → 自動降級成實心（不會變灰塊）。
+ * @param material 材質。SOLID 不走玻璃。
+ * @param pressedScale 按下時的放大倍率（滑塊用 1.39，見 LxGlass.PillPressedScale）。
+ * @param pressFraction 0~1 的按下進度，驅動折射量與內陰影。
  */
-/** 診斷開關：強制走降級分支，用來確認會不會崩。 */
-private const val GLASS_FORCE_FALLBACK = false
-
 @Composable
 fun GlassSurface(
     backdrop: LayerBackdrop?,
     modifier: Modifier = Modifier,
-    shape: Shape = androidx.compose.foundation.shape.RoundedCornerShape(
-        LocalGlassSpec.current.cornerRadius,
-    ),
+    material: BarMaterial = LocalBarMaterial.current,
+    shape: Shape = RoundedCornerShape(LocalGlassSpec.current.cornerRadius),
+    pressFraction: Float = 1f,
+    pressedScale: Float = 1f,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val spec = LocalGlassSpec.current
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
 
-    // 沒有 backdrop（或降級）→ 走「實心 + 高光描邊」的外觀。
-    //
-    // 這一支不是可選項：庫在低版本/無 backdrop 時**不會報錯，只會畫成一塊灰**。
-    // 所以我們主動退成一個「看得過去的實心容器」，而不是讓它自己壞。
-    if (backdrop == null || spec.refractionAmount <= 0f || GLASS_FORCE_FALLBACK) {
+    // 降級：沒 backdrop、或材質是 SOLID、或 spec 是 FALLBACK（無模糊無折射）
+    if (backdrop == null || !spec.usesGlass(material) || spec.blurDp <= 0.dp) {
         Box(
             modifier = modifier
-                .then(
-                    Modifier.drawGlassFallback(spec, shape, isDark),
+                .background(
+                    color = spec.surfaceTint.copy(
+                        alpha = if (isDark) 0.14f else 0.94f,
+                    ),
+                    shape = shape,
+                )
+                .border(
+                    width = 1.dp,
+                    color = if (isDark) {
+                        Color.White.copy(alpha = 0.14f)
+                    } else {
+                        Color.Black.copy(alpha = 0.08f)
+                    },
+                    shape = shape,
                 ),
             content = content,
         )
         return
     }
 
+    val blurRadius = spec.blurFor(material)
+
     Box(
         modifier = modifier.drawBackdrop(
             backdrop = backdrop,
             shape = { shape },
             effects = {
-                // 模糊：讓背後內容「糊掉但不失形」。0 = 不糊。
-                //
-                // ⚠️ 簽名（從 2.0.1 的 class 讀出來）：
-                //   `blur(radius: Float, tileMode: TileMode)`
-                // **只有一個半徑參數**，第二個是 TileMode（不是 radiusY，也不是飽和度）。
-                // 我第一版按常規猜「(x, y, tileMode)」，編譯器檔下來了。
-                if (spec.blurRadius > 0.dp) {
-                    blur(spec.blurRadius.toPx())
+                // ① 增飽和：讓背後的顏色更濃。
+                //    少了這一步，玻璃背後的內容會發灰、看起來很「髒」。
+                vibrancy()
+
+                // ② 模糊。2~12dp 就夠 —— 液態玻璃靠折射不靠糊。
+                if (blurRadius > 0.dp) {
+                    blur(blurRadius.toPx())
                 }
-                // 折射：玻璃邊緣的「鏡片」效果 —— 這是 liquid glass 的靈魂。
+
+                // ③ 折射（lens）—— 液態玻璃的靈魂。
+                //    ★ 兩個參數**都是長度**（dp→px），不是 0~1 係數。
+                //    我第一版把 amount 當係數傳 0.7，等於 0.7px 的位移，
+                //    難怪看不出扭曲。
                 //
-                // 簽名：`lens(refractionHeight: Float, refractionAmount: Float, a: Boolean, b: Boolean)`
-                // **沒有 saturation 參數**。
-                // 0 = 純磨砂玻璃（就變成普通的 blur 卡片了）。
-                if (spec.refractionAmount > 0f) {
+                //    FROSTED 只糊不折射（那才是「磨砂」）。
+                if (material == BarMaterial.LIQUID && spec.lensAmountDp > 0.dp) {
                     lens(
-                        refractionHeight = spec.refractionHeight.toPx(),
-                        refractionAmount = spec.refractionAmount,
+                        refractionHeight = spec.lensHeightDp.toPx() * pressFraction.coerceIn(0f, 1f),
+                        refractionAmount = spec.lensAmountDp.toPx() * pressFraction.coerceIn(0f, 1f),
                     )
                 }
             },
+            // ④ 邊緣高光。這是「玻璃感」最直接的來源。
             highlight = {
-                // 邊緣高光。**這是「玻璃感」的關鍵** ——
-                // 沒有它，一塊半透明就只是「半透明」，看不出材質。
                 Highlight(
-                    width = spec.highlightWidth,
-                    blurRadius = spec.highlightWidth * 2,
-                    alpha = spec.highlightAlpha,
-                    // ⚠️ `HighlightStyle.Ambient(intensity: Float)` ——
-                    // **不能指定顏色**（顏色由庫內部依形狀算）。
-                    style = HighlightStyle.Ambient(intensity = spec.saturation),
+                    width = 1.5.dp,
+                    blurRadius = 3.dp,
+                    alpha = spec.highlightAlpha * pressFraction.coerceIn(0f, 1f),
                 )
             },
+            // ⑤ 外陰影：讓玻璃「浮」在內容上。
+            shadow = {
+                Shadow(
+                    radius = spec.shadowRadiusDp,
+                    alpha = spec.shadowAlpha,
+                )
+            },
+            // ⑥ ★ 內陰影：玻璃的「厚度」。
+            //    逆向出來是 PillInnerShadowDp = 8dp，隨按壓強度縮放。
+            //    我第一版完全沒做這一層，所以看起來像半透明貼紙。
+            innerShadow = {
+                InnerShadow(
+                    radius = spec.innerShadowDp * pressFraction.coerceIn(0f, 1f),
+                    alpha = spec.innerShadowAlpha * pressFraction.coerceIn(0f, 1f),
+                )
+            },
+            // 按下放大：滑塊被按下時會「鼓起來」。
+            layerBlock = {
+                if (pressedScale != 1f) {
+                    scaleX = pressedScale
+                    scaleY = pressedScale
+                }
+            },
+            // ⑦ 表面底色。淺 34% / 深 16%，米白不是純白。
             onDrawSurface = {
-                // 表面底色。iOS 的玻璃不是完全透明，有一層很淡的底 ——
-                // 深色 10% / 淺色 34%（差 3 倍多，因為亮色下需要更實的托盤感）。
                 drawRect(
                     color = spec.surfaceTint.copy(alpha = spec.surfaceAlpha),
                 )
             },
-            // 圓角與 shape 一致
         ),
         content = content,
     )
 }
 
 /**
- * 玻璃的**降級畫法**：實心底 + 1dp 高光描邊。
+ * 給玻璃提供折射來源。
  *
- * 為什麼不是「什麼都不畫」：那會讓底欄變成透明的一條，
- * 使用者會以為 App 壞了。實心 + 描邊至少是一個「看起來正常」的外觀。
+ * ★★ 關鍵規則：**要被折射的內容裡不能有玻璃。**
  *
- * ⚠️ 這裡刻意用**全限定名**調 `androidx.compose.foundation.background/border`：
- * 如果先寫同名私有擴展，會把標準庫的那個**遮蔽**掉，
- * 於是別處的同名調用也會解析到這裡 —— 那是一種很難查的錯誤。
- */
-private fun Modifier.drawGlassFallback(
-    spec: GlassSpec,
-    shape: Shape,
-    isDark: Boolean,
-): Modifier = this
-    .background(
-        color = spec.surfaceTint.copy(alpha = if (isDark) 0.14f else 0.92f),
-        shape = shape,
-    )
-    .border(
-        width = spec.highlightWidth,
-        color = if (isDark) {
-            Color.White.copy(alpha = 0.14f)
-        } else {
-            Color.Black.copy(alpha = 0.08f)
-        },
-        shape = shape,
-    )
-
-/**
- * **給玻璃提供折射來源**：把子內容畫進一個 [LayerBackdrop]。
+ * 這是「啟動即死」的真正原因（查了很久）：內容裡若也有玻璃，
+ * 它會在同一層裡採樣那一層 —— 採樣自己 → 無限遞迴 →
+ * 渲染卡死 → 系統以 coldStart timeout 殺進程
+ *（所以 logcat 沒有 FATAL EXCEPTION，只有 onTaskVanished）。
  *
- * ## 為什麼必須有這一層
+ * 所以分成兩個 slot：
+ * - [content]：被畫進 layer（**不能含玻璃**）
+ * - [overlay]：在 layer 之外（玻璃放這裡）
  *
- * 玻璃要「折射背後的東西」，而「背後的東西」必須先被畫進一個可被取樣的層。
- * 沒有這一層，玻璃折射到的是空白 —— 表現是「一塊灰玻璃」且**不報錯**
- *（規範 §6.4 說的就是這類靜默失效，所以我們把它做成必需的一步，而不是可選）。
- *
- * ## 用法
- *
- * ```kotlin
- * GlassBackdropHost(modifier = Modifier.fillMaxSize()) { backdrop ->
- *     LazyColumn { … }                        // 背景內容（會被折射）
- *     GlassSurface(backdrop) { … }            // 玻璃元件（浮在內容上）
- * }
- * ```
- *
- * @param content 拿到 backdrop 後畫內容；backdrop 只在這個作用域內有效。
+ * 逆向參考：com.linxin.demo 用
+ * `rememberCombinedBackdrop(外部backdrop, rememberLayerBackdrop())`
+ * 把兩個 backdrop 組合起來，效果類似——它的外部 backdrop 來自更上層，
+ * 我們這裡簡化成「內容層 + 覆蓋層」就夠用。
  */
 @Composable
 fun GlassBackdropHost(
@@ -190,74 +184,40 @@ fun GlassBackdropHost(
     content: @Composable BoxScope.() -> Unit,
     overlay: @Composable BoxScope.(LayerBackdrop) -> Unit,
 ) {
-    // 每頁一份（規範紅線 #3：離場頁清了共享 backdrop → 切頁後模糊永久消失）。
     val backdrop = rememberLayerBackdrop()
 
     Box(modifier = modifier) {
-        // ① 內容：掛上 layerBackdrop，讓它被真正畫進可供取樣的層。
-        //
-        // ★ 這是整件事的關鍵一步。只調 `rememberLayerBackdrop()` 而不把內容
-        //   掛上 `layerBackdrop(...)` 的話，backdrop 是空的 ——
-        //   玻璃折射到空白，表現是「一顆不透明膠囊」，而且**不報錯**。
-        //   我第一版就是這樣，靠真機截圖才看出來。
         Box(modifier = Modifier.matchParentSize().layerBackdrop(backdrop)) {
-            // ★ 把 backdrop 發布出去，讓內容區裡的 GlassSurface（不顯式傳參的）
-            //   也能拿到同一個折射來源。
-            //
-            //   第一版漏了這一步 —— 於是首頁 6 個玻璃卡片全部走降級分支
-            //   （`LocalGlassBackdrop.current` 是默認的 null），
-            //   真機上表現為「卡片一點也不玻璃」，而且不報錯。
-            //   靠臨時加的 GlassDiag 日誌（backdrop=false ×6）才定位到。
-            // ★★ 絕對不要在 layer 內部 provide LocalGlassBackdrop！
-            //
-            // 這一條是「啟動即死」的真正原因（查了很久）：內容裡若也有玻璃，
-            // 它會在**同一層裡**去採樣那一層 —— 也就是採樣自己 →
-            // 無限遞迴 → 渲染卡死 → 系統以 `coldStart timeout` 殺掉進程
-            // （所以 logcat 裡**沒有** FATAL EXCEPTION，只有 onTaskVanished）。
-            //
-            // 規則：**要被折射的內容裡不能有玻璃。**
-            // 玻璃只能出現在 `overlay` slot（在 layer 之外）。
-            // 內容裡的玻璃一律走 [GlassSpec.FALLBACK] 外觀（實心 + 描邊）。
             content()
         }
-        // ② 玻璃：在 layer **之外**，折射上面那份內容。
-        //    如果玻璃也被包進 layerBackdrop，它會折射自己 —— 變成無限糊。
         overlay(backdrop)
     }
 }
 
-/**
- * 目前頁面的 [LayerBackdrop]。
- *
- * 有它才能讓「內容在 LazyColumn 裡、玻璃浮在上面」這種常見佈局拿到同一個 backdrop，
- * 不必把 backdrop 一路當參數傳。
- */
+/** 目前頁面的 [LayerBackdrop]。 */
 val LocalGlassBackdrop =
     androidx.compose.runtime.staticCompositionLocalOf<LayerBackdrop?> { null }
 
 /**
- * 依深淺提供 [GlassSpec]，並可選地套上一份調參結果。
- *
- * 用法（放在 `WanzaiTheme` 內層一次即可）：
- * ```kotlin
- * GlassTheme { … }
- * ```
+ * 依深淺提供 [GlassSpec] 與 [BarMaterial]。
  *
  * @param override 調參頁傳進來的值；null = 用深淺定稿。
+ * @param material 底欄材質；null = 用 [LocalBarMaterial] 的預設（液態）。
  */
 @Composable
 fun GlassTheme(
     override: GlassSpec? = null,
+    material: BarMaterial? = null,
     content: @Composable () -> Unit,
 ) {
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
     val spec = override ?: GlassSpec.forDark(isDark)
-    CompositionLocalProvider(LocalGlassSpec provides spec, content = content)
+    CompositionLocalProvider(
+        LocalGlassSpec provides spec,
+        LocalBarMaterial provides (material ?: BarMaterial.LIQUID),
+        content = content,
+    )
 }
 
-/** 玻璃底欄的標準高度（含內距）。 */
+/** 玻璃底欄的標準高度（逆向：LxGlass.PillHeightDp = 56dp）。 */
 val GlassBarHeight = 64.dp
-
-/** 玻璃卡片的最小高度（單行）。 */
-val GlassCardMinHeight = 56.dp
-
