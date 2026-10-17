@@ -84,12 +84,14 @@ fun WanzaiMainShell(
                             .fillMaxSize()
                             .background(AppColors.pageBrush(isDark)),
                     ) {
-                        // 底部留出玻璃底欄的高度，讓列表能滾到它下面。
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(bottom = 96.dp),
-                        ) {
+                        // ★ 內容**不**留底部內距 —— 讓列表能一直滾到玻璃底下。
+                        //
+                        // 這是「玻璃看得出來」的前提：玻璃的價值是折射背後的內容，
+                        // 若內容在玻璃上方就被截斷，玻璃背後永遠是空白漸層，
+                        // 那就只是一塊半透明色，看不出材質。
+                        // 所以底部內距改由**頁面自己**在列表末尾加 padding
+                        // （見各 SectionPage 的 contentPadding bottom）。
+                        Box(modifier = Modifier.fillMaxSize()) {
                             when (MainSection.entries[section]) {
                                 MainSection.Home -> HomeSectionPage(
                                     graph = graph,

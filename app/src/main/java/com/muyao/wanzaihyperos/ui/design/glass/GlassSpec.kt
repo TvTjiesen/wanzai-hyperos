@@ -84,13 +84,15 @@ data class GlassSpec(
          * 所以 surfaceAlpha 取 0.34 而不是深色那套的 0.10 —— **差 3 倍多**。
          */
         val LIGHT = GlassSpec(
-            blurRadius = 28.dp,
-            refractionHeight = 18.dp,
-            refractionAmount = 0.7f,
-            saturation = 1.8f,
-            surfaceAlpha = 0.34f,
-            surfaceTint = Color.White,
-            highlightAlpha = 0.85f,
+            blurRadius = 34.dp,
+            refractionHeight = 26.dp,
+            refractionAmount = 2.2f,
+            saturation = 2.6f,
+            surfaceAlpha = 0.55f,
+            // ★ 淺色下用**極淡的藍紫**而不是純白：
+            //   純白玻璃疊在白色卡片上等於「白上白」，看不出材質（真機實測）。
+            surfaceTint = Color(0xFFEFF3FF),
+            highlightAlpha = 1.0f,
             highlightWidth = 1.2.dp,
             lightAngleDeg = -45f,
             shadowAlpha = 0.14f,
@@ -107,7 +109,7 @@ data class GlassSpec(
          */
         val DARK = GlassSpec(
             blurRadius = 24.dp,
-            refractionHeight = 16.dp,
+            refractionHeight = 20.dp,
             refractionAmount = 0.7f,
             saturation = 1.5f,
             surfaceAlpha = 0.10f,

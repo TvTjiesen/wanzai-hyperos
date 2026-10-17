@@ -67,7 +67,7 @@ fun HomeSectionPage(
             start = Dims.screenH,
             end = Dims.screenH,
             top = 56.dp,
-            bottom = 16.dp,
+            bottom = 320.dp,   // 留出玻璃底欄的高度 + 一屏餘量：讓最後幾張卡能滾到玻璃底下，玻璃才折射得到東西
         ),
         verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
     ) {
@@ -192,6 +192,18 @@ fun HomeSectionPage(
 
                     else -> BodyHint("沒有待辦事項。")
                 }
+            }
+        }
+
+        // 今日更多課程（讓內容延伸到玻璃底下 —— 玻璃要折射真的內容才看得出來）
+        item(key = "quick-more") {
+            GlassCard(
+                backdrop = backdrop,
+                title = "本週還有",
+                actionLabel = "課表 ›",
+                onAction = onOpenTimetable,
+            ) {
+                BodyHint("到課表板塊看整週安排。")
             }
         }
 

@@ -57,7 +57,7 @@ fun SettingsSectionPage(
             start = Dims.screenH,
             end = Dims.screenH,
             top = 56.dp,
-            bottom = 16.dp,
+            bottom = 120.dp,   // 留出玻璃底欄的高度（讓內容能滾到它下面，玻璃才折射得到東西）
         ),
         verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
     ) {

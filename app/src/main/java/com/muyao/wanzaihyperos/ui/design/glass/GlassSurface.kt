@@ -55,7 +55,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *              否則高光會浮在圓角外面。
  */
 /** 診斷開關：強制走降級分支，用來確認會不會崩。 */
-private const val GLASS_FORCE_FALLBACK = true
+private const val GLASS_FORCE_FALLBACK = false
 
 @Composable
 fun GlassSurface(
@@ -208,11 +208,17 @@ fun GlassBackdropHost(
             //   （`LocalGlassBackdrop.current` 是默認的 null），
             //   真機上表現為「卡片一點也不玻璃」，而且不報錯。
             //   靠臨時加的 GlassDiag 日誌（backdrop=false ×6）才定位到。
-            androidx.compose.runtime.CompositionLocalProvider(
-                LocalGlassBackdrop provides backdrop,
-            ) {
-                content()
-            }
+            // ★★ 絕對不要在 layer 內部 provide LocalGlassBackdrop！
+            //
+            // 這一條是「啟動即死」的真正原因（查了很久）：內容裡若也有玻璃，
+            // 它會在**同一層裡**去採樣那一層 —— 也就是採樣自己 →
+            // 無限遞迴 → 渲染卡死 → 系統以 `coldStart timeout` 殺掉進程
+            // （所以 logcat 裡**沒有** FATAL EXCEPTION，只有 onTaskVanished）。
+            //
+            // 規則：**要被折射的內容裡不能有玻璃。**
+            // 玻璃只能出現在 `overlay` slot（在 layer 之外）。
+            // 內容裡的玻璃一律走 [GlassSpec.FALLBACK] 外觀（實心 + 描邊）。
+            content()
         }
         // ② 玻璃：在 layer **之外**，折射上面那份內容。
         //    如果玻璃也被包進 layerBackdrop，它會折射自己 —— 變成無限糊。
