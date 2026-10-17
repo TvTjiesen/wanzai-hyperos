@@ -218,14 +218,24 @@ fun GlassBottomBar(
                 ) {
                     Box(
                         modifier = Modifier
-                            // 氣泡要「上移到圖標那一段」：
-                            // 參考 app 的氣泡垂直中心約在整格中心上方 6dp
-                            // （因為文字佔了下半，氣泡只對齊圖標）。
-                            .offset(y = (-5).dp)
-                            .size(BUBBLE_SIZE)
+                            // ★ 氣泡包住「圖標 + 文字」整格 —— 這是量出來的結論。
+                            //
+                            // 我一開始做對了（包整格），後來看到一張裁偏的圖
+                            // 誤以為「參考只包圖標」，改成 40dp 小圓 —— 那是錯的。
+                            // 重新量：選中格灰底 x192..x376 = 184px = **52.6dp**，
+                            // 而單格寬 58dp，所以氣泡幾乎填滿整格、左右各留 2.7dp。
+                            .width(cellWidth - 5.dp)
+                            .height(BUBBLE_HEIGHT)
                             .graphicsLayer {
-                                scaleX = pressedScale * (1f + abs(stretch))
-                                scaleY = pressedScale * (1f - abs(stretch) * 0.45f)
+                                // ★ 只在**拖動中**才變形。
+                                //
+                                // 之前這裡沒判斷 dragging，而 dragVelocity 在
+                                // 鬆手後不會歸零 —— 於是氣泡**一直保持被壓扁的橢圓**
+                                // （真機截圖裡「訊息」那格就是一個扁圓）。
+                                // 氣泡本來是圓，任何時候都不該是橢圓。
+                                val s = if (dragging) stretch else 0f
+                                scaleX = pressedScale * (1f + abs(s))
+                                scaleY = pressedScale * (1f - abs(s) * 0.45f)
                             }
                             // 半透明灰底 —— 這是量出來的顏色 (229,229,229)，
                             // 換成深色模式時 Miuix 的 secondaryContainer 會自動適配。
@@ -333,7 +343,13 @@ private val BAR_HEIGHT = 62.dp
  * 量自參考 app：氣泡寬 126px / 3.5 = 36dp。
  * 關鍵是它**只包住圖標**，不包文字 —— 這是「懸浮」而非「擠在裡面」的差別。
  */
-private val BUBBLE_SIZE = 40.dp
+/**
+ * 選中氣泡高度。
+ *
+ * 量自參考 app：氣泡 y 範圍比底欄略高，形成「鼓出來」的感覺。
+ * 底欄內容 62dp，氣泡 **58dp**（上下各留 2dp）。
+ */
+private val BUBBLE_HEIGHT = 58.dp
 
 /** 圖標尺寸。 */
 private val ICON_SIZE = 21.dp

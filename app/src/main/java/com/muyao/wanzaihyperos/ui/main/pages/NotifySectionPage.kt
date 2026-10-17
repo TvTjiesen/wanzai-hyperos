@@ -55,20 +55,36 @@ fun NotifySectionPage(
     val msgState by graph.messages.messages.collectAsState()
     val newsState by graph.news.news.collectAsState()
 
+    // ★ 這裡原本有個競態 bug（真機表現：兩個板塊永遠卡在「正在取得…」）。
+    //
+    // 錯在哪：`refreshGroups()` 回來後**立刻**讀 `groups.value`，
+    // 但 StateFlow 的值可能還沒更新（或被自己的 collectAsState 搶先），
+    // 於是 `groups` 是空的 → `selectGroup()` 不會被呼叫 →
+    // `messages` 永遠停在 FirstLoad。
+    //
+    // 正解（照既有 MessagesPage 的寫法）：**響應式** ——
+    // 訂閱 groups，值到了再選分組。這樣不依賴任何時序假設。
+    val msgGroupsState by graph.messages.groups.collectAsState()
+    val msgSelected by graph.messages.selectedGroup.collectAsState()
+    val newsGroupsState by graph.news.groups.collectAsState()
+    val newsSelected by graph.news.selectedGroup.collectAsState()
+
     LaunchedEffect(Unit) {
-        // 訊息：先取分組，再取第一個分組的訊息。
-        // 這兩步是必須的 —— `messages` 依賴 `selectedGroup`，
-        // 不先選分組就永遠是空的（那是既有倉庫的契約）。
-        runCatching {
-            graph.messages.refreshGroups()
-            val groups = (graph.messages.groups.value as? ListState.Content)?.items.orEmpty()
-            groups.firstOrNull()?.let { graph.messages.selectGroup(it) }
+        runCatching { graph.messages.refreshGroups() }
+        runCatching { graph.news.refreshGroups() }
+    }
+
+    // groups 到了、且還沒選分組 → 選第一個
+    LaunchedEffect(msgGroupsState, msgSelected) {
+        val groups = (msgGroupsState as? ListState.Content)?.items.orEmpty()
+        if (msgSelected == null) {
+            groups.firstOrNull()?.let { runCatching { graph.messages.selectGroup(it) } }
         }
-        // 新聞同理。
-        runCatching {
-            graph.news.refreshGroups()
-            val groups = (graph.news.groups.value as? ListState.Content)?.items.orEmpty()
-            groups.firstOrNull()?.let { graph.news.selectGroup(it) }
+    }
+    LaunchedEffect(newsGroupsState, newsSelected) {
+        val groups = (newsGroupsState as? ListState.Content)?.items.orEmpty()
+        if (newsSelected == null) {
+            groups.firstOrNull()?.let { runCatching { graph.news.selectGroup(it) } }
         }
     }
 
