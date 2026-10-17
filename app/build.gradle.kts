@@ -85,6 +85,11 @@ dependencies {
     // Miuix 的玻璃模組：BloomStroke（雙光源高光）/ ProgressiveBlur / textureBlur。
     // ⚠️ 它要 minSdk 33 —— 所以上面的 minSdk 已抬到 33。
     implementation(libs.miuix.blur)
+    // Haze 2.x：折射驅動的玻璃（業界做 iOS 26 液態玻璃的標準做法）。
+    // haze-glass = 折射 + 色散 + 深度；haze-blur = 模糊。
+    implementation(libs.haze.core)
+    implementation(libs.haze.blur)
+    implementation(libs.haze.glass)
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)

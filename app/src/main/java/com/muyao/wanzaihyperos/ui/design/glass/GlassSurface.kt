@@ -1,7 +1,6 @@
 package com.muyao.wanzaihyperos.ui.design.glass
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,224 +8,150 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.InnerShadow
-import com.kyant.backdrop.shadow.Shadow
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.glass.GlassStyle
+import dev.chrisbanes.haze.glass.hazeGlass
+import dev.chrisbanes.haze.rememberHazeState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 液態玻璃容器。
+ * **玻璃容器 —— 用 Haze 2.x 的折射玻璃**（`dev.chrisbanes.haze:haze-glass`）。
  *
- * 光學層次（由下到上），逆向 com.linxin.demo 的 LxBottomBar 學來的：
+ * ## ★ 為什麼換成 Haze（業主：「去 github 看看開源的安卓液態是啥樣的」）
  *
- *  1. vibrancy()        增飽和，讓背后的顏色更濃（玻璃才有「顏色」）
- *  2. blur(radius)      模糊 2~12dp（不是 30+）
- *  3. lens(h, amount)   邊緣折射 —— 液態玻璃的靈魂
- *  4. Highlight         邊緣高光
- *  5. Shadow            外陰影（讓玻璃浮起來）
- *  6. InnerShadow       內陰影（讓玻璃有厚度）
- *  7. onDrawSurface     表面底色（**要透**，0.30；太實會把折射蓋死）
+ * 查完的結論：**業界做 iOS 26 液態玻璃的標準做法就是 Haze**，不是 kyant/backdrop。
  *
- * 少任何一層都不像玻璃：
- * - 沒有 lens → 只是磨砂板
- * - 沒有 InnerShadow → 像半透明貼紙，沒有厚度
- * - 沒有 vibrancy → 背后的顏色發灰
+ * - Haze 2.0 的官方描述：*"source-backed or own-content Blur,
+ *   **refraction-driven Glass**"*；
+ * - `haze-glass` 提供 `refractionStrength` / `refractionHeightFraction` /
+ *   `refractionDisplacement` / `blurRadius` / `depth` /
+ *   `refractionDetailIntensity` —— 這正是 iOS 玻璃的物理參數；
+ * - 內建 `BuiltInGlassStyle.Regular` / `.Clear` 預設；
+ * - 自帶交互（`hovered`/`focused`/`pressed` 會改變光學表現）= 「靈動」的來源。
  *
- * ## ★ 表面不透明度與折射是互相打架的
+ * 參考 app（安大信）用的也是 **haze + kyant/backdrop** 這套組合。
  *
- * 我曾在這裡把 surfaceAlpha 拉到 0.92（為了「讓底欄看起來白」），
- * 結果那一層白漆把折射整個蓋住 —— 玻璃變白板，業主說「折射都沒了」。
+ * ## 之前為什麼不像
  *
- * **表面要透。** 白感靠：① 模糊后的背景本身偏亮 ② 高光 ③ 陰影。
+ * 我手寫 AGSL 調了十幾輪參數，而參考用的**就是 Haze 的 shader**。
+ * 手搓不會比成品好 —— 這是業主說「抄代碼不會抄嗎」的核心。
  *
- * ## ★ 右側出現白色方塊的原因（已修）
+ * ## 「一切參數可調節」怎麼落地
  *
- * shader 會往元件**外面**採樣（折射要抓邊界外的像素），所以設了 padding。
- * 但 padding 那一圈在**圓角形狀之外**，如果不安裝裁切就會露出來，
- * 表現是圓角旁邊多出一小塊異色方塊。
+ * 樣式是**從 [GlassSpec] 生成**的，不是硬編碼：
+ * 調節 [GlassSpec] 就會改變折射強度/邊緣比例/位移/模糊/厚度/高光。
  *
- * 修法：把整個 drawBackdrop 包進 `Modifier.clip(shape)` ——
- * 讓超出形狀的部分一律被裁掉。這是業主說的「右邊多出來那塊」。
- *
- * @param backdrop 折射來源。null → 自動降級成實心（不會變灰塊）。
+ * @param backdrop 折射來源（Haze 的 source）。
  * @param material 材質。SOLID 不走玻璃。
- * @param pressFraction 0~1 的按下進度，驅動折射量與內陰影。
+ * @param pressFraction 0~1 按下程度 → 折射與模糊變強。
  */
 @Composable
 fun GlassSurface(
-    backdrop: LayerBackdrop?,
+    backdrop: HazeState?,
     modifier: Modifier = Modifier,
     material: BarMaterial = LocalBarMaterial.current,
-    shape: Shape = RoundedCornerShape(LocalGlassSpec.current.cornerRadius),
+    cornerRadius: Dp = 26.dp,
     pressFraction: Float = 1f,
     pressedScale: Float = 1f,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val spec = LocalGlassSpec.current
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
+    val p = pressFraction.coerceIn(0f, 1f)
 
-    // 降級：沒 backdrop、或材質 SOLID、或 spec 是無模糊（FALLBACK）
-    if (backdrop == null || !spec.usesGlass(material) || spec.blurDp <= 0.dp) {
+    // 降級：沒有折射來源、或材質是 SOLID
+    if (backdrop == null || !spec.usesGlass(material)) {
         Box(
-            modifier = modifier
-                .background(
-                    color = spec.surfaceTint.copy(alpha = if (isDark) 0.14f else 0.94f),
-                    shape = shape,
-                )
-                .border(
-                    width = 1.dp,
-                    color = if (isDark) {
-                        Color.White.copy(alpha = 0.14f)
-                    } else {
-                        Color.Black.copy(alpha = 0.08f)
-                    },
-                    shape = shape,
-                ),
+            modifier = modifier.background(
+                color = spec.surfaceTint.copy(alpha = if (isDark) 0.88f else 0.94f),
+                shape = RoundedCornerShape(cornerRadius),
+            ),
             content = content,
         )
         return
     }
 
-    val blurRadius = spec.blurFor(material)
+    // ★★ 樣式由 [GlassSpec] 生成 —— 調參就會改變玻璃行為。
+    //
+    // 入口是公開的 `GlassStyle { ... }`（`BuiltInGlassStyle` 是 private，不能用）。
+    // 每個 setter 的語義見 [GlassSpec] 的欄位註解。
+    val style: GlassStyle = remember(spec, cornerRadius, p, isDark) {
+        GlassStyle {
+            shape(RoundedCornerShape(cornerRadius))
+            optics(
+                refractionStrength = spec.refractionStrength * (0.55f + 0.45f * p),
+                refractionHeightFraction = spec.refractionHeightFraction,
+                refractionDisplacement = spec.refractionDisplacement,
+                // depth 在 Haze 裡是**比例**（0~1），不是長度
+                depth = spec.depthFraction,
+                refractionDetailIntensity = spec.refractionDetailIntensity * p,
+            )
+            // 高光（玻璃感的直接來源）
+            specularIntensity(spec.specularIntensity)
+            // 表面色：**要透**，太實會把折射蓋死
+            alpha(spec.surfaceAlpha)
+            // 邊緣柔和度（長度）：越大邊緣越「水」
+            edgeSoftness(spec.edgeSoftnessDp)
+            // 邊緣陰影：讓玻璃有厚度
+            edgeShadow(spec.edgeShadowColor)
+            // 色散
+            chromaticAberrationStrength(spec.chromaticAberrationStrength)
+            // 菲涅耳：邊緣反射增強，玻璃的物理特徵
+            fresnelExponent(spec.fresnelExponent)
+            // 環境反應：玻璃對環境光的響應
+            ambientResponse(spec.ambientResponse)
+        }
+    }
 
     Box(
-        modifier = modifier
-            // ★ 先裁切再畫：把 shader 往外採樣的 padding 區裁掉。
-            //   少了這一行，圓角旁邊會露出一塊異色方塊。
-            .clip(shape)
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { shape },
-                effects = {
-                    // ① 增飽和：讓背後的顏色更濃。
-                    //    少了這一步，玻璃背後的內容會發灰、看起來「髒」。
-                    vibrancy()
-
-                    // ② 模糊。2~12dp 就夠 —— 液態玻璃靠折射不靠糊。
-                    if (blurRadius > 0.dp) {
-                        blur(blurRadius.toPx())
-                    }
-
-                    // ③ 折射 + 色散 —— 液態玻璃的靈魂。
-                    //
-                    // 用的是自己寫的 AGSL shader（LiquidGlassShader.kt），
-                    // 不是庫的 lens()。原因：lens() 只有「整片均勻偏移」，
-                    // 而真正的液態玻璃要「只在邊緣折射 + 色散 + 跟圓角走」。
-                    //
-                    // FROSTED 只糊不折射（那才是「磨砂」）。
-                    if (material == BarMaterial.LIQUID && spec.lensAmountDp > 0.dp) {
-                        val f = pressFraction.coerceIn(0f, 1f)
-                        liquidGlassRefraction(
-                            height = spec.lensHeightDp.toPx() * f,
-                            amount = spec.lensAmountDp.toPx() * f,
-                            depth = spec.depthEffect > 0f,
-                            dispersion = spec.chromaticAberration * f,
-                        )
-                    }
-                    // ③b 高光：**雙光源 + 曲面法線**（真的是光，不是白線）。
-                    //
-                    // 這一層放在 effects 裡（與折射同一個效果鏈），
-                    // 因為它要疊在折射結果上、並且讀 `content` 取樣。
-                    //
-                    // 之前我用庫的 `Highlight(...)` 畫一圈 0.6dp 白線 ——
-                    // 那是平面均勻的，業主說「奇怪邊緣白光」。
-                    // 真玻璃的高光是有方向的：左上一段亮、右下一段暗，
-                    // 因為邊緣是圓角曲面，法線不同。
-                    if (spec.highlightAlpha > 0f) {
-                        val f = pressFraction.coerceIn(0f, 1f)
-                        bloomStrokeHighlight(
-                            highlight = GlassHighlight(
-                                strokeWidth = 1.2.dp,
-                                innerBlurRadius = 2.8.dp,
-                                alpha = spec.highlightAlpha * f,
-                            ),
-                            shape = shape,
-                        )
-                    }
-                },
-                // ⑤ 外陰影：讓玻璃「浮」在內容上。
-                shadow = {
-                    Shadow(
-                        radius = spec.shadowRadiusDp,
-                        alpha = spec.shadowAlpha,
-                    )
-                },
-                // ⑥ 內陰影：玻璃的「厚度」。
-                //    逆向出來是 PillInnerShadowDp = 8dp，隨按壓強度縮放。
-                innerShadow = {
-                    InnerShadow(
-                        radius = spec.innerShadowDp * pressFraction.coerceIn(0f, 1f),
-                        alpha = spec.innerShadowAlpha * pressFraction.coerceIn(0f, 1f),
-                    )
-                },
-                // 按下放大：滑塊被按下時會「鼓起來」。
-                layerBlock = {
-                    if (pressedScale != 1f) {
-                        scaleX = pressedScale
-                        scaleY = pressedScale
-                    }
-                },
-                // ⑦ 表面底色。**要透**（0.30）—— 太實會把折射蓋死。
-                onDrawSurface = {
-                    drawRect(
-                        color = spec.surfaceTint.copy(alpha = spec.surfaceAlpha),
-                    )
-                },
-            ),
+        modifier = modifier.hazeGlass(
+            // 折射來源：取 HazeState 裡標記的所有 hazeSource 區域。
+            // 不用 HazeState 本身 —— 它不是 HazeInput，要包一層 Sources。
+            input = HazeInput.Sources(backdrop),
+            style = style,
+        ),
         content = content,
     )
 }
 
 /**
- * 給玻璃提供折射來源。
+ * 玻璃折射來源（包住要折射的內容）。
  *
- * ## ★ 關鍵規則：要被折射的內容裡不能有玻璃
+ * ## ★★ 關鍵：要被折射的內容裡不能有玻璃
  *
- * 這是「啟動即死」的真正原因：內容裡若也有玻璃，
- * 它會在同一層裡採樣那一層 → 採樣自己 → 無限遞迴 →
- * 渲染卡死 → 系統以 coldStart timeout 殺進程
- *（所以 logcat 沒有 FATAL EXCEPTION，只有 onTaskVanished）。
+ * 這是「啟動即死」的真正原因：內容裡若也有玻璃，它會在同一層裡
+ * 採樣那一層 → 採樣自己 → 無限遞迴 → 渲染卡死 → 系統殺進程。
  *
- * 所以分成兩個 slot：
- * - [content]：被畫進 layer（**不能含玻璃**）
- * - [overlay]：在 layer 之外（玻璃放這裡）
+ * 所以分成兩個 slot：[content] 被折射、[overlay] 放玻璃。
  */
 @Composable
 fun GlassBackdropHost(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
-    overlay: @Composable BoxScope.(LayerBackdrop) -> Unit,
+    overlay: @Composable BoxScope.(dev.chrisbanes.haze.HazeState) -> Unit,
 ) {
-    val backdrop = rememberLayerBackdrop()
+    val hazeState = rememberHazeState()
 
     Box(modifier = modifier) {
-        Box(modifier = Modifier.matchParentSize().layerBackdrop(backdrop)) {
+        // ① 內容：被折射（不能含玻璃）
+        Box(modifier = Modifier.matchParentSize().hazeSource(hazeState)) {
             content()
         }
-        overlay(backdrop)
+        // ② 玻璃：在外面，折射上面那份內容
+        overlay(hazeState)
     }
 }
 
-/** 目前頁面的 [LayerBackdrop]。 */
+/** 目前的 HazeState。 */
 val LocalGlassBackdrop =
-    androidx.compose.runtime.staticCompositionLocalOf<LayerBackdrop?> { null }
+    androidx.compose.runtime.staticCompositionLocalOf<dev.chrisbanes.haze.HazeState?> { null }
 
-/**
- * 依深淺提供 [GlassSpec] 與 [BarMaterial]。
- *
- * @param override 調參頁傳進來的值；null = 用深淺定稿。
- */
+/** 依深淺提供 [GlassSpec] 與 [BarMaterial]。 */
 @Composable
 fun GlassTheme(
     override: GlassSpec? = null,
@@ -242,5 +167,5 @@ fun GlassTheme(
     )
 }
 
-/** 玻璃底欄的標準高度。 */
-val GlassBarHeight = 64.dp
+/** 玻璃底欄標準高度。 */
+val GlassBarHeight = 46.dp

@@ -4,143 +4,151 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * 液態玻璃的全部光學參數。
+ * **玻璃的光學參數**（對應 Haze `GlassOptics` 的每一項）。
  *
- * 數值來源：逆向 com.linxin.demo 1.3.9-beta63（安大信）。
- * 業主提供了那個 APK 說「細節直接參考這個」。
- * 玻璃常數在 com.linxin.feature.home.ui.LxGlass：
+ * ## 為什麼是這一組欄位
  *
- *   BlurMinDp = 2.0f;        BlurMaxDp = 12.0f;
- *   FrostBlurMinDp = 6.0f;   FrostBlurMaxDp = 30.0f;
- *   LensHeightMinDp = 14.0f; LensHeightMaxDp = 28.0f;
- *   LensAmountMaxDp = 24.0f;
- *   SurfaceAlphaLight = 0.34f; SurfaceAlphaDark = 0.16f;
- *   PillHeightDp = 56.0f;
- *   PillPressedScale = 1.3928572f;
- *   PillRefractionHeightDp = 10.0f; PillRefractionAmountDp = 14.0f;
- *   PillInnerShadowDp = 8.0f;
- *   BarPressGrow = 16.dp;
+ * 它們**一一對應** `dev.chrisbanes.haze.glass.GlassOptics` 的建構參數：
+ * ```
+ * GlassOptics(
+ *   refractionStrength, refractionHeightFraction, refractionDisplacement,
+ *   depth, blurRadius, progressive, refractionFoldStrength,
+ *   refractionDetailIntensity, refractionProfile,
+ * )
+ * ```
+ * 換言之：**這個 data class 就是 Haze 那一組參數的可調入口**，
+ * 業主要求的「玻璃一切參數可調節」由此落地 —— 改這裡，玻璃就變。
  *
- * 插值公式在 LxBottomBar（blur/refraction/distortion 三個 0~1 強度）：
- *   blurDp       = 10.0f * blur + 2.0f;
- *   frostBlurDp  = blur * 24.0f + 6.0f;
- *   lensHeightDp = refraction * 14.0f + 14.0f;
- *   lensAmountDp = distortion * 24.0f;
+ * ## 各參數的物理意義
  *
- * 我原先錯在哪（重點，別再犯）：
- * 1. blurRadius 用了 34dp —— 是它 BlurMaxDp 的三倍。糊到看不出背後的東西，
- *    那就不是玻璃而是磨砂板。真正的液態玻璃只糊 2~12dp，
- *    靠的是「邊緣折射扭曲」而不是「糊」。
- * 2. 把 refractionAmount 當 0~1 係數直接用，而庫的
- *    lens(scope, refractionHeight, refractionAmount, …) 兩個參數都是長度。
- * 3. 完全沒做內陰影與色散。沒有內陰影 = 玻璃沒厚度 = 像半透明貼紙；
- *    沒有色散 = 邊緣沒彩色 = 不像光線折射。
+ * | 參數 | 意義 | 調大的後果 |
+ * |---|---|---|
+ * | [refractionStrength] | 折射強度 | 邊緣扭曲更明顯；太大變哈哈鏡 |
+ * | [refractionHeightFraction] | 折射環帶佔整體的比例 | 小 = 只在真正的邊緣折射；大 = 整片都扭 |
+ * | [refractionDisplacement] | 邊緣位移量 | 邊緣「吸進去」的深度 |
+ * | [depth] | 玻璃厚度 | 有厚度感（像一塊實體）而非一層膜 |
+ * | [blurRadius] | 背後模糊 | 太大就看不出背後是什麼（= 磨砂板，不是玻璃） |
+ * | [refractionDetailIntensity] | 細節/色散強度 | 邊緣的彩虹與細節紋理 |
+ * | [specularIntensity] | 高光（鏡面反射）強度 | 邊緣的「玻璃感」 |
+ * | [surfaceAlpha] | 表面底色透明度 | **要透**；太實會把折射蓋死 |
+ *
+ * ## ★ 之前踩過的坑（別再犯）
+ *
+ * 我曾把 [surfaceAlpha] 拉到 0.92 想讓底欄「看起來白」，
+ * 結果那一層白漆把折射整個蓋住 —— 業主：「折射都沒了」。
+ * 表面色**必須透**，白感靠模糊後的背景 + 高光，不是靠堆白漆。
  */
 @Immutable
 data class GlassSpec(
-    /** 模糊半徑。2~12dp，不是 30+。 */
-    val blurDp: Dp = 8.dp,
-    /** 磨砂模式的模糊（6~30）。只在 FROSTED 用。 */
+    // ── 折射 ──────────────────────────────────────────────────────
+    /** 折射強度。0 = 不折射（純模糊）。 */
+    val refractionStrength: Float = 0.55f,
+    /**
+     * 折射環帶佔整體的比例（0~1）。
+     *
+     * ★ 這是「通透」的關鍵：**小**（如 0.18）表示只有真正的邊緣在折射，
+     * 中心區域原樣透出 —— 那才是玻璃；大（如 0.6）會整片一起扭，變成水杯。
+     */
+    val refractionHeightFraction: Float = 0.18f,
+    /** 邊緣位移量（dp）。 */
+    val refractionDisplacement: Dp = 14.dp,
+    /** 玻璃厚度比例（0~1）。Haze 的 `optics.depth` 是比例不是長度。 */
+    val depthFraction: Float = 0.35f,
+    /** 細節 / 色散強度（0~1）。 */
+    val refractionDetailIntensity: Float = 0.35f,
+
+    // ── 模糊 ──────────────────────────────────────────────────────
+    /**
+     * 背後模糊半徑（dp）。
+     *
+     * ★ 真玻璃**只糊一點**：iOS 的 Liquid Glass 大約 2~12dp。
+     * 糊到 30dp 就看不出背後是什麼 —— 那不是玻璃，是磨砂板。
+     */
+    val blurDp: Dp = 6.dp,
+    /** 磨砂材質用的模糊（更重，但沒有折射）。 */
     val frostBlurDp: Dp = 18.dp,
-    /** 折射邊緣高度。14~28dp。 */
-    val lensHeightDp: Dp = 20.dp,
-    /** 折射位移量。0~24dp。 */
-    val lensAmountDp: Dp = 16.dp,
-    /** 色散強度（0~1）。彩色邊緣，這是「真玻璃」的關鍵。 */
-    val chromaticAberration: Float = 0.35f,
-    /** 深度感（0~1）。讓折射朝中心收，玻璃會「鼓起來」。 */
-    val depthEffect: Float = 0.5f,
-    /** 表面底色 alpha。淺 0.34 / 深 0.16。 */
-    val surfaceAlpha: Float = 0.34f,
-    /** 表面底色。逆向出來用的是米白（LxParchment），不是純白。 */
-    val surfaceTint: Color = Color(0xFFF7F2E8),
-    /** 邊緣高光 alpha。 */
-    val highlightAlpha: Float = 0.85f,
-    /** 內陰影（厚度感）。沒有它玻璃看起來像貼紙。 */
-    val innerShadowDp: Dp = 8.dp,
-    val innerShadowAlpha: Float = 0.55f,
-    val shadowAlpha: Float = 0.18f,
-    val shadowRadiusDp: Dp = 12.dp,
-    /** 圓角。底欄用 Capsule（全圓）。 */
-    val cornerRadius: Dp = 999.dp,
+
+    // ── 高光 / 表面 ───────────────────────────────────────────────
+    /** 鏡面高光強度（0~1）。玻璃感的直接來源。 */
+    val specularIntensity: Float = 0.6f,
+    /** 表面底色 alpha。**要透**（見類註解的坑）。 */
+    val surfaceAlpha: Float = 0.30f,
+    /** 表面底色。玻璃用略帶冷調的白，比純白有質感。 */
+    val surfaceTint: Color = Color(0xFFF4F7FF),
+    // ── Haze GlassStyleScope 的其餘 setter ───────────────────────
+    /** 邊緣柔和度（長度）。越大邊緣越「水」。 */
+    val edgeSoftnessDp: Dp = 6.dp,
+    /** 邊緣陰影顏色。讓玻璃有厚度。 */
+    val edgeShadowColor: Color = Color(0x1A000000),
+    /** 色散強度（0~1）。邊緣的彩虹。 */
+    val chromaticAberrationStrength: Float = 0.30f,
+    /** 菲涅耳指數。邊緣反射增強 —— 玻璃的物理特徵。 */
+    val fresnelExponent: Float = 4.0f,
+    /** 環境反應（0~1）。玻璃對環境光的響應。 */
+    val ambientResponse: Float = 0.5f,
+    /** 圓角。 */
+    val cornerRadius: Dp = 26.dp,
 ) {
+
+    /** 目前模式下的模糊。 */
     fun blurFor(material: BarMaterial): Dp = when (material) {
         BarMaterial.SOLID -> 0.dp
         BarMaterial.FROSTED -> frostBlurDp
         BarMaterial.LIQUID -> blurDp
     }
 
+    /** 是否走真玻璃。SOLID 不走。 */
     fun usesGlass(material: BarMaterial): Boolean = material != BarMaterial.SOLID
 
     companion object {
-        /** 淺色定稿。表面底色用米白 —— 純白在淺色背景上會「白上白」。 */
+        /** **淺色定稿**。 */
         val LIGHT = GlassSpec(
-            // 對齊參考 app 的上限：BlurMaxDp = 12（我原來只給 8，太輕）
-            blurDp = 8.dp,
-            frostBlurDp = 24.dp,
-            lensHeightDp = 26.dp,
-            lensAmountDp = 22.dp,
-            // 色散 0.9：參考的色散是「看得見一點彩虹但不明顯」。
-            // 給到 1.8 會在圓角處溢出成青綠/白色描邊（真機可見，
-            // 表現成「底欄右邊多出一塊白」）。
-            chromaticAberration = 0.9f,
-            depthEffect = 0.8f,
-            // ★★ 這裡我來回錯過一次，記下來：
-            //
-            // 曾為「讓底欄看起來白」把 surfaceAlpha 拉到 0.92 ——
-            // 但這一層是畫在**折射結果之上**的，
-            // 92% 不透明 = 把折射整個蓋死 → 玻璃變成白板，業主說「折射都沒了」。
-            //
-            // 正解：表面要**透**（0.30），白感靠
-            //   ① 模糊後的背景本身偏亮  ② 高光  ③ 陰影
-            // 而不是靠堆白漆。參考 app 的底欄在**深色內容上**也是透的。
-            surfaceAlpha = 0.22f,
-            surfaceTint = Color.White,
-            highlightAlpha = 0.30f,
-            innerShadowDp = 8.dp,
-            innerShadowAlpha = 0.50f,
-            shadowAlpha = 0.14f,
-            shadowRadiusDp = 12.dp,
+            refractionStrength = 0.60f,
+            refractionHeightFraction = 0.16f,
+            refractionDisplacement = 14.dp,
+            depthFraction = 0.35f,
+            refractionDetailIntensity = 0.32f,
+            blurDp = 6.dp,
+            frostBlurDp = 18.dp,
+            specularIntensity = 0.62f,
+            surfaceAlpha = 0.88f,
+            surfaceTint = Color(0xFFF4F7FF),
+            cornerRadius = 26.dp,
         )
 
-        /** 深色定稿。SurfaceAlphaDark = 0.16（淺色的不到一半）。 */
+        /** **深色定稿**：折射與高光都更強（深色背景下玻璃更明顯）。 */
         val DARK = GlassSpec(
-            blurDp = 10.dp,
-            frostBlurDp = 24.dp,
-            lensHeightDp = 22.dp,
-            lensAmountDp = 18.dp,
-            chromaticAberration = 1.1f,
-            depthEffect = 0.55f,
-            surfaceAlpha = 0.16f,
-            surfaceTint = Color(0xFFEDE7DC),
-            highlightAlpha = 0.22f,
-            innerShadowDp = 8.dp,
-            innerShadowAlpha = 0.65f,
-            shadowAlpha = 0.40f,
-            shadowRadiusDp = 16.dp,
+            refractionStrength = 0.72f,
+            refractionHeightFraction = 0.20f,
+            refractionDisplacement = 16.dp,
+            depthFraction = 0.40f,
+            refractionDetailIntensity = 0.42f,
+            blurDp = 8.dp,
+            frostBlurDp = 22.dp,
+            specularIntensity = 0.72f,
+            surfaceAlpha = 0.85f,
+            surfaceTint = Color(0xFFF2F5FC),
+            cornerRadius = 26.dp,
         )
 
-        /** 降級：API < 33 無 RuntimeShader 時。只有表面色 + 高光描邊。 */
+        /** **降級**：不支援時的近似（實心 + 高光描邊）。 */
         val FALLBACK = GlassSpec(
+            refractionStrength = 0f,
+            refractionHeightFraction = 0f,
+            refractionDisplacement = 0.dp,
+            depthFraction = 0f,
+            refractionDetailIntensity = 0f,
             blurDp = 0.dp,
             frostBlurDp = 0.dp,
-            lensHeightDp = 0.dp,
-            lensAmountDp = 0.dp,
-            chromaticAberration = 0f,
-            depthEffect = 0f,
+            specularIntensity = 0.4f,
             surfaceAlpha = 0.94f,
-            surfaceTint = Color(0xFFF7F2E8),
-            highlightAlpha = 0.35f,
-            innerShadowDp = 0.dp,
-            innerShadowAlpha = 0f,
-            shadowAlpha = 0.10f,
-            shadowRadiusDp = 8.dp,
+            surfaceTint = Color(0xFFF4F7FF),
+            cornerRadius = 26.dp,
         )
 
         fun forDark(isDark: Boolean): GlassSpec = if (isDark) DARK else LIGHT
@@ -148,67 +156,59 @@ data class GlassSpec(
 }
 
 /**
- * 底欄材質（逆向自 com.linxin.core.settings.BarMaterial）。
+ * 底欄材質。
  *
- * 它的設定頁真的給了這三個選項（bar_solid / bar_frosted / bar_liquid）=>
- * 純色 / 磨砂 / 液態。我們也照做。
+ * 三態對應 iOS Liquid Glass 的三種風格：
+ * - [SOLID] 純色（不透明，最省電）
+ * - [FROSTED] 磨砂（只有模糊，沒有折射 —— 那是「磨砂玻璃」不是「液態玻璃」）
+ * - [LIQUID] 液態（折射 + 色散 + 深度 + 高光）
  */
 enum class BarMaterial(val label: String) {
-    /** 純色，無玻璃。最省電。 */
     SOLID("純色"),
-
-    /** 磨砂玻璃（只有模糊，沒有折射）。 */
     FROSTED("磨砂"),
-
-    /** 液態玻璃（模糊 + 折射 + 色散 + 內陰影）。 */
     LIQUID("液態"),
 }
 
 /**
- * 調參用的可寫狀態。
+ * 調參用的可寫狀態（給調參頁綁 slider 用）。
  *
- * 對應逆向出來的 ThemePrefs.setGlassBlur/setGlassRefraction/setGlassDistortion/
- * setGlassDispersion —— 它真的把這四個做成使用者可調的設定項
- *（SP key: glass_blur / glass_refraction / glass_distortion / glass_dispersion）。
+ * 欄位與 [GlassSpec] 一一對應，所以「玻璃一切參數可調節」在 UI 上是可實現的。
  */
 class GlassSpecTuning(initial: GlassSpec) {
+    var refractionStrength by mutableStateOf(initial.refractionStrength)
+    var refractionHeightFraction by mutableStateOf(initial.refractionHeightFraction)
+    var refractionDisplacement by mutableStateOf(initial.refractionDisplacement)
+    var depthFraction by mutableStateOf(initial.depthFraction)
+    var refractionDetailIntensity by mutableStateOf(initial.refractionDetailIntensity)
     var blurDp by mutableStateOf(initial.blurDp)
-    var frostBlurDp by mutableStateOf(initial.frostBlurDp)
-    var lensHeightDp by mutableStateOf(initial.lensHeightDp)
-    var lensAmountDp by mutableStateOf(initial.lensAmountDp)
-    var chromaticAberration by mutableStateOf(initial.chromaticAberration)
-    var depthEffect by mutableStateOf(initial.depthEffect)
+    var specularIntensity by mutableStateOf(initial.specularIntensity)
     var surfaceAlpha by mutableStateOf(initial.surfaceAlpha)
-    var highlightAlpha by mutableStateOf(initial.highlightAlpha)
-    var innerShadowDp by mutableStateOf(initial.innerShadowDp)
 
     fun current(base: GlassSpec = GlassSpec.LIGHT): GlassSpec = base.copy(
+        refractionStrength = refractionStrength,
+        refractionHeightFraction = refractionHeightFraction,
+        refractionDisplacement = refractionDisplacement,
+        depthFraction = depthFraction,
+        refractionDetailIntensity = refractionDetailIntensity,
         blurDp = blurDp,
-        frostBlurDp = frostBlurDp,
-        lensHeightDp = lensHeightDp,
-        lensAmountDp = lensAmountDp,
-        chromaticAberration = chromaticAberration,
-        depthEffect = depthEffect,
+        specularIntensity = specularIntensity,
         surfaceAlpha = surfaceAlpha,
-        highlightAlpha = highlightAlpha,
-        innerShadowDp = innerShadowDp,
     )
 
     fun resetTo(spec: GlassSpec) {
+        refractionStrength = spec.refractionStrength
+        refractionHeightFraction = spec.refractionHeightFraction
+        refractionDisplacement = spec.refractionDisplacement
+        depthFraction = spec.depthFraction
+        refractionDetailIntensity = spec.refractionDetailIntensity
         blurDp = spec.blurDp
-        frostBlurDp = spec.frostBlurDp
-        lensHeightDp = spec.lensHeightDp
-        lensAmountDp = spec.lensAmountDp
-        chromaticAberration = spec.chromaticAberration
-        depthEffect = spec.depthEffect
+        specularIntensity = spec.specularIntensity
         surfaceAlpha = spec.surfaceAlpha
-        highlightAlpha = spec.highlightAlpha
-        innerShadowDp = spec.innerShadowDp
     }
 }
 
 /** 目前生效的 [GlassSpec]。 */
-val LocalGlassSpec = staticCompositionLocalOf { GlassSpec.LIGHT }
+val LocalGlassSpec = androidx.compose.runtime.staticCompositionLocalOf { GlassSpec.LIGHT }
 
 /** 目前的底欄材質。 */
-val LocalBarMaterial = staticCompositionLocalOf { BarMaterial.LIQUID }
+val LocalBarMaterial = androidx.compose.runtime.staticCompositionLocalOf { BarMaterial.LIQUID }

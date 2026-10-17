@@ -40,7 +40,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kyant.backdrop.backdrops.LayerBackdrop
+import dev.chrisbanes.haze.HazeState
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -80,7 +80,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 @Composable
 fun GlassBottomBar(
-    backdrop: LayerBackdrop?,
+    backdrop: HazeState?,
     items: List<GlassBarItem>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
@@ -136,7 +136,7 @@ fun GlassBottomBar(
                     .fillMaxWidth()
                     .height(BAR_HEIGHT),
                 material = material,
-                shape = RoundedCornerShape(percent = 50),
+                cornerRadius = 24.dp,
                 pressFraction = 1f,
             ) {
                 Box(
@@ -244,7 +244,7 @@ fun GlassBottomBar(
                                 backdrop = backdrop,
                                 modifier = Modifier.fillMaxSize(),
                                 material = BarMaterial.LIQUID,
-                                shape = RoundedCornerShape(percent = 50),
+                                cornerRadius = 24.dp,
                                 // 按下時折射變強（與外層容器同一套邏輯）
                                 pressFraction = 0.55f + 0.45f * pressAnim.value,
                                 pressedScale = pressedScale,

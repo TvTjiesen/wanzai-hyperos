@@ -228,7 +228,7 @@ fun HomeSectionPage(
 
 @Composable
 private fun GlassCard(
-    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop?,
+    backdrop: dev.chrisbanes.haze.HazeState?,
     title: String,
     actionLabel: String?,
     onAction: (() -> Unit)?,
@@ -292,7 +292,7 @@ private fun BodyError(title: String, detail: String) {
 
 @Composable
 private fun QuickCard(
-    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop?,
+    backdrop: dev.chrisbanes.haze.HazeState?,
     title: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,

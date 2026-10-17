@@ -10,9 +10,11 @@ activityCompose = "1.12.4"
 coreKtx = "1.17.0"
 lifecycle = "2.9.4"
 miuix = "0.9.4"
-# 液態玻璃（iOS 26/27 style）。Apache-2.0，minSdk 21（我們 24 可用）。
-# 為何不用 miuix-blur：它要 minSdk 33，會丟掉 Android 13 以下全部機型。
+# 液態玻璃（iOS 26/27 style）。Apache-2.0，minSdk 21。
 backdrop = "2.0.1"
+# Haze 2.x：折射驅動的玻璃（haze-glass 提供折射 + 色散 + 深度）。
+# minSdk 23，Apache-2.0。參考 app 用的就是這一套。
+hazeVersion = "2.0.1"
 coroutines = "1.10.2"
 okhttp = "5.1.0"
 kotlinxSerialization = "1.9.0"
@@ -40,6 +42,12 @@ miuix-nav = { group = "top.yukonga.miuix.kmp", name = "miuix-nav-android", versi
 # Miuix 的玻璃模組：BloomStroke（雙光源高光）/ ProgressiveBlur / textureBlur。
 # ⚠️ minSdk = 33，所以 app 的 minSdk 也必須是 33。
 miuix-blur = { group = "top.yukonga.miuix.kmp", name = "miuix-blur-android", version.ref = "miuix" }
+# Haze 2.x：**折射驅動的玻璃**（Apache-2.0，minSdk 23）。
+# 這是業界做 iOS 26 液態玻璃的標準做法 —— 參考 app 也用它。
+# haze-glass 提供折射 + 色散 + 深度，haze-blur 提供模糊。
+haze-core = { group = "dev.chrisbanes.haze", name = "haze-android", version.ref = "hazeVersion" }
+haze-blur = { group = "dev.chrisbanes.haze", name = "haze-blur-android", version.ref = "hazeVersion" }
+haze-glass = { group = "dev.chrisbanes.haze", name = "haze-glass-android", version.ref = "hazeVersion" }
 # 液態玻璃：真實折射 + 模糊 + 高光（見 docs/BEAUTY-GLASS.md）
 backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
 
