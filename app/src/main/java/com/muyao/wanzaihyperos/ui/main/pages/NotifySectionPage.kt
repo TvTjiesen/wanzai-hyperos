@@ -119,8 +119,9 @@ fun NotifySectionPage(
                 if (items.isEmpty()) {
                     item(key = "msg-empty") { Hint("沒有訊息。") }
                 } else {
-                    items.take(5).forEach { m ->
-                        item(key = "msg-${m.id}") { MessageRow(m) }
+                    // key 用 index 兜底：服務端 id 實測有重複（撞過 Key already used）
+                    items.take(5).forEachIndexed { idx, m ->
+                        item(key = "msg-$idx-${m.id}") { MessageRow(m) }
                     }
                 }
             }
@@ -155,8 +156,8 @@ fun NotifySectionPage(
                 if (items.isEmpty()) {
                     item(key = "news-empty") { Hint("暫時沒有新聞。") }
                 } else {
-                    items.take(6).forEach { n ->
-                        item(key = "news-${n.id}") { NewsRow(n) }
+                    items.take(6).forEachIndexed { idx, n ->
+                        item(key = "news-$idx-${n.id}") { NewsRow(n) }
                     }
                 }
             }

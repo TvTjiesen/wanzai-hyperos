@@ -150,8 +150,10 @@ fun AppsSectionPage(
                 if (native.isEmpty()) {
                     item(key = "native-empty") { SmallHint("還沒有已重構的功能。") }
                 } else {
-                    native.forEach { app ->
-                        item(key = "n-${app.id}") { AppRow(app) { onOpenApp(app) } }
+                    native.forEachIndexed { idx, app ->
+                        // ★ key 必須唯一。門戶的 app id 有重複（實測撞過
+                        //   `Key "n-106" was already used`），所以把 index 也放進去。
+                        item(key = "n-$idx-${app.id}") { AppRow(app) { onOpenApp(app) } }
                     }
                 }
 
@@ -161,8 +163,8 @@ fun AppsSectionPage(
                 if (web.isEmpty()) {
                     item(key = "web-empty") { SmallHint("沒有網頁類應用。") }
                 } else {
-                    web.forEach { app ->
-                        item(key = "w-${app.id}") { AppRow(app) { onOpenApp(app) } }
+                    web.forEachIndexed { idx, app ->
+                        item(key = "w-$idx-${app.id}") { AppRow(app) { onOpenApp(app) } }
                     }
                 }
             }

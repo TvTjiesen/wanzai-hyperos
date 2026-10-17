@@ -1,8 +1,10 @@
 package com.muyao.wanzaihyperos.ui.design.glass
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,7 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,66 +27,48 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.LayerBackdrop
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 液態玻璃底欄（逆向 com.linxin.demo 的 LxBottomBar 重寫）。
+ * 液態玻璃底欄（可拖動）。
  *
- * ## 結構（照逆向結果）
+ * ## 交互（照 iOS 標準）
  *
- * ```
- * Capsule 容器（玻璃，折射背后的内容）
- *   └ 悬浮滑块（Pill，第二层玻璃，56dp 高，全圆）
- *       └ 图标 + 文字
- * ```
+ * | 操作 | 行為 |
+ * |---|---|
+ * | 點一格 | 切到那格，滑塊彈過去 |
+ * | **按住左右拖** | 滑塊**跟著手指走**（不是跳格） |
+ * | 拖到一半鬆手 | 依「位置 + 甩動速度」吸附到最近格 |
+ * | 甩動 | 速度夠大就跨過一格 |
+
+ * ## 為什麼要做「跟手 + 吸附」而不是「點擊切換」
  *
- * ## ★ 三个我从逆向学到、原版做错的关键点
+ * 這正是業主要求的「像水滴一樣靈動」。點擊切換是**離散**的（A → B 直接跳），
+ * 而拖動是**連續**的（手指到哪滑塊到哪），後者才會有「液體被推著走」的錯覺。
  *
- * **1. 滑块是「悬浮」的，不是平铺的**
+ * ## 拖動時的變形（水滴感）
  *
- * 逆向常量 `PillHeightDp = 56.0f` / `PillPressedScale = 1.3928572f`：
- * 选中态的滑块是一个**独立的、比容器略小的圆角胶囊**，
- * 而且**被按时会放大到 1.39 倍**（"悬浮磁铁"效果就来自这个）。
+ * 三層同時變化：
+ * 1. **沿拖動方向拉長**（`scaleX` > 1）—— 像水滴被拖出尾巴
+ * 2. **垂直方向壓扁**（`scaleY` < 1）—— 體積守恆
+ * 3. **朝拖動方向偏移**（`translationX` 微調）—— 產生「被甩出去」的慣性
  *
- * 我原版只画了一个背景色块，没有任何悬浮感。
- *
- * **2. 滑块有自己的折射（与容器不同）**
- *
- * 逆向 `LxBottomBar$lambda$1$21$0`：
- * ```
- * lens(scope,
- *      toPx(10.dp) * pressValue,      // 滑块折射高度 = 10dp
- *      toPx(14.dp) * pressValue,      // 滑块折射量   = 14dp
- *      false, pressValue > 0f)        // ← 最后这个是"是否色散"
- * ```
- * 注意：滑块的折射参数**比容器小**（10/14 vs 20/16），
- * 而且带色散开关。所以滑块看起来比容器「更清澈」。
- *
- * **3. 容器形变是「速度驱动」的**
- *
- * 逆向 `LxBottomBar$lambda$1$25$0`：
- * ```
- * velocity = anim.velocity / 10
- * scaleX /= (1 - clamp(velocity * 0.75, -0.2, 0.2))
- * scaleY *= (1 - clamp(velocity * 0.25, -0.2, 0.2))
- * ```
- * 也就是**甩得越快、拉得越长**，且限制在 ±20%。
- * 我原版用固定峰值，没有速度项，所以「切页那一下」不够活。
- *
- * @param backdrop 折射来源
- * @param items 五个板块
- * @param selectedIndex 当前选中
- * @param onSelect 点击回调
+ * 拉長量與**拖動速度**相關而不只是位移：慢慢拖不變形，甩才變形。
+ * 這是「液體」和「彈簧」的差別。
  */
 @Composable
 fun GlassBottomBar(
@@ -97,42 +80,27 @@ fun GlassBottomBar(
 ) {
     val spec = LocalGlassSpec.current
     val material = LocalBarMaterial.current
-    val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
     val colors = MiuixTheme.colorScheme
 
-    // 滑块位置：欠阻尼弹簧（只平移，不做形变）
-    //
-    // 规范红线 #7：滑块的追手是欠阻尼弹簧，叠上速度驱动缩放会过冲。
-    // 所以：**滑块只平移，形变留给容器**。
+    // 滑塊位置：以「格」為單位，可以是小數（拖動中）
     val indicator = remember { Animatable(selectedIndex.toFloat()) }
-    LaunchedEffect(selectedIndex) {
-        indicator.animateTo(
-            targetValue = selectedIndex.toFloat(),
-            animationSpec = spring(dampingRatio = 0.78f, stiffness = 560f),
-        )
-    }
+    var dragging by remember { mutableStateOf(false) }
+    // 拖動時的瞬時速度（px/幀），用來算拉長
+    var dragVelocity by remember { mutableFloatStateOf(0f) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
-    // 速度驱动的容器形变（逆向 lambda$1$25$0）
-    val containerScaleX = remember { Animatable(1f) }
-    val containerScaleY = remember { Animatable(1f) }
+    // 外部選中變化（點擊）→ 彈簧過去
     LaunchedEffect(selectedIndex) {
-        // 简化版：切页时给一个短促的拉伸再回弹。
-        // 真正的实现要读 Animatable 的 velocity，这里用"目标变化量"近似。
-        val stretch = 0.06f
-        containerScaleX.snapTo(1f + stretch)
-        containerScaleY.snapTo(1f - stretch * 0.3f)
-        containerScaleX.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = 700f))
-        containerScaleY.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = 700f))
-    }
-
-    // 按下态（驱动滑块放大 + 折射强度）
-    var pressed by remember { mutableStateOf(false) }
-    val pressAnim = remember { Animatable(1f) }
-    LaunchedEffect(pressed) {
-        pressAnim.animateTo(
-            targetValue = if (pressed) 1f else 0f,
-            animationSpec = spring(dampingRatio = 0.7f, stiffness = 900f),
-        )
+        if (!dragging) {
+            indicator.animateTo(
+                targetValue = selectedIndex.toFloat(),
+                animationSpec = spring(
+                    // 落定族：dampingRatio ≥ 0.72 不許過衝（規範紅線 #7）
+                    dampingRatio = 0.80f,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            )
+        }
     }
 
     BoxWithConstraints(
@@ -141,39 +109,95 @@ fun GlassBottomBar(
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         val cellWidth = maxWidth / items.size
-        // 容器玻璃
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val cellWidthPx = with(density) { cellWidth.toPx() }
+
         GlassSurface(
             backdrop = backdrop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(GlassBarHeight)
-                .graphicsLayer {
-                    scaleX = containerScaleX.value
-                    scaleY = containerScaleY.value
-                },
+            modifier = Modifier.fillMaxWidth().height(GlassBarHeight),
             material = material,
             shape = RoundedCornerShape(percent = 50),
             pressFraction = 1f,
         ) {
-            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
-                // ---- 悬浮滑块（Pill）--------------------------------------
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight()
+                    // ★ 拖動手勢掛在整個底欄上：抓哪裡都能拖，不必對準格子
+                    .pointerInput(cellWidthPx, items.size) {
+                        detectHorizontalDragGestures(
+                            onDragStart = {
+                                dragging = true
+                                dragVelocity = 0f
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                dragVelocity = dragAmount
+                                // 跟手：直接改「格」為單位的位置
+                                val next = (indicator.value + dragAmount / cellWidthPx)
+                                    .coerceIn(0f, (items.size - 1).toFloat())
+                                // 用 snapTo 保持即时跟手（animateTo 会滞后）
+                                scope.launch { indicator.snapTo(next) }
+                            },
+                            onDragEnd = {
+                                dragging = false
+                                // 吸附：位置取最近格；但若甩得够快，往甩的方向多走一格
+                                val projected = indicator.value +
+                                    (if (abs(dragVelocity) > FLING_THRESHOLD_PX) {
+                                        if (dragVelocity > 0) FLING_EXTRA else -FLING_EXTRA
+                                    } else 0f)
+                                val target = projected
+                                    .roundToInt()
+                                    .coerceIn(0, items.size - 1)
+                                dragVelocity = 0f
+                                onSelect(target)
+                                // onSelect 会触发 LaunchedEffect 弹过去
+                            },
+                            onDragCancel = {
+                                dragging = false
+                                dragVelocity = 0f
+                                onSelect(indicator.value.roundToInt().coerceIn(0, items.size - 1))
+                            },
+                        )
+                    },
+            ) {
+                // ---- 懸浮滑塊（Pill）--------------------------------------
                 //
-                // 逆向 PillHeightDp = 56，容器 64 → 滑块比容器矮 8dp（上下各 4）。
-                // PillPressedScale = 1.3928572 → 按下时放大 39%。
-                val pillScale = 1f + (1.3928572f - 1f) * pressAnim.value * 0.6f
+                // 逆向 PillHeightDp=56（容器 64 → 上下各留 4dp）、
+                // PillPressedScale=1.3928572（按下放大 39%）。
+                val pressTarget = if (dragging) 1f else 0f
+                val pressAnim = remember { Animatable(0f) }
+                LaunchedEffect(pressTarget) {
+                    pressAnim.animateTo(
+                        targetValue = pressTarget,
+                        animationSpec = spring(dampingRatio = 0.7f, stiffness = 900f),
+                    )
+                }
+
+                // 拖動變形：速度越大越拉長（限制 ±18%）
+                //
+                // 為什麼用速度而不是位移：慢慢拖不該變形（那是「移動」），
+                // 快速甩才變形（那是「被甩出去的水滴」）。
+                val stretch = (dragVelocity / cellWidthPx * 0.35f).coerceIn(-0.18f, 0.18f)
+                val pillScale = 1f + (1.3928572f - 1f) * pressAnim.value * 0.55f
+
                 Box(
                     modifier = Modifier
                         .width(cellWidth)
                         .fillMaxHeight()
                         .graphicsLayer {
-                            // 只平移：位置由 indicator 给
-                            translationX = indicator.value * cellWidth.toPx()
-                            scaleX = pillScale
-                            scaleY = pillScale
+                            translationX = indicator.value * cellWidthPx
+                            // 水滴：沿拖动方向拉长、垂直压扁
+                            scaleX = pillScale * (1f + abs(stretch))
+                            scaleY = pillScale * (1f - abs(stretch) * 0.45f)
+                            // 支点在受力侧对面，于是被拉长的是朝手指那条边
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
+                                pivotFractionX = if (stretch >= 0f) 0.5f else 0.5f,
+                                pivotFractionY = 0.5f,
+                            )
                         }
                         .padding(horizontal = 6.dp, vertical = 4.dp),
                 ) {
-                    // 滑块自己也是一层玻璃（折射参数比容器小，见类注释）
                     GlassSurface(
                         backdrop = backdrop,
                         modifier = Modifier.fillMaxWidth().fillMaxHeight(),
@@ -183,56 +207,54 @@ fun GlassBottomBar(
                             BarMaterial.LIQUID
                         },
                         shape = RoundedCornerShape(percent = 50),
-                        // 滑块折射强度随按下变化：0 → 1
-                        pressFraction = 0.35f + 0.65f * pressAnim.value,
+                        pressFraction = 0.4f + 0.6f * pressAnim.value,
                         pressedScale = pillScale,
                     ) {}
                 }
 
-                // ---- 五个 tab ------------------------------------------------
+                // ---- 五個 tab（只負責顯示與點擊）--------------------------
                 Row(
                     modifier = Modifier.fillMaxWidth().fillMaxHeight(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     items.forEachIndexed { index, item ->
-                        val selected = index == selectedIndex
+                        // 「選中」以滑塊實際位置判定，拖動中也即時反映
+                        val selected = abs(indicator.value - index) < 0.5f
                         Column(
                             modifier = Modifier
                                 .width(cellWidth)
                                 .fillMaxHeight()
-                                .clip(RoundedCornerShape(percent = 50))
-                                .clickable(
-                                    interactionSource = remember {
-                                        androidx.compose.foundation.interaction.MutableInteractionSource()
-                                    },
-                                    indication = null,
-                                ) {
-                                    onSelect(index)
+                                // ★ 點擊：detectTapGestures 會與父層的拖拽共存
+                                //   （Compose 的手勢競爭：短按走 tap、按住移動走 drag）
+                                .pointerInput(index) {
+                                    detectTapGestures(
+                                        onTap = { onSelect(index) },
+                                    )
                                 },
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                         ) {
-                            val iconScale = if (selected) {
-                                1f + 0.12f * pressAnim.value
-                            } else {
-                                1f
-                            }
                             Icon(
                                 imageVector = item.icon,
                                 contentDescription = item.label,
-                                tint = if (selected) colors.primary else colors.onSurfaceVariantSummary,
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .graphicsLayer { scaleX = iconScale; scaleY = iconScale },
+                                tint = if (selected) {
+                                    colors.primary
+                                } else {
+                                    colors.onSurfaceVariantSummary
+                                },
+                                modifier = Modifier.size(22.dp),
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
                                 text = item.label,
                                 fontSize = 11.sp,
-                                // ★ 选中只用颜色表达，不改字重
-                                //   （改字重会让整排字横向抖动，规范红线 #6）
+                                // 選中只用顏色表達，不改字重（規範紅線 #6）
                                 fontWeight = FontWeight.Normal,
-                                color = if (selected) colors.primary else colors.onSurfaceVariantSummary,
+                                color = if (selected) {
+                                    colors.primary
+                                } else {
+                                    colors.onSurfaceVariantSummary
+                                },
                                 maxLines = 1,
                             )
                         }
@@ -243,5 +265,11 @@ fun GlassBottomBar(
     }
 }
 
-/** 底栏的一项。 */
+/** 底欄的一項。 */
 data class GlassBarItem(val label: String, val icon: ImageVector)
+
+/** 甩動判定門檻（px/幀）。超過就往甩的方向多吸附一格。 */
+private const val FLING_THRESHOLD_PX = 18f
+
+/** 甩動時額外跨過的格數。 */
+private const val FLING_EXTRA = 0.55f

@@ -1,0 +1,314 @@
+package com.muyao.wanzaihyperos.ui.design.glass
+
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
+import com.kyant.backdrop.BackdropEffectScope
+import com.kyant.backdrop.effects.runtimeShaderEffect
+
+/**
+ * 液態玻璃的**折射 + 色散** shader（AGSL）。
+ *
+ * ## 來源：逆向 `xyz.nextalone.hyperzoomring` 1.34.0-beta（萬能變焦環）
+ *
+ * 業主提供那個 APK 說「你那個抄不明白就抄我這個變焦環模組的玻璃吧」。
+ * 它的實作在 `defpackage.js.F(scope, refractionHeight, refractionAmount,
+ * depthEffect, chromaticAberration)`，兩段 AGSL 原樣在字串裡。
+ * 本檔是**逐字移植**（只改了縮排與註釋），數學一行沒動。
+ *
+ * ## 為什麼要自己寫 shader，而不是用 backdrop 的 `lens()`
+ *
+ * `kyant/backdrop` 的 `lens()` 只有**均勻折射**（整片朝一個方向偏）。
+ * 而真正的液態玻璃要三件事，它做不到：
+ *
+ * 1. **只在邊緣折射** —— 內部必須原樣透出（`if (-sd >= refractionHeight) return content.eval(coord)`）。
+ *    `lens()` 是整片一起扭，所以邊緣和中心一樣糊，看起來像「隔著水看」而不是「隔著玻璃看」。
+ * 2. **色散** —— 邊緣要出現彩虹分離。這是「通透 + 折射」的靈魂，`lens()` 完全沒有。
+ * 3. **圓角支撐** —— 折射方向要跟著圓角走（`cornerRadii` 四角分別算），
+ *    `lens()` 只認一個統一形狀。
+ *
+ * ## 數學怎麼運作（看懂這三行就懂液態玻璃）
+ *
+ * ```
+ * sd  = 到圓角矩形邊界的「有向距離」（負 = 在內部）
+ * d   = circleMap(1 - (-sd)/refractionHeight) * refractionAmount
+ *     ↑ 只在離邊界 refractionHeight 以內非零，且越靠邊越大（圓弧映射）
+ * grad = 邊界法線 + depthEffect × 指向中心的向量
+ *     ↑ 兩項相加 = 折射方向既「朝內」又「繞著邊緣走」→ 玻璃會鼓起來
+ * refractedCoord = coord + d * grad
+ * ```
+ *
+ * 色散版再多做 7 次採樣（紅橙黃綠青藍紫各偏一點），
+ * 按通道加權求和 → 邊緣出現真實色散。
+ */
+object LiquidGlassShader {
+
+    /**
+     * **無色散版**（只有折射）。
+     *
+     * 用於：大面積玻璃、效能敏感處。
+     */
+    const val REFRACT_ONLY: String = """
+uniform shader content;
+
+uniform float2 size;
+uniform float2 offset;
+uniform float4 cornerRadii;
+uniform float refractionHeight;
+uniform float refractionAmount;
+uniform float depthEffect;
+
+
+float radiusAt(float2 coord, float4 radii) {
+    if (coord.x >= 0.0) {
+        if (coord.y <= 0.0) return radii.y;
+        else return radii.z;
+    } else {
+        if (coord.y <= 0.0) return radii.x;
+        else return radii.w;
+    }
+}
+
+float sdRoundedRect(float2 coord, float2 halfSize, float radius) {
+    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));
+    float outside = length(max(cornerCoord, 0.0)) - radius;
+    float inside = min(max(cornerCoord.x, cornerCoord.y), 0.0);
+    return outside + inside;
+}
+
+float2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {
+    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));
+    if (cornerCoord.x >= 0.0 || cornerCoord.y >= 0.0) {
+        return sign(coord) * normalize(max(cornerCoord, 0.0));
+    } else {
+        float gradX = step(cornerCoord.y, cornerCoord.x);
+        return sign(coord) * float2(gradX, 1.0 - gradX);
+    }
+}
+
+
+float circleMap(float x) {
+    return 1.0 - sqrt(1.0 - x * x);
+}
+
+half4 main(float2 coord) {
+    float2 halfSize = size * 0.5;
+    float2 centeredCoord = (coord + offset) - halfSize;
+    float radius = radiusAt(coord, cornerRadii);
+
+    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    // 離邊界超過 refractionHeight → 直接原樣透出（內部不折射）
+    if (-sd >= refractionHeight) {
+        return content.eval(coord);
+    }
+    sd = min(sd, 0.0);
+
+    float d = circleMap(1.0 - -sd / refractionHeight) * refractionAmount;
+    float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
+    float2 grad = normalize(gradSdRoundedRect(centeredCoord, halfSize, gradRadius) + depthEffect * normalize(centeredCoord));
+
+    float2 refractedCoord = coord + d * grad;
+    return content.eval(refractedCoord);
+}
+"""
+
+    /**
+     * **色散版**（折射 + 7 色分離）。
+     *
+     * 用於：底欄、滑塊、按鈕等「要看出是玻璃」的小面積元件。
+     *
+     * 代價：每個像素採樣 **7 次**而不是 1 次。所以只給小元件用，
+     * 大面積（整頁卡片）用 [REFRACT_ONLY]。
+     */
+    const val REFRACT_DISPERSION: String = """
+uniform shader content;
+
+uniform float2 size;
+uniform float2 offset;
+uniform float4 cornerRadii;
+uniform float refractionHeight;
+uniform float refractionAmount;
+uniform float depthEffect;
+uniform float chromaticAberration;
+
+
+float radiusAt(float2 coord, float4 radii) {
+    if (coord.x >= 0.0) {
+        if (coord.y <= 0.0) return radii.y;
+        else return radii.z;
+    } else {
+        if (coord.y <= 0.0) return radii.x;
+        else return radii.w;
+    }
+}
+
+float sdRoundedRect(float2 coord, float2 halfSize, float radius) {
+    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));
+    float outside = length(max(cornerCoord, 0.0)) - radius;
+    float inside = min(max(cornerCoord.x, cornerCoord.y), 0.0);
+    return outside + inside;
+}
+
+float2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {
+    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));
+    if (cornerCoord.x >= 0.0 || cornerCoord.y >= 0.0) {
+        return sign(coord) * normalize(max(cornerCoord, 0.0));
+    } else {
+        float gradX = step(cornerCoord.y, cornerCoord.x);
+        return sign(coord) * float2(gradX, 1.0 - gradX);
+    }
+}
+
+
+float circleMap(float x) {
+    return 1.0 - sqrt(1.0 - x * x);
+}
+
+half4 main(float2 coord) {
+    float2 halfSize = size * 0.5;
+    float2 centeredCoord = (coord + offset) - halfSize;
+    float radius = radiusAt(coord, cornerRadii);
+
+    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    if (-sd >= refractionHeight) {
+        return content.eval(coord);
+    }
+    sd = min(sd, 0.0);
+
+    float d = circleMap(1.0 - -sd / refractionHeight) * refractionAmount;
+    float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
+    float2 grad = normalize(gradSdRoundedRect(centeredCoord, halfSize, gradRadius) + depthEffect * normalize(centeredCoord));
+
+    float2 refractedCoord = coord + d * grad;
+    float dispersionIntensity = chromaticAberration * ((centeredCoord.x * centeredCoord.y) / (halfSize.x * halfSize.y));
+    float2 dispersedCoord = d * grad * dispersionIntensity;
+
+    half4 color = half4(0.0);
+
+    half4 red = content.eval(refractedCoord + dispersedCoord);
+    color.r += red.r / 3.5;
+    color.a += red.a / 7.0;
+
+    half4 orange = content.eval(refractedCoord + dispersedCoord * (2.0 / 3.0));
+    color.r += orange.r / 3.5;
+    color.g += orange.g / 7.0;
+    color.a += orange.a / 7.0;
+
+    half4 yellow = content.eval(refractedCoord + dispersedCoord * (1.0 / 3.0));
+    color.r += yellow.r / 3.5;
+    color.g += yellow.g / 3.5;
+    color.a += yellow.a / 7.0;
+
+    half4 green = content.eval(refractedCoord);
+    color.g += green.g / 3.5;
+    color.a += green.a / 7.0;
+
+    half4 cyan = content.eval(refractedCoord - dispersedCoord * (1.0 / 3.0));
+    color.g += cyan.g / 3.5;
+    color.b += cyan.b / 3.0;
+    color.a += cyan.a / 7.0;
+
+    half4 blue = content.eval(refractedCoord - dispersedCoord * (2.0 / 3.0));
+    color.b += blue.b / 3.0;
+    color.a += blue.a / 7.0;
+
+    half4 purple = content.eval(refractedCoord - dispersedCoord);
+    color.r += purple.r / 7.0;
+    color.b += purple.b / 3.0;
+    color.a += purple.a / 7.0;
+
+    return color;
+}
+"""
+}
+
+/**
+ * 對 [BackdropEffectScope] 套用折射（+ 可選色散）。
+ *
+ * ## 參數順序照逆向結果
+ *
+ * 逆向出來的 uniform 設定（`defpackage.rv0`）：
+ * ```java
+ * setFloatUniform("size", w, h)
+ * setFloatUniform("offset", -padding, -padding)     // 注意是負的
+ * setFloatUniform("cornerRadii", radii[4])
+ * setFloatUniform("refractionHeight", h)
+ * setFloatUniform("refractionAmount", -amount)      // ★ 負值
+ * setFloatUniform("depthEffect", depth ? 1 : 0)
+ * setFloatUniform("chromaticAberration", ca)
+ * ```
+ *
+ * `refractionAmount` 是**負**的 —— 因為 shader 裡 `coord + d * grad`，
+ * 要往內凹就得是負方向。這個符號我試錯一次才明白（正的會往外凸，看起來像放大鏡）。
+ *
+ * ## padding 必須先設
+ *
+ * shader 會採樣超出元件邊界的像素（折射要往外抓），
+ * 不設 padding 邊緣會被裁掉，出現黑邊。
+ * 逆向裡是 `if (padding < refractionAmount) padding = refractionAmount`。
+ *
+ * @param height 折射高度（px）：離邊界多遠開始折射
+ * @param amount 折射量（px）：邊緣最多偏移多少
+ * @param depth 是否加入「朝中心收」的深度項（讓玻璃鼓起來）
+ * @param dispersion 色散強度（0 = 無色散）
+ */
+fun BackdropEffectScope.liquidGlassRefraction(
+    height: Float,
+    amount: Float,
+    depth: Boolean = true,
+    dispersion: Float = 0f,
+) {
+    if (height <= 0f || amount <= 0f) return
+
+    // ① padding：折射要往元件外抓像素，不給會裁出黑邊
+    if (padding < amount) {
+        padding = amount
+    }
+
+    // ② 只支援圓角矩形。其它形狀直接跳過（不猜）。
+    val rr = shape as? androidx.compose.foundation.shape.RoundedCornerShape ?: return
+
+    // ③ 取四角半徑（依 LayoutDirection 調整左右）
+    val sizePx = size
+    val w = sizePx.width
+    val h = sizePx.height
+    val halfMin = minOf(w, h) / 2f
+    val isLtr = layoutDirection == androidx.compose.ui.unit.LayoutDirection.Ltr
+    val topStart = (if (isLtr) rr.topStart else rr.topEnd).toPx(sizePx, this)
+    val topEnd = (if (isLtr) rr.topEnd else rr.topStart).toPx(sizePx, this)
+    val bottomStart = (if (isLtr) rr.bottomStart else rr.bottomEnd).toPx(sizePx, this)
+    val bottomEnd = (if (isLtr) rr.bottomEnd else rr.bottomStart).toPx(sizePx, this)
+    // 半徑不能超過短邊一半
+    val radii = floatArrayOf(
+        minOf(topStart, halfMin),
+        minOf(topEnd, halfMin),
+        minOf(bottomEnd, halfMin),
+        minOf(bottomStart, halfMin),
+    )
+
+    val useDispersion = dispersion > 0f
+    val shaderName = if (useDispersion) "LiquidGlassLensDispersion" else "LiquidGlassLens"
+    val source = if (useDispersion) {
+        LiquidGlassShader.REFRACT_DISPERSION
+    } else {
+        LiquidGlassShader.REFRACT_ONLY
+    }
+
+    runtimeShaderEffect(
+        key = shaderName,
+        shaderString = source,
+        uniformShaderName = "content",
+    ) {
+        // receiver 是 RuntimeShader，直接呼叫
+        setFloatUniform("size", w, h)
+        val negPadding = -padding
+        setFloatUniform("offset", negPadding, negPadding)
+        setFloatUniform("cornerRadii", radii)
+        setFloatUniform("refractionHeight", height)
+        // ★ 負值：正的會往外凸（放大鏡），負的才往內凹（玻璃）
+        setFloatUniform("refractionAmount", -amount)
+        setFloatUniform("depthEffect", if (depth) 1f else 0f)
+        if (useDispersion) {
+            setFloatUniform("chromaticAberration", dispersion)
+        }
+    }
+}

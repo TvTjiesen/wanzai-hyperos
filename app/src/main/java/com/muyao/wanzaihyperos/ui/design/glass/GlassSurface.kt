@@ -104,26 +104,44 @@ fun GlassSurface(
                     blur(blurRadius.toPx())
                 }
 
-                // ③ 折射（lens）—— 液態玻璃的靈魂。
-                //    ★ 兩個參數**都是長度**（dp→px），不是 0~1 係數。
-                //    我第一版把 amount 當係數傳 0.7，等於 0.7px 的位移，
-                //    難怪看不出扭曲。
+                // ③ 折射 + 色散 —— 液態玻璃的靈魂。
                 //
-                //    FROSTED 只糊不折射（那才是「磨砂」）。
+                // 用的是**自己寫的 AGSL shader**（見 LiquidGlassShader.kt），
+                // 不是庫的 lens()。原因：lens() 只有「整片均勻偏移」，
+                // 而真正的液態玻璃要「只在邊緣折射 + 色散 + 跟圓角走」。
+                //
+                // FROSTED 只糊不折射（那才是「磨砂」）。
                 if (material == BarMaterial.LIQUID && spec.lensAmountDp > 0.dp) {
-                    lens(
-                        refractionHeight = spec.lensHeightDp.toPx() * pressFraction.coerceIn(0f, 1f),
-                        refractionAmount = spec.lensAmountDp.toPx() * pressFraction.coerceIn(0f, 1f),
+                    val f = pressFraction.coerceIn(0f, 1f)
+                    liquidGlassRefraction(
+                        height = spec.lensHeightDp.toPx() * f,
+                        amount = spec.lensAmountDp.toPx() * f,
+                        depth = spec.depthEffect > 0f,
+                        dispersion = spec.chromaticAberration * f,
                     )
                 }
             },
-            // ④ 邊緣高光。這是「玻璃感」最直接的來源。
+            // ④ 邊緣高光 —— ★ 這一層是業主說「奇怪邊緣白光」的來源，預設關掉。
+            //
+            // 為什麼它是錯的：真正的高光不是「一圈均勻白線」，而是
+            // **有位置的光源**在玻璃邊緣的反射（左上亮、右下暗）。
+            // 一圈 uniform 白線看起來就是「描了個白邊」，非常廉價。
+            //
+            // 變焦環的正解（Miuix `BloomStroke`）用的是
+            // `LightSource(LightPosition(x, y, z=-0.5), alpha)` 雙光源模型 ——
+            // 那需要一整套雙光源 shader，屬下一步工作。
+            //
+            // 在此之前：**寧可沒有高光，也不要那圈假白線。**
             highlight = {
-                Highlight(
-                    width = 1.5.dp,
-                    blurRadius = 3.dp,
-                    alpha = spec.highlightAlpha * pressFraction.coerceIn(0f, 1f),
-                )
+                if (spec.highlightAlpha > 0f) {
+                    Highlight(
+                        width = 0.6.dp,
+                        blurRadius = 2.dp,
+                        alpha = spec.highlightAlpha * pressFraction.coerceIn(0f, 1f),
+                    )
+                } else {
+                    null
+                }
             },
             // ⑤ 外陰影：讓玻璃「浮」在內容上。
             shadow = {
