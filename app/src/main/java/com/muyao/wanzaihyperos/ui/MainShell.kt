@@ -1,6 +1,10 @@
 package com.muyao.wanzaihyperos.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,9 +72,29 @@ fun MainShell(
     unreadCount: Int? = null,
 ) {
     val tabs = remember { Tab.entries.toList() }
-
+    // 背景漸層要跟隨深/淺色。
+    //
+    // ⚠️ `MiuixTheme.colorScheme`（`Colors`）**沒有** `isDark` ——
+    // 那個屬性在 `ThemeController` 上，而主殼這層拿不到 controller。
+    // 所以用**色板自身的亮度**判斷：`background` 是深色板時亮度低。
+    // 這比「猜系統設定」可靠（使用者可以強制淺色而系統是深色）。
+    val isDark = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.background.luminance() < 0.5f
+    // ★ 背景漸層 + Scaffold 透明底。
+    //
+    // 為什麼要在 Scaffold **外面**包一層 Box：
+    // Miuix `Scaffold` 的 `containerColor` 型別是 `Color`（純色），**吃不下 Brush**。
+    // 而規範 §2 明確說「沒有背景層次，玻璃就是灰塊」——
+    // 漸層是玻璃質感的前提，不是裝飾。
+    //
+    // 所以：外層畫漸層 → Scaffold 底色設 `Color.Transparent` → 內容照常疊上來。
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(com.muyao.wanzaihyperos.ui.design.AppColors.pageBrush(isDark)),
+    ) {
     Scaffold(
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
         bottomBar = {
             NavigationBar {
                 tabs.forEachIndexed { index, tab ->
@@ -142,5 +166,6 @@ fun MainShell(
                 contentPadding = innerPadding,
             )
         }
+    }
     }
 }

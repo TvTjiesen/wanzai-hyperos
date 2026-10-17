@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -28,6 +29,7 @@ import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.data.PortalApp
+import com.muyao.wanzaihyperos.ui.design.Dims
 
 /**
  * 「展示用数据」显式标注条。
@@ -46,7 +48,7 @@ fun DemoBanner(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(Dims.containerCorner))
             .background(colors.tertiaryContainer)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -227,7 +229,7 @@ fun AppTile(
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(Dims.containerCorner))
                     .background(app.effectiveTint.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center,
             ) {
@@ -275,7 +277,10 @@ fun AppRow(
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    // ★ 規範 §5：交互件／圖示底一律**全圓**。
+                    //   36dp 上套 12 的方圓角，在小尺寸下看起來像「被削過」；
+                    //   全圓（CircleShape）才是 iOS 觀感。
+                    .clip(CircleShape)
                     .background(app.effectiveTint.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center,
             ) {

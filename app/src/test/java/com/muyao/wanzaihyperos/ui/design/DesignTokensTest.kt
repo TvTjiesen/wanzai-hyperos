@@ -91,7 +91,114 @@ class DesignTokensTest {
 
     @Test
     fun `动效时长为正且快慢有序`() {
-        assertTrue(Motion.FAST_MS > 0)
+        assertTrue(Motion.PRESS_MS > 0)
         assertTrue("FAST 必须短于 NORMAL", Motion.FAST_MS < Motion.NORMAL_MS)
+    }
+
+    // ── 第 1 步新增的令牌（規範 §3 / §4 / §9）─────────────────────────────
+
+    /**
+     * 時長階梯必須**嚴格遞增**。
+     *
+     * 這條比「每個值都 > 0」有用：美化時如果把 `PAGE_MS` 調到比 `MORPH_MS` 還長，
+     * 那「頁面切換比大形變還慢」—— 觀感上會覺得切頁在卡。
+     * 階梯的**順序**是觀感的一部分，數值本身可以改。
+     */
+    @Test
+    fun `动效时长呈递增长`() {
+        val ladder = listOf(
+            "PRESS" to Motion.PRESS_MS,
+            "FAST" to Motion.FAST_MS,
+            "NORMAL" to Motion.NORMAL_MS,
+            "EXPAND" to Motion.EXPAND_MS,
+            "PAGE" to Motion.PAGE_MS,
+            "MORPH" to Motion.MORPH_MS,
+        )
+        for ((name, v) in ladder) assertTrue("$name 必须为正，实际 $v", v > 0)
+        for (i in 1 until ladder.size) {
+            assertTrue(
+                "${ladder[i - 1].first}(${ladder[i - 1].second}) 应短于 ${ladder[i].first}(${ladder[i].second})",
+                ladder[i - 1].second < ladder[i].second,
+            )
+        }
+    }
+
+    /**
+     * 字號階梯必須**嚴格遞增且無重複**。
+     *
+     * 「無重複」是關鍵：規範明令「不許插中間值」，
+     * 而兩個檔位剛好相等等於有一個是白定義的 —— 那種情況通常是
+     * 「想改但沒刪舊的」，最後頁面各自挑一個，就不一致了。
+     */
+    @Test
+    fun `字号阶梯递增且不重复`() {
+        val ladder = listOf(
+            "micro" to Type.micro,
+            "caption" to Type.caption,
+            "summary" to Type.summary,
+            "secondary" to Type.secondary,
+            "bodyEmphasis" to Type.bodyEmphasis,
+            "body" to Type.body,
+            "title" to Type.title,
+            "displayTitle" to Type.displayTitle,
+            "largeTitle" to Type.largeTitle,
+        )
+        for (i in 1 until ladder.size) {
+            assertTrue(
+                "${ladder[i - 1].first}(${ladder[i - 1].second}) 应小于 ${ladder[i].first}(${ladder[i].second})",
+                ladder[i - 1].second.value < ladder[i].second.value,
+            )
+        }
+        // 最小可用檔：規範明令「再小不許」
+        assertTrue("micro 不应小于 11sp", Type.micro.value >= 11f)
+    }
+
+    /**
+     * 中文小字行高必須 ≥1.5（規範 §3 硬規則 3）。
+     *
+     * 繁體筆畫比簡體密，行高不足時上下兩行的筆畫會黏在一起 ——
+     * 這是「看得見的錯」，不是偏好問題。
+     */
+    @Test
+    fun `中文小字行高不低于 1_5`() {
+        assertTrue("LINE_HEIGHT_SMALL 应 ≥1.5，实际 ${Type.LINE_HEIGHT_SMALL}",
+            Type.LINE_HEIGHT_SMALL >= 1.5f)
+        assertTrue("正文字高应 ≥1.4", Type.LINE_HEIGHT_BODY >= 1.4f)
+        assertTrue("标题字高应 ≥1.15", Type.LINE_HEIGHT_TITLE >= 1.15f)
+        assertTrue("标题字高不应超过正文（否则标题比正文还松）",
+            Type.LINE_HEIGHT_TITLE <= Type.LINE_HEIGHT_BODY)
+    }
+
+    /**
+     * 觸控目標 ≥44，且**不小於**任何視覺圖示尺寸。
+     *
+     * 這是「按得到」與「看得見」的區別：圖示畫 20dp 沒問題，
+     * 但命中區若也只有 20dp，手指會點空。44 是 iOS HIG 與 Material 的共同下限。
+     */
+    @Test
+    fun `触控目标不小于视觉尺寸`() {
+        assertTrue("minTouch 应 ≥44dp，实际 ${Dims.minTouch}", Dims.minTouch.value >= 44f)
+        assertTrue("minTouch 不应小于 iconNav", Dims.minTouch.value >= Dims.iconNav.value)
+        assertTrue("minTouch 不应小于 iconAction", Dims.minTouch.value >= Dims.iconAction.value)
+    }
+
+    /**
+     * 頂欄欄身是 52（**不是 Material 的 56**），且比清單單行矮。
+     *
+     * 52 是「像 iOS」與「像安卓」的分界（規範 §4/§7）；
+     * 而欄身若比單行清單項還高，頂欄會顯得笨重。
+     */
+    @Test
+    fun `顶栏栏身是 52 而不是 56`() {
+        assertEquals("規範定稿值：52（Material 是 56）", 52f, Dims.barHeight.value, 0.01f)
+        assertTrue("栏身不应高于单行清單項", Dims.barHeight.value <= Dims.itemTwoLine.value)
+    }
+
+    /** 清單項三檔高度必須遞增（單行 < 兩行 < 三行）。 */
+    @Test
+    fun `清单项高度递增`() {
+        assertTrue("单行应小于两行", Dims.itemOneLine.value < Dims.itemTwoLine.value)
+        assertTrue("两行应小于三行", Dims.itemTwoLine.value < Dims.itemThreeLine.value)
+        assertTrue("单行不应小于触控目标", Dims.itemOneLine.value >= Dims.minTouch.value)
     }
 }

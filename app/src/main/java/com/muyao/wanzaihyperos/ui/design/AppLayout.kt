@@ -1,7 +1,9 @@
 package com.muyao.wanzaihyperos.ui.design
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,6 +21,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -342,36 +346,51 @@ fun SecondaryScaffold(
     onRefresh: (() -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            SmallTopAppBar(
-                title = title,
-                subtitle = subtitle,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(Dims.iconNav),
-                        )
-                    }
-                },
-                actions = {
-                    if (onRefresh != null) {
-                        IconButton(onClick = onRefresh) {
+    // ★ 與主殼同一套背景漸層。
+    //
+    // 為什麼二級頁也要：主殼有漸層而二級頁是純色，**從列表點進詳情時
+    // 背景會「啪」地換一下**（純色 vs 漸層），看起來像換了個 App。
+    //
+    // 判據同主殼：比 `background` 的亮度，而不是猜系統設定
+    //（使用者可以強制淺色而系統是深色）。
+    val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(AppColors.pageBrush(isDark)),
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+            topBar = {
+                SmallTopAppBar(
+                    title = title,
+                    subtitle = subtitle,
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
                             Icon(
-                                imageVector = MiuixIcons.Refresh,
-                                contentDescription = "刷新",
+                                imageVector = MiuixIcons.ChevronBackward,
+                                contentDescription = "返回",
                                 modifier = Modifier.size(Dims.iconNav),
                             )
                         }
-                    }
-                },
-            )
-        },
-        content = content,
-    )
+                    },
+                    actions = {
+                        if (onRefresh != null) {
+                            IconButton(onClick = onRefresh) {
+                                Icon(
+                                    imageVector = MiuixIcons.Refresh,
+                                    contentDescription = "刷新",
+                                    modifier = Modifier.size(Dims.iconNav),
+                                )
+                            }
+                        }
+                    },
+                )
+            },
+            content = content,
+        )
+    }
 }
 
 /**
