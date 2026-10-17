@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.CountValue
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.tronclass.ScheduleRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronSchedule
@@ -188,7 +189,7 @@ fun ScheduleContent(
 @Composable
 private fun SlotItem(slot: TronScheduleSlot, onOpenCourse: (Int, String) -> Unit) {
     val colors = MiuixTheme.colorScheme
-    Card(
+    AppCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpenCourse(slot.courseId, slot.courseName) },

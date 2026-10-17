@@ -43,6 +43,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.ui.common.DemoBanner
+import com.muyao.wanzaihyperos.ui.design.AppCard
 
 /** 登录表单的显式状态。不把「空」和「还没提交过」混成一个 boolean。 */
 private sealed interface LoginFormState {
@@ -135,7 +136,7 @@ fun LoginPage(
 
         SmallTitle(text = "统一身份认证")
 
-        Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+        AppCard(modifier = Modifier.padding(horizontal = 12.dp)) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextField(
                     value = account,

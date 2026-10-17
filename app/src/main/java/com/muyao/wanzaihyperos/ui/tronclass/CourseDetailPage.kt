@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronBulletin
 import com.muyao.wanzaihyperos.data.tronclass.TronCourseDetailBundle
@@ -180,7 +181,7 @@ private const val PREVIEW_COUNT = 2
 @Composable
 private fun CourseHeader(bundle: TronCourseDetailBundle) {
     val detail = bundle.detail
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(Dims.cardPadding)) {
             Text(
                 text = detail?.name ?: bundle.course.name,
@@ -224,7 +225,7 @@ private fun ScoreSection(bundle: TronCourseDetailBundle) {
     val score = bundle.score
     Column {
         SmallTitle(text = "我的成绩")
-        Card(modifier = Modifier.fillMaxWidth()) {
+        AppCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(Dims.cardPadding)) {
                 if (score == null) {
                     HintText("没有取到成绩（不是 0 分，是没取到）。")
@@ -259,7 +260,7 @@ private fun AttendanceSummary(bundle: TronCourseDetailBundle) {
     val summary = bundle.rollcallScore
     Column {
         SmallTitle(text = "出勤（${bundle.attendance.size} 次记录）")
-        Card(modifier = Modifier.fillMaxWidth()) {
+        AppCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(Dims.cardPadding)) {
                 if (summary == null) {
                     HintText(
@@ -354,7 +355,7 @@ private fun OutlineSection(bundle: TronCourseDetailBundle) {
     val detail = bundle.detail
     Column {
         SmallTitle(text = "课程大纲")
-        Card(modifier = Modifier.fillMaxWidth()) {
+        AppCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(Dims.cardPadding)) {
                 when {
                     detail == null -> HintText("没有取到课程大纲。")

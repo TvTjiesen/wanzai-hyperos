@@ -29,6 +29,7 @@ import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.data.PortalApp
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.Dims
 
 /**
@@ -214,7 +215,7 @@ fun AppTile(
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
-    Card(
+    AppCard(
         modifier = modifier,
         onClick = onClick,
         onLongPress = onLongClick,
@@ -262,7 +263,7 @@ fun AppRow(
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
-    Card(
+    AppCard(
         modifier = modifier,
         onClick = onClick,
         onLongPress = onLongClick,

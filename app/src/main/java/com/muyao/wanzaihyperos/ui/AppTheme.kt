@@ -6,9 +6,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
+import top.yukonga.miuix.kmp.theme.darkColorScheme
 
 /** 主题模式的三个选项。[mode] 直接对应 Miuix 的 [ColorSchemeMode]。 */
 enum class AppThemeMode(val label: String, val mode: ColorSchemeMode) {
@@ -59,6 +61,27 @@ fun WanzaiTheme(
     themeMode: AppThemeMode,
     content: @Composable () -> Unit,
 ) {
-    val controller = remember(themeMode) { ThemeController(colorSchemeMode = themeMode.mode) }
+    // ★ 只**覆蓋一個色**：`surfaceContainer`（卡片底），其餘吃 Miuix 預設。
+    //
+    // 為什麼要覆蓋（真機量到的數字，不是猜的）：
+    // 深色下 Miuix 預設卡片是 (36,36,36)、而我們新加的漸層背景最暗處是
+    // (15,26,52)；兩者**對比度只有 1.11:1** —— 幾乎看不出卡片邊界。
+    // 正常 UI 要 ≥3:1 才分得清層級（規範 §2「四級深灰分層」講的就是這件事）。
+    //
+    // 為什麼只覆蓋一個、不做整套色板：
+    // Miuix 有 50+ 個語義色，自己挑一套要保證兩兩搭配都對；
+    // 而這裡的問題**只有卡片底和背景貼太近**，覆蓋一個就解決。
+    // 規範 §2.1 也是這個建議（「只在兩個地方做局部覆蓋」）。
+    //
+    // 40 → 比預設 36 亮一檔，讓卡片在漸層上「浮起來」；
+    // 對比度約 1.22:1，配合第 5 步要加的 1dp 描邊，層級才真正立得住。
+    val controller = remember(themeMode) {
+        ThemeController(
+            colorSchemeMode = themeMode.mode,
+            darkColors = darkColorScheme(
+                surfaceContainer = Color(0xFF282828),
+            ),
+        )
+    }
     MiuixTheme(controller = controller, content = content)
 }

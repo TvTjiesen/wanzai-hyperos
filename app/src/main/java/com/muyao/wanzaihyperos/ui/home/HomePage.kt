@@ -46,6 +46,7 @@ import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Search
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.data.PortalApp
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.data.portal.toUiApp
 import com.muyao.wanzaihyperos.ui.common.toPageState
 import com.muyao.wanzaihyperos.ui.common.AppTile
@@ -299,7 +300,7 @@ fun HomePage(
                     }
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+                    AppCard(modifier = Modifier.padding(horizontal = 12.dp)) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -347,7 +348,7 @@ fun HomePage(
                     }
                 } else {
                     items(news, key = { "news-${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { item ->
-                        Card(
+                        AppCard(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 12.dp, vertical = 4.dp),

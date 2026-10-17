@@ -40,6 +40,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.app.AppGraph
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.data.PortalApp
 import com.muyao.wanzaihyperos.data.portal.toUiApp
 import com.muyao.wanzaihyperos.net.shortErrorText
@@ -164,7 +165,7 @@ color = Color.Transparent,
                             contentPadding = PaddingValues(bottom = 16.dp),
                         ) {
                             items(listOf("课表", "一卡通", "图书馆", "请假", "心理", "讲座")) { hint ->
-                                Card(
+                                AppCard(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 12.dp, vertical = 3.dp),

@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.portal.PortalBill
 import com.muyao.wanzaihyperos.data.portal.PortalBillBucket
@@ -173,7 +174,7 @@ private fun BucketTabs(selected: PortalBillBucket, onSelect: (PortalBillBucket) 
         items(PortalBillBucket.entries.size) { index ->
             val item = PortalBillBucket.entries[index]
             val isSelected = item == selected
-            Card(onClick = { onSelect(item) }) {
+            AppCard(onClick = { onSelect(item) }) {
                 Text(
                     text = item.label,
                     style = MiuixTheme.textStyles.footnote1,
@@ -218,7 +219,7 @@ private fun ListHeader(
 @Composable
 private fun BillCard(bill: PortalBill) {
     val colors = MiuixTheme.colorScheme
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

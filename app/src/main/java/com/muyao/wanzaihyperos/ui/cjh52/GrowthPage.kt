@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52ActivityMonth
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52CreditProgress
@@ -160,7 +161,7 @@ color = Color.Transparent,
 @Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
                 text = title,

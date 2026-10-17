@@ -29,6 +29,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.ui.AppThemeMode
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.common.DemoBanner
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.PageState
@@ -95,7 +96,7 @@ fun MinePage(
             SmallTitle(text = "账号")
         }
         item {
-            Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+            AppCard(modifier = Modifier.padding(horizontal = 12.dp)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -173,7 +174,7 @@ fun MinePage(
         // ---- 外观 -----------------------------------------------------------------
         item { SmallTitle(text = "外观") }
         item {
-            Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+            AppCard(modifier = Modifier.padding(horizontal = 12.dp)) {
                 Column(modifier = Modifier.padding(vertical = 4.dp)) {
                     AppThemeMode.entries.forEach { mode ->
                         // 用 RadioButtonPreference 而不是手搓「RadioButton + Text」：
@@ -205,7 +206,7 @@ fun MinePage(
         // ---- 关于 -----------------------------------------------------------------
         item { SmallTitle(text = "关于") }
         item {
-            Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+            AppCard(modifier = Modifier.padding(horizontal = 12.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     AboutRow("应用", "玩在城院（Kotlin / HyperOS 版）")
                     AboutRow("当前阶段", "A1 · Miuix UI 骨架与四页导航")

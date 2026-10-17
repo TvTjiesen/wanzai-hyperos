@@ -48,6 +48,7 @@ import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.ui.common.PageState
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 
@@ -327,7 +328,7 @@ color = Color.Transparent,
                                     },
                                 )
                                 // 若是「仅校园网可达」的入口，这里给出可操作的解释而不是空话。
-                                Card(
+                                AppCard(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 12.dp),

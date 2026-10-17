@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.data.tronclass.TronMeRepository
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
@@ -80,7 +81,7 @@ fun TronMePage(
     AppList(modifier = modifier) {
         // ---- 身分卡 --------------------------------------------------------
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -108,7 +109,7 @@ fun TronMePage(
         // ---- 統計 ----------------------------------------------------------
         item { SmallTitle(text = "概览") }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(Dims.cardPadding)) {
                     Text(
                         text = "待交作业 ${countText(me.stats.todoCount)}　" +
@@ -126,7 +127,7 @@ fun TronMePage(
         // ---- 學籍資訊 ------------------------------------------------------
         item { SmallTitle(text = "学籍") }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(Dims.cardPadding)) {
                     if (me.profile.orgName.isNotBlank()) {
                         KeyValueRow("学校", me.profile.orgName)

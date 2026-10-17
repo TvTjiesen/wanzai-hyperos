@@ -35,6 +35,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.data.portal.toUiMessage
 import com.muyao.wanzaihyperos.ui.common.toPageState
 import com.muyao.wanzaihyperos.data.DemoMessage
@@ -283,7 +284,7 @@ private fun LazyRowOfGroups(
         items(groups.size) { index ->
             val group = groups[index]
             val isSelected = index == selected
-            Card(
+            AppCard(
                 onClick = { onSelect(index) },
             ) {
                 Row(
@@ -322,7 +323,7 @@ private fun LazyRowOfGroups(
 @Composable
 private fun MessageCard(msg: DemoMessage) {
     val colors = MiuixTheme.colorScheme
-    Card(
+    AppCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp),

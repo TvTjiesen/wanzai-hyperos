@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.data.tronclass.HomeworkRepository
 import com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind
 import com.muyao.wanzaihyperos.data.tronclass.RollcallRepository
@@ -262,7 +263,7 @@ private fun RollcallItem(
     val colors = MiuixTheme.colorScheme
     var input by remember(rollcall.id) { mutableStateOf("") }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(Dims.cardPadding)) {
             InfoItem(
                 title = rollcall.title.ifBlank { "签到" },

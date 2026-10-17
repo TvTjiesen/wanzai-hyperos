@@ -1,6 +1,7 @@
 package com.muyao.wanzaihyperos.ui.courses
 
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUp
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
@@ -190,7 +191,7 @@ private fun SummaryBar(courseCount: Int, slotCount: Int, isStale: Boolean) {
 @Composable
 private fun CourseCard(course: Course) {
     val colors = MiuixTheme.colorScheme
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
