@@ -108,30 +108,30 @@ data class GlassSpec(
     companion object {
         /** **淺色定稿**。 */
         val LIGHT = GlassSpec(
-            refractionStrength = 0.60f,
-            refractionHeightFraction = 0.16f,
+            refractionStrength = 0.85f,
+            refractionHeightFraction = 0.13f,
             refractionDisplacement = 14.dp,
             depthFraction = 0.35f,
-            refractionDetailIntensity = 0.32f,
+            refractionDetailIntensity = 0.85f,
             blurDp = 6.dp,
             frostBlurDp = 18.dp,
             specularIntensity = 0.62f,
-            surfaceAlpha = 0.88f,
+            surfaceAlpha = 0.70f,
             surfaceTint = Color(0xFFF4F7FF),
             cornerRadius = 26.dp,
         )
 
         /** **深色定稿**：折射與高光都更強（深色背景下玻璃更明顯）。 */
         val DARK = GlassSpec(
-            refractionStrength = 0.72f,
+            refractionStrength = 1.0f,
             refractionHeightFraction = 0.20f,
             refractionDisplacement = 16.dp,
             depthFraction = 0.40f,
-            refractionDetailIntensity = 0.42f,
+            refractionDetailIntensity = 0.95f,
             blurDp = 8.dp,
             frostBlurDp = 22.dp,
             specularIntensity = 0.72f,
-            surfaceAlpha = 0.85f,
+            surfaceAlpha = 0.62f,
             surfaceTint = Color(0xFFF2F5FC),
             cornerRadius = 26.dp,
         )

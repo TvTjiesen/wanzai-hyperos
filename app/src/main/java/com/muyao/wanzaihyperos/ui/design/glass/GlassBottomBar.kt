@@ -96,16 +96,42 @@ fun GlassBottomBar(
     var dragVelocity by remember { mutableFloatStateOf(0f) }
     val scope = rememberCoroutineScope()
 
+    // ★ 回彈的「初速度」：鬆手瞬間把手指速度交給彈簧。
+    //
+    // 沒有這個的話，鬆手後是「從當前位置以固定初速彈回去」——
+    // 看起來像機械馬達。帶上手指速度才是「甩出去」。
+    var releaseVelocity by remember { mutableFloatStateOf(0f) }
+
+    // ★ 形變的「慣性尾巴」：鬆手後形變不立刻歸零，而是衰減到 0。
+    //   沒有它，回彈的頭幾幀形變是硬切，看起來像兩個動作接起來。
+    val tailAnim = remember { Animatable(0f) }
+    LaunchedEffect(dragging) {
+        if (!dragging) {
+            tailAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = androidx.compose.animation.core.tween(220),
+            )
+        }
+    }
+    val releaseTail = tailAnim.value
+
     LaunchedEffect(selectedIndex) {
         if (!dragging) {
             indicator.animateTo(
                 targetValue = selectedIndex.toFloat(),
                 animationSpec = spring(
-                    // 落定族：dampingRatio ≥ 0.72，不許過衝（規範紅線 #7）
-                    dampingRatio = 0.80f,
-                    stiffness = Spring.StiffnessMediumLow,
+                    // ★ 回彈族：dampingRatio 0.55 < 0.72 → **會過衝**。
+                    // 這就是業主要��「回彈動畫」：氣泡滑過去時會先衝過一點再回來。
+                    // （規範紅線 #7 講的「不許過衝」是針對**跟手**階段；
+                    //   鬆手後的慣性過衝是液態玻璃的標誌性手感。）
+                    dampingRatio = 0.55f,
+                    stiffness = Spring.StiffnessMedium,
                 ),
+                // ★ 帶上鬆手速度 → 甩得越快，衝得越遠（iOS 的「甩一下」手感）。
+                //   注意 initialVelocity 是 animateTo 的參數，不是 spring 的。
+                initialVelocity = releaseVelocity,
             )
+            releaseVelocity = 0f
         }
     }
 
@@ -159,20 +185,30 @@ fun GlassBottomBar(
                                 },
                                 onDragEnd = {
                                     dragging = false
+                                    val v = dragVelocity
                                     val projected = indicator.value +
-                                        if (abs(dragVelocity) > FLING_THRESHOLD_PX) {
-                                            if (dragVelocity > 0) FLING_EXTRA else -FLING_EXTRA
+                                        if (abs(v) > FLING_THRESHOLD_PX) {
+                                            if (v > 0) FLING_EXTRA else -FLING_EXTRA
                                         } else {
                                             0f
                                         }
                                     val target = projected
                                         .roundToInt()
                                         .coerceIn(0, items.size - 1)
+                                    // ★ 把手指速度換成「格/秒」，交給回彈彈簧當初速度。
+                                    //   沒有這行，回彈會失去「甩」的感覺。
+                                    releaseVelocity = (v / cellWidthPx) * 60f
+                                    scope.launch {
+                                        tailAnim.snapTo(
+                                            (v / cellWidthPx * 0.6f).coerceIn(-0.32f, 0.32f)
+                                        )
+                                    }
                                     dragVelocity = 0f
                                     onSelect(target)
                                 },
                                 onDragCancel = {
                                     dragging = false
+                                    releaseVelocity = 0f
                                     dragVelocity = 0f
                                     onSelect(
                                         indicator.value.roundToInt()
@@ -192,8 +228,15 @@ fun GlassBottomBar(
                         )
                     }
 
-                    val stretch = (dragVelocity / cellWidthPx * 0.35f)
-                        .coerceIn(-0.18f, 0.18f)
+                    // ★ 水滴變形：沿拖動方向拉長 + 垂直壓扁。
+                    //
+                    // 上限從 18% 提到 **32%** —— 業主要求「更靈動」。
+                    // 18% 在真機上幾乎看不出，而 32% 才有「被拽」的形變感。
+                    //
+                    // ★ 關鍵：形變由**速度**驅動，不是位移。
+                    //   慢慢拖 = 平移（不該變形）；快速甩 = 被甩出去的水滴（該變形）。
+                    val stretch = (dragVelocity / cellWidthPx * 0.6f)
+                        .coerceIn(-0.32f, 0.32f)
                     val pressedScale = 1f + PRESS_SCALE * pressAnim.value
 
                     // 氣泡層：佔滿整條，用 translationX 定位到目標格
@@ -213,22 +256,29 @@ fun GlassBottomBar(
                                 .height(BUBBLE_HEIGHT)
                                 .align(Alignment.CenterStart)
                                 .graphicsLayer {
-                                    // 氣泡定位：以「氣泡中心 = 格子中心」為準。
-                                    val center = if (dragging) {
-                                        val i0 = kotlin.math.floor(indicator.value).toInt()
-                                            .coerceIn(0, items.size - 1)
-                                        val frac = indicator.value - i0
-                                        (i0 + 0.5f + frac) * restWidthPx
-                                    } else {
-                                        (selectedIndex + 0.5f) * restWidthPx
-                                    }
-                                    translationX = center - size.width / 2f
+                                    // 氣泡定位：**直接用 indicator 的實時值**（格為單位的小數）。
+                                    //
+                                    // ★ 之前分兩段（dragging 用 indicator、靜止用 selectedIndex），
+                                    //   結果鬆手回彈的**那一瞬間**會從 indicator 跳到 selectedIndex ——
+                                    //   視覺上就是「氣泡先瞬移再彈」。
+                                    //   用實時值 + 線性插值映射到像素，回彈全程連續。
+                                    val pos = indicator.value
+                                    val i0 = kotlin.math.floor(pos).toInt()
+                                        .coerceIn(0, items.size - 1)
+                                    val i1 = (i0 + 1).coerceAtMost(items.size - 1)
+                                    val frac = (pos - i0).coerceIn(0f, 1f)
+                                    val centerPx = (i0 + frac) * restWidthPx + restWidthPx / 2f
 
-                                    // 拖動時的水滴變形：沿拖動方向拉長、垂直壓扁。
-                                    // 只在 dragging 時生效（否則鬆手後留下扁橢圓）。
-                                    val s = if (dragging) stretch else 0f
-                                    scaleX = pressedScale * (1f + abs(s))
-                                    scaleY = pressedScale * (1f - abs(s) * 0.45f)
+                                    translationX = centerPx - size.width / 2f
+
+                                    // 水滴變形：沿拖動方向拉長、垂直壓扁。
+                                    //
+                                    // ★ 鬆手後**保留一小段**形變衰減：
+                                    //   完全歸零會讓「回彈」看起來是硬切，
+                                    //   留一點慣性尾巴才有「甩出去」的餘韻。
+                                    val tail = if (dragging) stretch else releaseTail
+                                    scaleX = pressedScale * (1f + abs(tail))
+                                    scaleY = pressedScale * (1f - abs(tail) * 0.45f)
                                 },
                         ) {
                             // ★★ 氣泡是**真玻璃**（不是灰色塊）。
@@ -358,7 +408,7 @@ private val ICON_SIZE = 16.dp
 private val SELECTED_EXTRA = 34.dp
 
 /** 按下放大倍率（參考 app PillPressedScale = 1.3928572，取 55%）。 */
-private const val PRESS_SCALE = 0.215f
+private const val PRESS_SCALE = 0.26f
 
 /** 甩動判定門檻（px/幀）。 */
 private const val FLING_THRESHOLD_PX = 18f
