@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -203,52 +204,52 @@ fun GlassBottomBar(
                     ) {
                         Box(
                             modifier = Modifier
-                                // 寬度要跟「選中格」一致（cellWidth + SELECTED_EXTRA），
-                                // 否則氣泡會比格子窄、看起來跟圖標分離。
-                                .width(cellWidth + SELECTED_EXTRA - 5.dp)
+                                // ★ 氣泡尺寸：**量出來的**。
+                                //
+                                // 精確測量（REF app，density 3.5x）：
+                                //   橫向 y=2420 行灰底 x157..x331 = 174px = **49.7dp**
+                                //   縱向 y2316..y2440 = 124px = **35.4dp**
+                                .width(BUBBLE_WIDTH)
                                 .height(BUBBLE_HEIGHT)
                                 .align(Alignment.CenterStart)
                                 .graphicsLayer {
-                                    // ★ 氣泡定位：必須與 Column 的實際佈局一致。
-                                    //
-                                    // Column 的佈局是：選中格寬 = restWidth + SELECTED_EXTRA，
-                                    // 其餘 = restWidth。所以第 k 格的左邊界 = k * restWidth
-                                    //（選中格把自己那額外寬度也佔了，但它前面全是普通格）。
-                                    //
-                                    // 之前用 `indicator * restWidthPx` 加上
-                                    // `(restWidthPx - width)/2` 會偏 —— 因為氣泡寬度
-                                    // 是 restWidth+EXTRA-5，那個居中量算錯了，
-                                    // 結果氣泡往左跑了半個 EXTRA（真機看到「氣泡和圖標分離」）。
-                                    val restPx = restWidthPx
-                                    val extraPx = with(density) { SELECTED_EXTRA.toPx() }
-                                    val targetW = restPx + extraPx
-
-                                    if (dragging) {
-                                        // 拖動中：按 indicator 的小數部分在相鄰兩格之間插值
+                                    // 氣泡定位：以「氣泡中心 = 格子中心」為準。
+                                    val center = if (dragging) {
                                         val i0 = kotlin.math.floor(indicator.value).toInt()
                                             .coerceIn(0, items.size - 1)
                                         val frac = indicator.value - i0
-                                        val left = i0 * restPx
-                                        val leftNext = (i0 + 1) * restPx
-                                        translationX = left + (leftNext - left) * frac +
-                                            (targetW - size.width) / 2f
+                                        (i0 + 0.5f + frac) * restWidthPx
                                     } else {
-                                        translationX = selectedIndex * restPx +
-                                            (targetW - size.width) / 2f
+                                        (selectedIndex + 0.5f) * restWidthPx
                                     }
-                                            "targetW=$targetW selfW=${size.width} " +
-                                            "parentW=$maxWidthDp tx=${translationX}",
-                                    )
-                                    // 只在拖動中變形（否則鬆手後留下扁橢圓）
+                                    translationX = center - size.width / 2f
+
+                                    // 拖動時的水滴變形：沿拖動方向拉長、垂直壓扁。
+                                    // 只在 dragging 時生效（否則鬆手後留下扁橢圓）。
                                     val s = if (dragging) stretch else 0f
                                     scaleX = pressedScale * (1f + abs(s))
                                     scaleY = pressedScale * (1f - abs(s) * 0.45f)
-                                }
-                                .background(
-                                    color = bubbleColor(isDark),
-                                    shape = RoundedCornerShape(percent = 50),
-                                ),
-                        )
+                                },
+                        ) {
+                            // ★★ 氣泡是**真玻璃**（不是灰色塊）。
+                            //
+                            // 它有自己的折射 + 色散 + 雙光源高光，
+                            // 因為是獨立的小面積元件，用 LIQUID 材質、
+                            // 全圓角（RoundedCornerShape(percent = 50)）。
+                            //
+                            // 為什麼先前不是：我把氣泡畫成 `background(Color(0xFFE5E5E5))`
+                            // 純色 —— 那只是「對齊參考靜態截圖」的灰塊，
+                            // 完全沒有玻璃的光學行為。業主：「動效哪去了，折射扭曲呢」。
+                            GlassSurface(
+                                backdrop = backdrop,
+                                modifier = Modifier.fillMaxSize(),
+                                material = BarMaterial.LIQUID,
+                                shape = RoundedCornerShape(percent = 50),
+                                // 按下時折射變強（與外層容器同一套邏輯）
+                                pressFraction = 0.55f + 0.45f * pressAnim.value,
+                                pressedScale = pressedScale,
+                            ) {}
+                        }
                     }
 
                     // ── 五格圖標 + 文字 ─────────────────────────────────
@@ -338,7 +339,10 @@ private val BAR_VERTICAL_PADDING = 12.dp
 /** 底欄內容高度。 */
 private val BAR_HEIGHT = 46.dp
 
-/** 選中氣泡高度。 */
+/** 選中氣泡寬度：量到 174px / 3.5 = **49.7dp**。 */
+private val BUBBLE_WIDTH = 50.dp
+
+/** 選中氣泡高度：量到 124px / 3.5 = 35.4dp，取 42dp 給玻璃邊緣留餘量。 */
 private val BUBBLE_HEIGHT = 42.dp
 
 /** 圖標尺寸。 */
