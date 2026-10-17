@@ -9,17 +9,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
@@ -27,16 +26,43 @@ import com.kyant.backdrop.shadow.Shadow
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 娑叉厠鐜荤拑瀹瑰櫒銆? *
- * 鍏夊灞ゆ锛堢敱涓嬪埌涓婏級鈥斺€?閫欐槸閫嗗悜 com.linxin.demo 鐨?LxBottomBar 瀛稿埌鐨勶細
+ * 液態玻璃容器。
  *
- *   1. vibrancy()          澧為＝鍜岋紝璁撹儗寰岀殑椤忚壊鏇存績锛堢幓鐠冩墠鏈夈€岄鑹层€嶏級
- *   2. blur(radius)        妯＄硦 2~12dp锛?*涓嶆槸** 30+锛? *   3. lens(h, amount)     閭婄罚鎶樺皠 鈥斺€?娑叉厠鐜荤拑鐨勯潏榄? *   4. Highlight           閭婄罚楂樺厜
- *   5. Shadow              澶栭櫚褰憋紙璁撶幓鐠冩诞璧蜂締锛? *   6. InnerShadow         鍏ч櫚褰憋紙璁撶幓鐠冩湁鍘氬害锛夆槄 鎴戠涓€鐗堝畬鍏ㄦ矑鍋? *   7. onDrawSurface       琛ㄩ潰搴曡壊锛堢背鐧?34% 娣?/ 16% 娣憋級
+ * 光學層次（由下到上），逆向 com.linxin.demo 的 LxBottomBar 學來的：
  *
- * 灏戜换浣曚竴灞ら兘涓嶅儚鐜荤拑锛? * - 娌掓湁 lens 鈫?鍙槸纾ㄧ爞鏉? * - 娌掓湁 InnerShadow 鈫?鍍忓崐閫忔槑璨肩礄锛屾矑鏈夊帤搴? * - 娌掓湁 vibrancy 鈫?鑳屽緦鐨勯鑹茬櫦鐏? *
- * 鐢ㄦ硶蹇呴爤鏄叐娈靛紡锛堣 [GlassBackdropHost]锛夛紝鍚﹀墖鎶樺皠鍒扮┖鐧姐€? *
- * @param backdrop 鎶樺皠渚嗘簮銆俷ull 鈫?鑷嫊闄嶇礆鎴愬蹇冿紙涓嶆渻璁婄伆濉婏級銆? * @param material 鏉愯唱銆係OLID 涓嶈蛋鐜荤拑銆? * @param pressedScale 鎸変笅鏅傜殑鏀惧ぇ鍊嶇巼锛堟粦濉婄敤 1.39锛岃 LxGlass.PillPressedScale锛夈€? * @param pressFraction 0~1 鐨勬寜涓嬮€插害锛岄﹨鍕曟姌灏勯噺鑸囧収闄板奖銆? */
+ *  1. vibrancy()        增飽和，讓背后的顏色更濃（玻璃才有「顏色」）
+ *  2. blur(radius)      模糊 2~12dp（不是 30+）
+ *  3. lens(h, amount)   邊緣折射 —— 液態玻璃的靈魂
+ *  4. Highlight         邊緣高光
+ *  5. Shadow            外陰影（讓玻璃浮起來）
+ *  6. InnerShadow       內陰影（讓玻璃有厚度）
+ *  7. onDrawSurface     表面底色（**要透**，0.30；太實會把折射蓋死）
+ *
+ * 少任何一層都不像玻璃：
+ * - 沒有 lens → 只是磨砂板
+ * - 沒有 InnerShadow → 像半透明貼紙，沒有厚度
+ * - 沒有 vibrancy → 背后的顏色發灰
+ *
+ * ## ★ 表面不透明度與折射是互相打架的
+ *
+ * 我曾在這裡把 surfaceAlpha 拉到 0.92（為了「讓底欄看起來白」），
+ * 結果那一層白漆把折射整個蓋住 —— 玻璃變白板，業主說「折射都沒了」。
+ *
+ * **表面要透。** 白感靠：① 模糊后的背景本身偏亮 ② 高光 ③ 陰影。
+ *
+ * ## ★ 右側出現白色方塊的原因（已修）
+ *
+ * shader 會往元件**外面**採樣（折射要抓邊界外的像素），所以設了 padding。
+ * 但 padding 那一圈在**圓角形狀之外**，如果不安裝裁切就會露出來，
+ * 表現是圓角旁邊多出一小塊異色方塊。
+ *
+ * 修法：把整個 drawBackdrop 包進 `Modifier.clip(shape)` ——
+ * 讓超出形狀的部分一律被裁掉。這是業主說的「右邊多出來那塊」。
+ *
+ * @param backdrop 折射來源。null → 自動降級成實心（不會變灰塊）。
+ * @param material 材質。SOLID 不走玻璃。
+ * @param pressFraction 0~1 的按下進度，驅動折射量與內陰影。
+ */
 @Composable
 fun GlassSurface(
     backdrop: LayerBackdrop?,
@@ -50,14 +76,12 @@ fun GlassSurface(
     val spec = LocalGlassSpec.current
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
 
-    // 闄嶇礆锛氭矑 backdrop銆佹垨鏉愯唱鏄?SOLID銆佹垨 spec 鏄?FALLBACK锛堢劇妯＄硦鐒℃姌灏勶級
+    // 降級：沒 backdrop、或材質 SOLID、或 spec 是無模糊（FALLBACK）
     if (backdrop == null || !spec.usesGlass(material) || spec.blurDp <= 0.dp) {
         Box(
             modifier = modifier
                 .background(
-                    color = spec.surfaceTint.copy(
-                        alpha = if (isDark) 0.14f else 0.94f,
-                    ),
+                    color = spec.surfaceTint.copy(alpha = if (isDark) 0.14f else 0.94f),
                     shape = shape,
                 )
                 .border(
@@ -77,86 +101,104 @@ fun GlassSurface(
     val blurRadius = spec.blurFor(material)
 
     Box(
-        modifier = modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { shape },
-            effects = {
-                // 鈶?澧為＝鍜岋細璁撹儗寰岀殑椤忚壊鏇存績銆?                //    灏戜簡閫欎竴姝ワ紝鐜荤拑鑳屽緦鐨勫収瀹规渻鐧肩伆銆佺湅璧蜂締寰堛€岄珤銆嶃€?                vibrancy()
+        modifier = modifier
+            // ★ 先裁切再畫：把 shader 往外採樣的 padding 區裁掉。
+            //   少了這一行，圓角旁邊會露出一塊異色方塊。
+            .clip(shape)
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { shape },
+                effects = {
+                    // ① 增飽和：讓背後的顏色更濃。
+                    //    少了這一步，玻璃背後的內容會發灰、看起來「髒」。
+                    vibrancy()
 
-                // 鈶?妯＄硦銆?~12dp 灏卞 鈥斺€?娑叉厠鐜荤拑闈犳姌灏勪笉闈犵硦銆?                if (blurRadius > 0.dp) {
-                    blur(blurRadius.toPx())
-                }
+                    // ② 模糊。2~12dp 就夠 —— 液態玻璃靠折射不靠糊。
+                    if (blurRadius > 0.dp) {
+                        blur(blurRadius.toPx())
+                    }
 
-                // 鈶?鎶樺皠 + 鑹叉暎 鈥斺€?娑叉厠鐜荤拑鐨勯潏榄傘€?                //
-                // 鐢ㄧ殑鏄?*鑷繁瀵殑 AGSL shader**锛堣 LiquidGlassShader.kt锛夛紝
-                // 涓嶆槸搴殑 lens()銆傚師鍥狅細lens() 鍙湁銆屾暣鐗囧潎鍕诲亸绉汇€嶏紝
-                // 鑰岀湡姝ｇ殑娑叉厠鐜荤拑瑕併€屽彧鍦ㄩ倞绶ｆ姌灏?+ 鑹叉暎 + 璺熷湏瑙掕蛋銆嶃€?                //
-                // FROSTED 鍙硦涓嶆姌灏勶紙閭ｆ墠鏄€岀（鐮傘€嶏級銆?                if (material == BarMaterial.LIQUID && spec.lensAmountDp > 0.dp) {
-                    val f = pressFraction.coerceIn(0f, 1f)
-                    liquidGlassRefraction(
-                        height = spec.lensHeightDp.toPx() * f,
-                        amount = spec.lensAmountDp.toPx() * f,
-                        depth = spec.depthEffect > 0f,
-                        dispersion = spec.chromaticAberration * f,
+                    // ③ 折射 + 色散 —— 液態玻璃的靈魂。
+                    //
+                    // 用的是自己寫的 AGSL shader（LiquidGlassShader.kt），
+                    // 不是庫的 lens()。原因：lens() 只有「整片均勻偏移」，
+                    // 而真正的液態玻璃要「只在邊緣折射 + 色散 + 跟圓角走」。
+                    //
+                    // FROSTED 只糊不折射（那才是「磨砂」）。
+                    if (material == BarMaterial.LIQUID && spec.lensAmountDp > 0.dp) {
+                        val f = pressFraction.coerceIn(0f, 1f)
+                        liquidGlassRefraction(
+                            height = spec.lensHeightDp.toPx() * f,
+                            amount = spec.lensAmountDp.toPx() * f,
+                            depth = spec.depthEffect > 0f,
+                            dispersion = spec.chromaticAberration * f,
+                        )
+                    }
+                },
+                // ④ 邊緣高光。
+                //
+                // ⚠️ 這一層如果給「一圈均勻白線」就是業主說的「奇怪邊緣白光」。
+                //   真高光應該是有位置的光源（左上亮、右下暗），
+                //   那需要雙光源模型（Miuix 的 BloomStroke），屬下一步。
+                //   在此之前：寧可很淡，也不要那圈假白線。
+                highlight = {
+                    if (spec.highlightAlpha > 0f) {
+                        Highlight(
+                            width = 0.6.dp,
+                            blurRadius = 2.dp,
+                            alpha = spec.highlightAlpha * pressFraction.coerceIn(0f, 1f),
+                        )
+                    } else {
+                        null
+                    }
+                },
+                // ⑤ 外陰影：讓玻璃「浮」在內容上。
+                shadow = {
+                    Shadow(
+                        radius = spec.shadowRadiusDp,
+                        alpha = spec.shadowAlpha,
                     )
-                }
-            },
-            // 鈶?閭婄罚楂樺厜 鈥斺€?鈽?閫欎竴灞ゆ槸妤富瑾€屽鎬倞绶ｇ櫧鍏夈€嶇殑渚嗘簮锛岄爯瑷棞鎺夈€?            //
-            // 鐐轰粈楹煎畠鏄尟鐨勶細鐪熸鐨勯珮鍏変笉鏄€屼竴鍦堝潎鍕荤櫧绶氥€嶏紝鑰屾槸
-            // **鏈変綅缃殑鍏夋簮**鍦ㄧ幓鐠冮倞绶ｇ殑鍙嶅皠锛堝乏涓婁寒銆佸彸涓嬫殫锛夈€?            // 涓€鍦?uniform 鐧界窔鐪嬭捣渚嗗氨鏄€屾弿浜嗗€嬬櫧閭娿€嶏紝闈炲父寤夊児銆?            //
-            // 璁婄劍鐠扮殑姝ｈВ锛圡iuix `BloomStroke`锛夌敤鐨勬槸
-            // `LightSource(LightPosition(x, y, z=-0.5), alpha)` 闆欏厜婧愭ā鍨?鈥斺€?            // 閭ｉ渶瑕佷竴鏁村闆欏厜婧?shader锛屽爆涓嬩竴姝ュ伐浣溿€?            //
-            // 鍦ㄦ涔嬪墠锛?*瀵у彲娌掓湁楂樺厜锛屼篃涓嶈閭ｅ湀鍋囩櫧绶氥€?*
-            highlight = {
-                if (spec.highlightAlpha > 0f) {
-                    Highlight(
-                        width = 0.6.dp,
-                        blurRadius = 2.dp,
-                        alpha = spec.highlightAlpha * pressFraction.coerceIn(0f, 1f),
+                },
+                // ⑥ 內陰影：玻璃的「厚度」。
+                //    逆向出來是 PillInnerShadowDp = 8dp，隨按壓強度縮放。
+                innerShadow = {
+                    InnerShadow(
+                        radius = spec.innerShadowDp * pressFraction.coerceIn(0f, 1f),
+                        alpha = spec.innerShadowAlpha * pressFraction.coerceIn(0f, 1f),
                     )
-                } else {
-                    null
-                }
-            },
-            // 鈶?澶栭櫚褰憋細璁撶幓鐠冦€屾诞銆嶅湪鍏у涓娿€?            shadow = {
-                Shadow(
-                    radius = spec.shadowRadiusDp,
-                    alpha = spec.shadowAlpha,
-                )
-            },
-            // 鈶?鈽?鍏ч櫚褰憋細鐜荤拑鐨勩€屽帤搴︺€嶃€?            //    閫嗗悜鍑轰締鏄?PillInnerShadowDp = 8dp锛岄毃鎸夊寮峰害绺斁銆?            //    鎴戠涓€鐗堝畬鍏ㄦ矑鍋氶€欎竴灞わ紝鎵€浠ョ湅璧蜂締鍍忓崐閫忔槑璨肩礄銆?            innerShadow = {
-                InnerShadow(
-                    radius = spec.innerShadowDp * pressFraction.coerceIn(0f, 1f),
-                    alpha = spec.innerShadowAlpha * pressFraction.coerceIn(0f, 1f),
-                )
-            },
-            // 鎸変笅鏀惧ぇ锛氭粦濉婅鎸変笅鏅傛渻銆岄紦璧蜂締銆嶃€?            layerBlock = {
-                if (pressedScale != 1f) {
-                    scaleX = pressedScale
-                    scaleY = pressedScale
-                }
-            },
-            // 鈶?琛ㄩ潰搴曡壊銆傛泛 34% / 娣?16%锛岀背鐧戒笉鏄磾鐧姐€?            onDrawSurface = {
-                drawRect(
-                    color = spec.surfaceTint.copy(alpha = spec.surfaceAlpha),
-                )
-            },
-        ),
+                },
+                // 按下放大：滑塊被按下時會「鼓起來」。
+                layerBlock = {
+                    if (pressedScale != 1f) {
+                        scaleX = pressedScale
+                        scaleY = pressedScale
+                    }
+                },
+                // ⑦ 表面底色。**要透**（0.30）—— 太實會把折射蓋死。
+                onDrawSurface = {
+                    drawRect(
+                        color = spec.surfaceTint.copy(alpha = spec.surfaceAlpha),
+                    )
+                },
+            ),
         content = content,
     )
 }
 
 /**
- * 绲︾幓鐠冩彁渚涙姌灏勪締婧愩€? *
- * 鈽呪槄 闂滈嵉瑕忓墖锛?*瑕佽鎶樺皠鐨勫収瀹硅！涓嶈兘鏈夌幓鐠冦€?*
+ * 給玻璃提供折射來源。
  *
- * 閫欐槸銆屽暉鍕曞嵆姝汇€嶇殑鐪熸鍘熷洜锛堟煡浜嗗緢涔咃級锛氬収瀹硅！鑻ヤ篃鏈夌幓鐠冿紝
- * 瀹冩渻鍦ㄥ悓涓€灞よ！鎺℃ǎ閭ｄ竴灞?鈥斺€?鎺℃ǎ鑷繁 鈫?鐒￠檺閬炶看 鈫? * 娓叉煋鍗℃ 鈫?绯荤当浠?coldStart timeout 娈洪€茬▼
- *锛堟墍浠?logcat 娌掓湁 FATAL EXCEPTION锛屽彧鏈?onTaskVanished锛夈€? *
- * 鎵€浠ュ垎鎴愬叐鍊?slot锛? * - [content]锛氳鐣€?layer锛?*涓嶈兘鍚幓鐠?*锛? * - [overlay]锛氬湪 layer 涔嬪锛堢幓鐠冩斁閫欒！锛? *
- * 閫嗗悜鍙冭€冿細com.linxin.demo 鐢? * `rememberCombinedBackdrop(澶栭儴backdrop, rememberLayerBackdrop())`
- * 鎶婂叐鍊?backdrop 绲勫悎璧蜂締锛屾晥鏋滈浼尖€斺€斿畠鐨勫閮?backdrop 渚嗚嚜鏇翠笂灞わ紝
- * 鎴戝€戦€欒！绨″寲鎴愩€屽収瀹瑰堡 + 瑕嗚搵灞ゃ€嶅氨澶犵敤銆? */
+ * ## ★ 關鍵規則：要被折射的內容裡不能有玻璃
+ *
+ * 這是「啟動即死」的真正原因：內容裡若也有玻璃，
+ * 它會在同一層裡採樣那一層 → 採樣自己 → 無限遞迴 →
+ * 渲染卡死 → 系統以 coldStart timeout 殺進程
+ *（所以 logcat 沒有 FATAL EXCEPTION，只有 onTaskVanished）。
+ *
+ * 所以分成兩個 slot：
+ * - [content]：被畫進 layer（**不能含玻璃**）
+ * - [overlay]：在 layer 之外（玻璃放這裡）
+ */
 @Composable
 fun GlassBackdropHost(
     modifier: Modifier = Modifier,
@@ -173,13 +215,15 @@ fun GlassBackdropHost(
     }
 }
 
-/** 鐩墠闋侀潰鐨?[LayerBackdrop]銆?*/
+/** 目前頁面的 [LayerBackdrop]。 */
 val LocalGlassBackdrop =
     androidx.compose.runtime.staticCompositionLocalOf<LayerBackdrop?> { null }
 
 /**
- * 渚濇繁娣烘彁渚?[GlassSpec] 鑸?[BarMaterial]銆? *
- * @param override 瑾垮弮闋佸偝閫蹭締鐨勫€硷紱null = 鐢ㄦ繁娣哄畾绋裤€? * @param material 搴曟瑒鏉愯唱锛沶ull = 鐢?[LocalBarMaterial] 鐨勯爯瑷紙娑叉厠锛夈€? */
+ * 依深淺提供 [GlassSpec] 與 [BarMaterial]。
+ *
+ * @param override 調參頁傳進來的值；null = 用深淺定稿。
+ */
 @Composable
 fun GlassTheme(
     override: GlassSpec? = null,
@@ -195,5 +239,5 @@ fun GlassTheme(
     )
 }
 
-/** 鐜荤拑搴曟瑒鐨勬婧栭珮搴︼紙閫嗗悜锛歀xGlass.PillHeightDp = 56dp锛夈€?*/
+/** 玻璃底欄的標準高度。 */
 val GlassBarHeight = 64.dp

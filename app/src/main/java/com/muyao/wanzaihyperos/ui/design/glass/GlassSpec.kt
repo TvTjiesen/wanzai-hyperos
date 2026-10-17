@@ -86,8 +86,10 @@ data class GlassSpec(
             frostBlurDp = 24.dp,
             lensHeightDp = 26.dp,
             lensAmountDp = 22.dp,
-            // 色散 1.8：參考的 chromaticAberration 是「看得見一點彩虹但不明顯」
-            chromaticAberration = 1.8f,
+            // 色散 0.9：參考的色散是「看得見一點彩虹但不明顯」。
+            // 給到 1.8 會在圓角處溢出成青綠/白色描邊（真機可見，
+            // 表現成「底欄右邊多出一塊白」）。
+            chromaticAberration = 0.9f,
             depthEffect = 0.8f,
             // ★★ 這裡我來回錯過一次，記下來：
             //
