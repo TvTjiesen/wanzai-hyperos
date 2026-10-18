@@ -240,8 +240,13 @@ fun BackdropEffectScope.liquidGlassRefraction(
     amount: Float,
     depth: Boolean = true,
     dispersion: Float = 0f,
+    /** 元件實際尺寸（px）。**必須由調用方傳入** —— 見下方註解。 */
+    explicitSize: androidx.compose.ui.geometry.Size? = null,
 ) {
-    if (height <= 0f || amount <= 0f) return
+    if (height <= 0f || amount <= 0f) {
+        android.util.Log.w("LensDiag", "跳過：height=$height amount=$amount")
+        return
+    }
 
     // ① padding：折射要往元件外抓像素，不給會裁出黑邊
     if (padding < amount) {
@@ -249,10 +254,33 @@ fun BackdropEffectScope.liquidGlassRefraction(
     }
 
     // ② 只支援圓角矩形。其它形狀直接跳過（不猜）。
-    val rr = shape as? androidx.compose.foundation.shape.RoundedCornerShape ?: return
+    val rr = shape as? androidx.compose.foundation.shape.RoundedCornerShape
+    if (rr == null) {
+        android.util.Log.w("LensDiag", "跳過：shape 不是 RoundedCornerShape，實際=${shape::class.simpleName}")
+        return
+    }
 
-    // ③ 取四角半徑（依 LayoutDirection 調整左右）
-    val sizePx = size
+    // ★★★ 這一行是整個折射的關鍵。
+    //
+    // `BackdropEffectScope.size` 在 effects lambda 執行時是
+    // **Size.Unspecified（NaN）** —— 因為 effects 在佈局測量之前就被求值了。
+    //
+    // 而這個 shader 的一切都建立在 size 上：
+    //   SDF = 到圓角矩形的距離 → 邊緣法線 → 採樣座標偏移
+    // size 是 NaN，SDF 就是 NaN，`content.eval(NaN)` 採到的是原樣內容
+    // → **看起來完全沒有折射**。
+    //
+    // 這就是為什麼我把 refractionAmount 從 18 調到 60、height 從 20 調到 40
+    // 都毫無變化的原因：參數根本沒有參與計算。
+    //
+    // 所以尺寸必須由調用方（`Modifier.onSizeChanged`）顯式傳進來。
+    val sizePx = explicitSize ?: size
+    if (sizePx.width.isNaN() || sizePx.height.isNaN() ||
+        sizePx.width <= 0f || sizePx.height <= 0f
+    ) {
+        android.util.Log.w("LensDiag", "跳過：size 無效 = $sizePx")
+        return
+    }
     val w = sizePx.width
     val h = sizePx.height
     val halfMin = minOf(w, h) / 2f
