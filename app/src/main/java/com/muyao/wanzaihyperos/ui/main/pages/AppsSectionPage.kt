@@ -60,14 +60,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun AppsSectionPage(
     graph: AppGraph,
     onOpenApp: (PortalApp) -> Unit,
-    onOpenSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
     val catalogState by graph.catalog.state.collectAsState()
 
     LaunchedEffect(Unit) {
-        runCatching { graph.catalog.refresh() }
+        // 应用级作用域，见 `AppGraph.fetch` / `ioScope` 的根因说明。
+        graph.fetch { graph.catalog.refresh() }
     }
 
     LazyColumn(
@@ -93,12 +93,8 @@ fun AppsSectionPage(
                     lineHeight = Type.largeTitle * Type.LINE_HEIGHT_TITLE,
                     modifier = Modifier.weight(1f),
                 )
-                Text(
-                    text = "搜尋",
-                    fontSize = Type.body,
-                    color = colors.primary,
-                    modifier = Modifier.clickable { onOpenSearch() },
-                )
+                // 「搜尋」这一条已经移到**悬浮搜索胶囊**（主壳里的 `GlassSearchPill`），
+                // 全站五个板块都能看到，所以这里不再重复摆一个入口。
             }
         }
 
@@ -118,7 +114,7 @@ fun AppsSectionPage(
                         Text("取不到應用清單", fontSize = Type.body, color = colors.error)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            s.error.message.orEmpty(),
+                            s.error.userText,
                             fontSize = Type.caption,
                             color = colors.onSurfaceVariantSummary,
                         )

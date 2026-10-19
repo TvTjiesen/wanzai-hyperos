@@ -43,6 +43,48 @@ class ListStateTest {
         assertFalse(failed.hasSettled)
     }
 
+    // ---------------------------------------------------------------------------
+    // ★ 取消 ≠ 失败（真机根因：切页面把请求取消，假「取不到」被永久写进仓库）
+    // ---------------------------------------------------------------------------
+
+    /** Compose 抛的 `LeftCompositionCancellationException` 不是 CancellationException，
+     *  所以判据要认它的类名与消息；这里用同样的消息构造替身，避免测试依赖 Compose。 */
+    private fun cancelledLike() = HzcuException.Transport(
+        details = "异常类型：LeftCompositionCancellationException",
+        cause = IllegalStateException("The coroutine scope left the composition"),
+    )
+
+    @Test
+    fun `被取消不能写成取不到`() {
+        val after = first.failWith(cancelledLike())
+        assertTrue("取消被当成了 Failed，界面会显示「取不到」并一直挂着", after is ListState.FirstLoad)
+    }
+
+    @Test
+    fun `有内容时被取消只停转圈不标旧数据`() {
+        val content = first.settleFirstPage(items, nowMillis = 100L) { it.id }
+        val refreshing = content.startRefresh()
+        val c = refreshing.failWith(cancelledLike()) as ListState.Content
+        assertFalse("取消不该把内容标成 stale", c.meta.stale)
+        assertNull("取消不该留下刷新错误", c.meta.lastRefreshError)
+        assertFalse("转圈标志必须清掉，否则会一直「正在取得…」", c.meta.refreshing)
+    }
+
+    @Test
+    fun `真失败仍然要标 stale（别把诚实路径一起拆掉）`() {
+        val content = first.settleFirstPage(items, nowMillis = 100L) { it.id }
+        val c = content.startRefresh().failWith(HzcuException.Transport()) as ListState.Content
+        assertTrue("真失败必须标旧数据", c.meta.stale)
+    }
+
+    @Test
+    fun `翻页被取消不记错误`() {
+        val content = first.settleFirstPage(items, nowMillis = 100L) { it.id }
+        val c = content.startLoadMore().failLoadMore(cancelledLike()) as ListState.Content
+        assertNull(c.meta.lastRefreshError)
+        assertFalse(c.meta.loadingMore)
+    }
+
     @Test
     fun `认证失效单独一类且不能是 Failed`() {
         val expired = first.failWith(HzcuException.LoginExpired("没登录"))

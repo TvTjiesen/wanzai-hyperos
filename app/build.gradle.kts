@@ -81,15 +81,14 @@ dependencies {
     implementation(libs.miuix.icons)
     implementation(libs.miuix.nav)
     // 液態玻璃（iOS 26/27 style）：真實折射 + 模糊 + 高光。Apache-2.0，minSdk 21。
+    // ★ 這條是**唯一**的玻璃引擎：折射 = `com.kyant.backdrop.effects.lens(...)`，
+    //   高光 = `BloomStrokeShader`（Miuix BloomStroke 的移植）。
     implementation(libs.backdrop)
-    // Miuix 的玻璃模組：BloomStroke（雙光源高光）/ ProgressiveBlur / textureBlur。
-    // ⚠️ 它要 minSdk 33 —— 所以上面的 minSdk 已抬到 33。
+    // Miuix 的玻璃模組：這裡**只**用它的 BloomStroke 高光移植参考與
+    // `sensor.rememberDeviceTilt`（重力方向）。它本身不提供折射 effect
+    //（0.9.4 的 BackdropEffectsKt 只有 blur/progressiveBlur/blendColors/noiseDither/textureBlur），
+    // 所以折射一律走上面那條 backdrop 路徑 —— 不許出現第二條渲染路徑。
     implementation(libs.miuix.blur)
-    // Haze 2.x：折射驅動的玻璃（業界做 iOS 26 液態玻璃的標準做法）。
-    // haze-glass = 折射 + 色散 + 深度；haze-blur = 模糊。
-    implementation(libs.haze.core)
-    implementation(libs.haze.blur)
-    implementation(libs.haze.glass)
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)

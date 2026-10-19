@@ -70,21 +70,24 @@ fun NotifySectionPage(
     val newsSelected by graph.news.selectedGroup.collectAsState()
 
     LaunchedEffect(Unit) {
-        runCatching { graph.messages.refreshGroups() }
-        runCatching { graph.news.refreshGroups() }
+        // ★ 取数交给 `AppGraph.fetch`（应用级作用域）。原因见 `AppGraph.ioScope` 的注释：
+        //   挂在组合生命周期上时，切走页面会取消请求，
+        //   取消被仓库当成「取不到」永久写进仓库状态，回来就一直报错或一直转圈。
+        graph.fetch { graph.messages.refreshGroups() }
+        graph.fetch { graph.news.refreshGroups() }
     }
 
     // groups 到了、且還沒選分組 → 選第一個
     LaunchedEffect(msgGroupsState, msgSelected) {
         val groups = (msgGroupsState as? ListState.Content)?.items.orEmpty()
         if (msgSelected == null) {
-            groups.firstOrNull()?.let { runCatching { graph.messages.selectGroup(it) } }
+            groups.firstOrNull()?.let { g -> graph.fetch { graph.messages.selectGroup(g) } }
         }
     }
     LaunchedEffect(newsGroupsState, newsSelected) {
         val groups = (newsGroupsState as? ListState.Content)?.items.orEmpty()
         if (newsSelected == null) {
-            groups.firstOrNull()?.let { runCatching { graph.news.selectGroup(it) } }
+            groups.firstOrNull()?.let { g -> graph.fetch { graph.news.selectGroup(g) } }
         }
     }
 
@@ -122,7 +125,7 @@ fun NotifySectionPage(
                         Text("取不到訊息", fontSize = Type.body, color = colors.error)
                         Spacer(Modifier.height(3.dp))
                         Text(
-                            s.error.message.orEmpty(),
+                            s.error.userText,
                             fontSize = Type.caption,
                             color = colors.onSurfaceVariantSummary,
                         )
@@ -159,7 +162,7 @@ fun NotifySectionPage(
                         Text("取不到新聞", fontSize = Type.body, color = colors.error)
                         Spacer(Modifier.height(3.dp))
                         Text(
-                            s.error.message.orEmpty(),
+                            s.error.userText,
                             fontSize = Type.caption,
                             color = colors.onSurfaceVariantSummary,
                         )

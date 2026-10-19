@@ -1,6 +1,15 @@
 package com.muyao.wanzaihyperos.ui.main.pages
 
 import androidx.compose.foundation.clickable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import com.muyao.wanzaihyperos.ui.home.HomeHero
+import com.muyao.wanzaihyperos.ui.home.HomeTile
+import com.muyao.wanzaihyperos.ui.home.HomeWindow
+import com.muyao.wanzaihyperos.ui.home.TileIcon
+import com.muyao.wanzaihyperos.ui.home.wallpaperFile
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -52,13 +61,36 @@ fun HomeSectionPage(
 ) {
     val colors = MiuixTheme.colorScheme
     val backdrop = LocalGlassBackdrop.current
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val rollcallState by graph.rollcall.state.collectAsState()
     val todoState by graph.todoBoard.state.collectAsState()
 
+    /** 哪块磁贴是展开的（同时只允许一块，免得两列各自长高把首屏撑散）。 */
+    var expandedTile by remember { mutableStateOf<String?>(null) }
+
+    // ── 视窗的自定义壁纸 ───────────────────────────────────────────
+    //
+    // 选完**拷进 files 目录**再解码（见 `loadWallpaperFrom`）：只存 URI 的话
+    // 重启后权限可能失效，用户会遇到「昨天还有壁纸，今天只剩内置场景」。
+    var wallpaper by remember {
+        mutableStateOf(com.muyao.wanzaihyperos.ui.home.decodeWallpaper(wallpaperFile(context)))
+    }
+    val pickWallpaper = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            val img = com.muyao.wanzaihyperos.ui.home.loadWallpaperFrom(context, uri)
+            // 读不回来就保持原样，**不清空**：用户换图失败时最讨厌的是连旧的也没了
+            if (img != null) wallpaper = img
+        }
+    }
+
     LaunchedEffect(Unit) {
-        runCatching { graph.rollcall.refresh() }
-        runCatching { graph.todoBoard.refresh() }
+        // 取数走应用级作用域（`AppGraph.fetch`），不挂在组合生命周期上 ——
+        // 见 `AppGraph.ioScope` 里那两条真机根因。
+        graph.fetch { graph.rollcall.refresh() }
+        graph.fetch { graph.todoBoard.refresh() }
     }
 
     LazyColumn(
@@ -71,14 +103,26 @@ fun HomeSectionPage(
         ),
         verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
     ) {
-        item(key = "title") {
-            Text(
-                text = "今天",
-                fontSize = Type.largeTitle,
-                fontWeight = Type.weightTitle,
-                color = colors.onBackground,
-                lineHeight = Type.largeTitle * Type.LINE_HEIGHT_TITLE,
-                modifier = Modifier.padding(bottom = 4.dp),
+        // ── 今天：超大日期 + 每日一句（业主：「顶部的这个今天可以大一点」）──
+        item(key = "hero") {
+            HomeHero(modifier = Modifier.padding(bottom = 4.dp))
+        }
+
+        // ── 视窗：内置随时间变化的场景，可换自己的壁纸，可放大/收回 ──────
+        item(key = "window") {
+            HomeWindow(
+                wallpaper = wallpaper,
+                onPickWallpaper = {
+                    pickWallpaper.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
+                        ),
+                    )
+                },
+                onClearWallpaper = {
+                    com.muyao.wanzaihyperos.ui.home.deleteWallpaper(context)
+                    wallpaper = null
+                },
             )
         }
 
@@ -115,7 +159,7 @@ fun HomeSectionPage(
 
                     is ListState.Failed -> BodyError(
                         "取不到簽到狀態",
-                        s.error.message.orEmpty(),
+                        s.error.userText,
                     )
 
                     is ListState.Content -> {
@@ -159,7 +203,7 @@ fun HomeSectionPage(
 
                     is ListState.Failed -> BodyError(
                         "取不到待辦",
-                        s.error.message.orEmpty(),
+                        s.error.userText,
                     )
 
                     is ListState.Content -> {
@@ -207,23 +251,90 @@ fun HomeSectionPage(
             }
         }
 
-        item(key = "shortcuts") {
-            Row(horizontalArrangement = Arrangement.spacedBy(Dims.cardGap)) {
-                QuickCard(
-                    backdrop = backdrop,
-                    title = "課表",
-                    onClick = onOpenTimetable,
-                    modifier = Modifier.weight(1f),
-                )
-                QuickCard(
-                    backdrop = backdrop,
-                    title = "訊息",
-                    onClick = onOpenMessages,
-                    modifier = Modifier.weight(1f),
-                )
+        // ── 磁贴：两列，点一块**就地展开**（详情从它自己下面滑出，收回也回到这块）──
+        //
+        // 业主 2026-10-18：「底下按照我给你截图的排版放功能，自己设计加一些小图标，
+        // 每个磁贴都能交互，都有流畅优雅的交互动画，动画遵循从哪来到哪去的原则」。
+        // 所以这里不弹对话框、不做跳转前的中间页：展开/收起都发生在这块磁贴身上。
+        item(key = "tiles") {
+            Column(verticalArrangement = Arrangement.spacedBy(Dims.cardGap)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Dims.cardGap)) {
+                    HomeTile(
+                        label = "課表",
+                        value = "本週課",
+                        icon = TileIcon.Timetable,
+                        tint = colors.primary,
+                        expanded = expandedTile == "timetable",
+                        onToggle = { expandedTile = if (expandedTile == "timetable") null else "timetable" },
+                        modifier = Modifier.weight(1f),
+                        detail = {
+                            BodyHint("整週安排、切週、網格/列表兩種排版。")
+                            TileOpen(label = "打開課表 ›", onClick = onOpenTimetable)
+                        },
+                    )
+                    HomeTile(
+                        label = "訊息",
+                        value = "門戶訊息",
+                        icon = TileIcon.Messages,
+                        tint = Color(0xFF3E7BFA),
+                        expanded = expandedTile == "messages",
+                        onToggle = { expandedTile = if (expandedTile == "messages") null else "messages" },
+                        modifier = Modifier.weight(1f),
+                        detail = {
+                            BodyHint("學校門戶發來的通知，按分組看。")
+                            TileOpen(label = "打開訊息 ›", onClick = onOpenMessages)
+                        },
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(Dims.cardGap)) {
+                    HomeTile(
+                        label = "待辦",
+                        value = when (val s = todoState) {
+                            is ListState.Content -> "${s.items.size} 件"
+                            is ListState.FirstLoad -> "整理中…"
+                            else -> "看詳情"
+                        },
+                        icon = TileIcon.Todo,
+                        tint = Color(0xFF1FA37A),
+                        expanded = expandedTile == "todo",
+                        onToggle = { expandedTile = if (expandedTile == "todo") null else "todo" },
+                        modifier = Modifier.weight(1f),
+                        detail = {
+                            BodyHint("作業、報名、繳費都列在這裡。")
+                            TileOpen(label = "打開待辦 ›", onClick = onOpenTodos)
+                        },
+                    )
+                    HomeTile(
+                        label = "教務",
+                        value = "成績/考試",
+                        icon = TileIcon.Calendar,
+                        tint = Color(0xFFB4552E),
+                        expanded = expandedTile == "jw",
+                        onToggle = { expandedTile = if (expandedTile == "jw") null else "jw" },
+                        modifier = Modifier.weight(1f),
+                        detail = {
+                            BodyHint("教務系統的考試安排與學生成績（只讀）。")
+                            TileOpen(label = "打開教務 ›", onClick = onOpenJw)
+                        },
+                    )
+                }
             }
         }
     }
+}
+
+/** 磁贴展开后的「打开」入口：展开看说明、再点才真的走，避免误触跳页。 */
+@Composable
+private fun TileOpen(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        fontSize = Type.summary,
+        fontWeight = Type.weightBody,
+        color = MiuixTheme.colorScheme.primary,
+        modifier = Modifier
+            .padding(top = 8.dp)
+            .clickable(onClickLabel = label) { onClick() },
+    )
 }
 
 @Composable

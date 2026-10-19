@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -33,13 +35,16 @@ import com.muyao.wanzaihyperos.data.AppOpenStrategy
 import com.muyao.wanzaihyperos.data.CountValue
 import com.muyao.wanzaihyperos.data.PortalApp
 import com.muyao.wanzaihyperos.nav.Route
+import com.muyao.wanzaihyperos.nav.wanzaiRouteTransitions
 import com.muyao.wanzaihyperos.net.HzcuException
 import com.muyao.wanzaihyperos.net.Cjh52Client
 import com.muyao.wanzaihyperos.net.HzcuEndpoints
 import com.muyao.wanzaihyperos.net.TronclassBoot
 import com.muyao.wanzaihyperos.net.shortErrorText
 import com.muyao.wanzaihyperos.session.SessionState
+import com.muyao.wanzaihyperos.ui.AppThemeMode
 import com.muyao.wanzaihyperos.ui.AppUiState
+import com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning
 import com.muyao.wanzaihyperos.ui.MainShell
 import com.muyao.wanzaihyperos.ui.WanzaiTheme
 import com.muyao.wanzaihyperos.ui.busyness.BusynessPage
@@ -48,6 +53,7 @@ import com.muyao.wanzaihyperos.ui.login.LoginPage
 import com.muyao.wanzaihyperos.ui.search.SearchPage
 import com.muyao.wanzaihyperos.ui.web.WebShellPage
 import kotlinx.coroutines.Dispatchers
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
@@ -56,7 +62,6 @@ import top.yukonga.miuix.kmp.nav.core.NavBackStack
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.NavKey
 import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
-import top.yukonga.miuix.kmp.nav.transition.NavTransitions
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -153,6 +158,21 @@ fun WanzaiApp(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // ── 路由动效的热调通道（和底栏那套读的是同一个 `GlassTuning`）──────
+    //
+    // 必须经 `navTuning` 走一层再 `remember` 它：直接在 `NavDisplay` 的参数里读
+    // `GlassTuning.navMs` 不会触发重组，改完 Settings 界面不动，量出来的数是假的
+    //（`liquid/GlassTuning.kt` 档头那条警告对我们同样成立）。
+    var navTuning by remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        if (GlassTuning.refresh(context)) navTuning++
+        val closeable = GlassTuning.startObserving(context) { navTuning++ }
+        onDispose { closeable.close() }
+    }
+    val routeTransition = remember(navTuning) {
+        wanzaiRouteTransitions(GlassTuning.navMs.roundToInt())
+    }
+
     var graph by remember { mutableStateOf<AppGraph?>(null) }
     LaunchedEffect(Unit) {
         // ★ 必须离开主线程：首次会生成 Keystore 主密钥。
@@ -168,6 +188,13 @@ fun WanzaiApp(
 
         // 上次已经登录过：直接反映到界面状态上（凭据在加密存储里，不是这里读的）。
         LaunchedEffect(app) {
+            // ★ 偏好落盘在这一条上：冷启动读一次，把主题/課表排版恢复到界面状态。
+            //   读盘放在已登录判断之前 —— 未登录也要记得他选过浅色。
+            com.muyao.wanzaihyperos.data.UiPrefs.load(context)
+            uiState.themeMode = AppThemeMode.entries.firstOrNull {
+                it.name == com.muyao.wanzaihyperos.data.UiPrefs.themeModeName
+            } ?: AppThemeMode.System
+            uiState.timetableGrid = com.muyao.wanzaihyperos.data.UiPrefs.timetableGrid
             if (app.portalSession.state == SessionState.LoggedIn) {
                 uiState.loggedIn = true
                 uiState.displayAccount = app.displayAccount()
@@ -396,7 +423,8 @@ fun WanzaiApp(
 
         NavDisplay(
             backStack = backStack,
-            transition = NavTransitions.MiuixDefault,
+            // 参考（变焦环）的推/退动效，见 `nav/RouteTransitions.kt` 的换算说明。
+            transition = routeTransition,
             onBack = { backStack.removeLastOrNull() },
         ) {
             entry<Route.Login> {
@@ -489,6 +517,8 @@ fun WanzaiApp(
                     onOpenNews = { backStack.add(Route.Cjh52Feature("NOTICE")) },
                     onOpenTodos = { backStack.add(Route.TodoBoard) },
                     onOpenSettings = { uiState.selectedTab = 4 },
+                    // 「設定 → 去重新登入」真的回到登入頁（不清憑據，只是再走一次認證）。
+                    onOpenLogin = { backStack.add(Route.Login) },
                 )
             }
 

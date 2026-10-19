@@ -1,6 +1,7 @@
 package com.muyao.wanzaihyperos.ui.design.glass
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -8,128 +9,116 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.muyao.wanzaihyperos.ui.design.GlassLiveness
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * **液態玻璃容器 —— 用 kyant/backdrop 引擎 + 自寫 AGSL 折射**。
+ * **液態玻璃容器 —— 折射走庫自帶的 `lens()`**。
  *
- * ## ★ 為什麼是這套，不是 Haze
+ * ## ★ 為什麼不再用本项目手搓的 AGSL
  *
- * 我試過 Haze 2.x（`haze-glass`），折騰了很多輪，**像素驗證始終證明
- * 背後內容沒有透進來** —— 也就是折射根本沒生效。
+ * 我把 `com.kyant.backdrop.effects.LensKt` 內嵌的 shader 源碼讀出來對過：
+ * 它就是 `sdRoundedRect` + `gradSdRoundedRect` + `depthEffect` 那套 SDF 折射，
+ * 和原先 `LiquidGlassShader.kt` 手寫的**演算法完全一致**。手寫那份等於重新發明一遍，
+ * 還多背一個坑：`BackdropEffectScope.size` 在 `effects` 裡是 `Size.Unspecified`（NaN），
+ * NaN 進 SDF ⇒ 採樣座標 NaN ⇒ `content.eval(NaN)` 拿回原樣內容 ⇒
+ * **看上去「接上了」但一點折射都没有，而且参数怎麼調像素都不變**。
  *
- * 用像素量過三次：
- * - 把表面色設成 0（完全透明）→ 背後文字完整透上來，但**字形完全正常**，
- *   沒有任何拉伸/偏移 → 證明 shader 沒套用
- * - 逐行掃描底欄內部 → 除了圖標與標題，無任何背後內容
+ * 庫的 `lens()` 自己也讀 `size`，所以這裡**照樣要防這一手**：
+ * 元件尺寸一律由調用方在**組合期**算好（`BoxWithConstraints`），
+ * ⚠️ 不能用 `onSizeChanged` —— `effects` 只在首次組合求值一次，那時它還沒觸發。
  *
- * 所以換回 kyant/backdrop —— 它至少有兩個優點：
- * 1. 引擎簡單直接：`layerBackdrop` 把內容畫進層，`drawBackdrop` 採樣那一層
- * 2. 折射是**我自己寫的 AGSL**，參數、算法全部可控，不依賴庫的黑盒
+ * ## ★★ 一個元素只許一條渲染路徑
  *
- * ## 折射怎麼來的
+ * 折射 = `lens()`；高光 = [bloomStrokeHighlight]（帶重力方向）。
+ * 不要同時再掛 `drawBackdrop(highlight = ...)` 那個庫原生槽位 —— 兩套疊會互相蓋掉（紅線 #2）。
  *
- * `LiquidGlassShader.liquidGlassRefraction()` 裡的 AGSL：
- * 對圓角矩形做 SDF，算出邊緣法線，把採樣座標往法線方向推 ——
- * 這就是物理上的折射。色散則是對 R/G/B 三通道做對稱偏移。
+ * ## ★★★ 被採樣的內容裡絕對不能有玻璃
  *
- * 參數全部來自 [GlassSpec]，所以「一切參數可調節」是真的。
+ * 玻璃若被畫進被採樣的 layer ⇒ 採樣到自己 ⇒ 無限遞迴 ⇒ 渲染卡死 ⇒
+ * 系統以 `coldStart timeout` 殺進程。**表現是「啟動即死」，logcat 裡沒有 FATAL EXCEPTION，
+ * 只有 `onTaskVanished`** —— 別拿「日志搜不到」當「沒發生」。
+ * 所以 content 與 overlay 分成兩個 slot（見 [GlassBackdropHost]）。
  *
- * ## ★★ 關鍵限制：內容裡不能有玻璃
- *
- * 玻璃若也被畫進被採樣的 layer，會採樣到自己 → 無限遞迴 → 渲染卡死。
- * 所以 content 與 overlay 分開兩個 slot（見 [GlassBackdropHost]）。
- *
- * @param backdrop 折射來源（由 [GlassBackdropHost] 提供）。
- * @param pressFraction 0~1 按下程度，影響折射強度。
+ * @param backdrop 折射來源。null ⇒ 實心降級。
+ * @param pressFraction 0~1 按下程度：按下去折射更實、高光更亮。
+ * @param liveness 採樣層存活判定；非 Alive ⇒ 不開真玻璃（這條是上一版缺的接線）。
  */
 @Composable
 fun GlassSurface(
-    backdrop: LayerBackdrop?,
+    backdrop: Backdrop?,
     modifier: Modifier = Modifier,
     material: BarMaterial = LocalBarMaterial.current,
     cornerRadius: Dp = 24.dp,
     pressFraction: Float = 1f,
     pressedScale: Float = 1f,
+    style: GlassSurfaceStyle = GlassSurfaceStyle.CONTAINER,
+    liveness: GlassLiveness.Verdict = LocalGlassLiveness.current,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val spec = LocalGlassSpec.current
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
     val p = pressFraction.coerceIn(0f, 1f)
     val shape = RoundedCornerShape(cornerRadius)
+    val renderMode = rememberGlassRenderMode(material = material, liveness = liveness)
 
-    android.util.Log.w(
-        "GlassDiag",
-        "backdrop=" + (if (backdrop != null) "有" else "NULL") +
-            " material=" + material + " usesGlass=" + spec.usesGlass(material),
-    )
-
-    // 降級：沒有折射來源、或材質是 SOLID
-    if (backdrop == null || !spec.usesGlass(material)) {
+    // ── 降級外觀：實心 + 1dp 低透明描邊 ──────────────────────────
+    //
+    // 規範 §6.4：採樣為空時組件**不報錯**，只是鋪一層不透明底色。
+    // 所以寧可主動退成一個過得去的外觀，也不要被動變成一塊突兀的黑/白。
+    if (backdrop == null || renderMode == GlassRenderMode.FALLBACK) {
+        val fallback = GlassLiveness.fallbackFor(
+            isDark = isDark,
+            surface = spec.surfaceTint.copy(alpha = if (isDark) 0.88f else 0.94f),
+        )
         Box(
-            modifier = modifier.background(
-                color = spec.surfaceTint.copy(alpha = if (isDark) 0.88f else 0.94f),
-                shape = shape,
-            ),
+            modifier = modifier
+                .background(color = fallback.containerColor, shape = shape)
+                .border(fallback.strokeWidthDp.dp, fallback.strokeColor, shape),
             content = content,
         )
         return
     }
 
-    val blurRadius = spec.blurFor(material) * (0.6f + 0.4f * p)
-    val refractHeight = spec.lensHeightDp * (0.7f + 0.3f * p)
-    val refractAmount = spec.lensAmountDp * p
-
-    // ★★★ 折射能不能生效，全看這一段。
-    //
-    // ## 真正的根因（我用 logcat 抓出來的）
-    //
-    // `BackdropEffectScope.size` 在 effects lambda 裡是 **Size.Unspecified（NaN）**：
-    // ```
-    // LensDiag: 執行：height=34.6 amount=33.0 size=Size.Unspecified
-    // ```
-    // 這個 shader 的一切都建立在 size 上：
-    //   SDF 到圓角矩形的距離 → 邊緣法線 → 採樣座標偏移
-    // size 是 NaN，SDF 就是 NaN，`content.eval(NaN)` 採到原樣內容
-    // → **看起來完全沒有折射**。
-    //
-    // 這解釋了為什麼我把 refractionAmount 18→60、height 20→40 都毫無變化：
-    // 參數根本沒參與計算。
-    //
-    // ## 為什麼用 BoxWithConstraints 而不是 onSizeChanged
-    //
-    // `effects` lambda 只在**首次組合時求值一次**。
-    // 用 `onSizeChanged` 時那時尺寸還是 0×0 → 拿到 size=0 → 之後再也不重算。
-    // `BoxWithConstraints` 的 maxWidth/maxHeight 在**組合期**就是確定值，
-    // effects 第一次求值就能拿到正確尺寸。
     BoxWithConstraints(modifier = modifier) {
-        val density = androidx.compose.ui.platform.LocalDensity.current
-        val sizePx = with(density) {
-            androidx.compose.ui.geometry.Size(
-                maxWidth.toPx(),
-                maxHeight.toPx(),
-            )
-        }
-        android.util.Log.w(
-            "GlassDiag",
-            "BC maxW=" + maxWidth + " maxH=" + maxHeight + " sizePx=" + sizePx,
+        // ★ 尺寸在組合期算好，傳進 effects。這是折射能不能生效的前提。
+        val density = LocalDensity.current
+        val sizePx = Size(
+            with(density) { maxWidth.toPx() },
+            with(density) { maxHeight.toPx() },
         )
+        // ★ 材質三態都要真的走到：磨砂 = **只有模糊、不折射**。
+        //   少了這一步，FROSTED 與 LIQUID 畫出來一樣，那個選項就是假的。
+        //   判斷抽到 [styleFor] 是因為它必須能被單測覆蓋（繪製路徑裡的 when 測不到）。
+        val effective = styleFor(material = material, style = style, frostBlur = spec.frostBlur)
+        // ★ 光源方向也必須在組合期讀（`effects` 只跑一次；讀進 effects 裡就不會跟著重力轉）。
+        val lightDir = rememberGravityLightDir(effective.lightDegrees)
+        val highlight = gravityHighlight(lightDir = lightDir, style = effective, pressFraction = p)
+        val surfaceColor = when (effective.surfaceColor) {
+            GlassSurfaceColor.WHITE -> Color.White
+            GlassSurfaceColor.SURFACE_CONTAINER -> MiuixTheme.colorScheme.surfaceContainer
+        }
 
         Box(
             modifier = Modifier
@@ -138,41 +127,32 @@ fun GlassSurface(
                     backdrop = backdrop,
                     shape = { shape },
                     effects = {
-                        // ① 模糊（真玻璃只糊一點，糊太狠就變磨砂板）
-                        try {
-                            if (blurRadius.value > 0f) {
-                                blur(blurRadius.toPx())
-                            }
-                            android.util.Log.w("LensDiag", "blur 完成，準備折射")
-                        } catch (e: Throwable) {
-                            android.util.Log.e("LensDiag", "blur 失敗: " + e, e)
-                        }
-                        // ② 折射 + 色散（自寫 AGSL，見 LiquidGlassShader.kt）
-                        try {
-                            android.util.Log.w(
-                                "LensDiag",
-                                "調用折射 h=" + refractHeight.toPx() +
-                                    " a=" + refractAmount.toPx() +
-                                    " disp=" + spec.chromaticAberration,
+                        // ① 色彩振動：透出來的東西更鮮，這是 iOS 那層「活」的感覺
+                        if (effective.lensHeight > 0.dp) vibrancy()
+                        // ② 只糊一點點（**引擎收 px，不收 Dp**）
+                        if (effective.blur > 0.dp) blur(effective.blur.toPx())
+                        // ③ 折射（庫自帶那條路徑）。depth / 色散兩個開關**與參考實現一致地關掉** ——
+                        //    開著的時候真機上在折射帶內邊界出現一條 1px 暗線，見 [BarOptics.LENS_DEPTH]。
+                        if (effective.lensHeight > 0.dp && effective.lensAmount > 0.dp) {
+                            lens(
+                                effective.lensHeight.toPx() * (0.7f + 0.3f * p),
+                                effective.lensAmount.toPx() * p,
+                                BarOptics.LENS_DEPTH,
+                                BarOptics.LENS_DISPERSION,
                             )
-                            liquidGlassRefraction(
-                                height = refractHeight.toPx(),
-                                amount = refractAmount.toPx(),
-                                depth = true,
-                                dispersion = spec.chromaticAberration,
+                        }
+                        // ④ 雙光源高光，主光方向跟著重力轉
+                        if (highlight.alpha > 0f) {
+                            bloomStrokeHighlight(
+                                highlight = highlight,
+                                shape = shape,
                                 explicitSize = sizePx,
                             )
-                        } catch (e: Throwable) {
-                            android.util.Log.e("LensDiag", "折射失敗: " + e, e)
                         }
                     },
-                    // ③ 表面色：**要透**。太實會把折射整個蓋死。
                     onDrawSurface = {
-                        drawRect(
-                            color = spec.surfaceTint.copy(
-                                alpha = if (isDark) 0.30f else 0.26f,
-                            ),
-                        )
+                        // 表面色要透。白感靠「模糊後的背景 + 高光」，不靠堆白漆。
+                        drawRect(color = surfaceColor.copy(alpha = effective.surfaceAlpha))
                     },
                     layerBlock = {
                         if (pressedScale != 1f) {
@@ -181,20 +161,26 @@ fun GlassSurface(
                         }
                     },
                 )
-                // ★ 必須裁形狀：折射的 padding 在圓角之外的區域，
-                //   不裁會露出一塊異色方塊（真機上表現為「底欄右邊多出一塊白」）。
+                // ★ 必須裁形狀：折射會往元件外抓像素，圓角之外那塊不裁會露出異色方塊
+                //   （真機上表現為「底欄右邊多出來一塊白」）。
                 .clip(shape),
-        ) {
-            content()
-        }
+            content = content,
+        )
     }
 }
 
 /**
  * 玻璃折射來源：把 [content] 畫進一個可被採樣的層，[overlay] 裡的玻璃採樣它。
  *
- * ★★ **content 裡絕對不能有玻璃** —— 否則採樣自己 → 無限遞迴 → 渲染卡死 →
- * 系統以 coldStart timeout 殺進程（這是我踩過的坑，表現是「啟動即死」）。
+ * ## 為什麼這裡帶一個「活不活」的判據
+ *
+ * 「座標非空」不等於「裡面有內容」—— 我們拿它當存活判據被騙過一次。
+ * 這裡的正面證據是**這一層是不是真的被畫過、而且尺寸非零**（首幀 0×0 不算活著）。
+ * 判定通過 [LocalGlassLiveness] 交給所有玻璃元件；頁離場時清回 [GlassLiveness.Verdict.Unknown]，
+ * 於是「切頁之後玻璃糊成實心色」那條路徑被主動攔掉。
+ *
+ * ⚠️ **每個頁面一份 host**（外層用 `key(section)` 重建）。共享一份會被離場頁清掉座標，
+ * 表現是「用著用著實時模糊沒了」。
  */
 @Composable
 fun GlassBackdropHost(
@@ -202,27 +188,44 @@ fun GlassBackdropHost(
     content: @Composable BoxScope.() -> Unit,
     overlay: @Composable BoxScope.(LayerBackdrop) -> Unit,
 ) {
-    // ★ 每一頁一份。共享一個 backdrop 會被離場頁清掉，
-    //   表現是「切頁之後模糊永久消失」。
     val backdrop = rememberLayerBackdrop()
+    val liveness = remember { mutableStateOf<GlassLiveness.Verdict>(GlassLiveness.Verdict.Unknown) }
+
+    DisposableEffect(Unit) {
+        // 離場就把結論收回來：下一頁不該沿用上一頁的「活著」。
+        onDispose { liveness.value = GlassLiveness.Verdict.Unknown }
+    }
 
     Box(modifier = modifier) {
-        // ① 內容：畫進 layer，供玻璃採樣
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .layerBackdrop(backdrop),
+                .layerBackdrop(backdrop)
+                .drawWithContent {
+                    drawContent()
+                    val verdict = GlassLiveness.verdictOf(
+                        contentWidthPx = size.width,
+                        contentHeightPx = size.height,
+                    )
+                    // 只在結論真的變化時寫，避免逐幀重組。
+                    if (liveness.value != verdict) liveness.value = verdict
+                },
         ) {
             content()
         }
-        // ② 玻璃：在 layer 之外，折射上面那份內容
-        overlay(backdrop)
+        CompositionLocalProvider(LocalGlassLiveness provides liveness.value) {
+            overlay(backdrop)
+        }
     }
 }
 
+/** 目前的採樣層存活判定。host 之外讀到 [GlassLiveness.Verdict.Unknown] ⇒ 走降級。 */
+val LocalGlassLiveness = staticCompositionLocalOf<GlassLiveness.Verdict> {
+    GlassLiveness.Verdict.Unknown
+}
+
 /** 目前的折射來源。 */
-val LocalGlassBackdrop =
-    androidx.compose.runtime.staticCompositionLocalOf<LayerBackdrop?> { null }
+val LocalGlassBackdrop = staticCompositionLocalOf<LayerBackdrop?> { null }
 
 /** 依深淺提供 [GlassSpec] 與 [BarMaterial]。 */
 @Composable
@@ -240,5 +243,5 @@ fun GlassTheme(
     )
 }
 
-/** 玻璃底欄標準高度。 */
-val GlassBarHeight = 46.dp
+/** 玻璃底欄標準高度（量自參考：內容 62dp）。 */
+val GlassBarHeight = 62.dp

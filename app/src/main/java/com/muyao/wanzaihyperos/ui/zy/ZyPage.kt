@@ -117,7 +117,7 @@ fun ZyPage(
                     }
 
                     failed != null -> item {
-                        ResultBanner(message = failed.error.message.orEmpty(), ok = false)
+                        ResultBanner(message = failed.error.userText, ok = false)
                     }
 
                     state is ListState.FirstLoad -> item {

@@ -232,7 +232,7 @@ fun JwPage(
                     failed != null -> item {
                         // 其餘失敗（引擎未就緒、表單變了、網路…）**原樣**顯示原因 ——
                         // 這台機器上 App 的 Log 拿不到，界面就是唯一的排查窗口。
-                        ResultBanner(message = failed.error.message.orEmpty(), ok = false)                    }
+                        ResultBanner(message = failed.error.userText, ok = false)                    }
 
                     state is ListState.FirstLoad -> item {
                         HintText("正在登录教务系统并取数…（首次约需 10 秒）")

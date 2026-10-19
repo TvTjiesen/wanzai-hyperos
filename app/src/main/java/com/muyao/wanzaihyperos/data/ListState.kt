@@ -219,13 +219,56 @@ fun <T> ListState<T>.appendPage(
 }
 
 /**
+ * 「被取消」**不是**「取不到」。
+ *
+ * 本轮真机根因（訊息／新聞两处「取不到」）：页面在 `LaunchedEffect(Unit)` 里直接
+ * `runCatching { repo.refreshX() }`，仓库内部又是 `runCatching { api.fetch() }`。
+ * 切走页面（点底栏、左右滑动、动画期间离场）会取消这个协程，
+ * OkHttp/Compose 抛的是 `LeftCompositionCancellationException`（**不是** CancellationException 的常见子类），
+ * 被 `runCatching` 当成普通失败吞掉 → `failWith(Transport("网络连接失败"))`
+ * → 写进**仓库级**的 StateFlow。仓库活得比页面久，于是这条假错误会一直挂在那，
+ * 下次进来还是「取不到訊息」，而真实原因只是"上一次没等完"。
+ *
+ * 判据放在这个**共用漏斗**而不是二十个 `runCatching` 现场：
+ * 漏一处就还有一处会骗人（业主反复强调过"闸门要在共用段"）。
+ */
+private fun HzcuException.isCancellation(): Boolean {
+    var t: Throwable? = this
+    var guard = 0
+    while (t != null && guard < 8) {
+        if (t is kotlinx.coroutines.CancellationException) return true
+        if (t is java.util.concurrent.CancellationException) return true
+        if (t.javaClass.name.endsWith("LeftCompositionCancellationException")) return true
+        if (t.message?.contains("left the composition") == true) return true
+        if (t.message?.contains("Job was cancelled", ignoreCase = true) == true) return true
+        t = t.cause
+        guard++
+    }
+    return false
+}
+
+/**
  * 取数失败。
  *
  * ★ 关键判断：**已经显示的内容不会被清掉**。
  * 有数据时降级为「旧数据 + 标注刷新失败」，没数据时才是整页 [ListState.Failed]。
  * 认证失效走 [sessionExpired]，与网络失败分开。
+ *
+ * ★ 但**取消**不进这个分支：见 [isCancellation]，取消只清掉转圈标志，
+ *   不写错误、不标 `stale`（否则一次切页会永久污染仓库状态）。
  */
-fun <T> ListState<T>.failWith(error: HzcuException): ListState<T> = when (error) {
+fun <T> ListState<T>.failWith(error: HzcuException): ListState<T> {
+    if (error.isCancellation()) return when (this) {
+        is ListState.Content -> copy(
+            meta = meta.copy(refreshing = false, loadingMore = false),
+        )
+        is ListState.Empty -> copy(
+            meta = meta.copy(refreshing = false, loadingMore = false),
+        )
+        // 首屏没取完就被切走：留在 FirstLoad，下次进来会重新发请求（不是错误）
+        else -> this
+    }
+    return when (error) {
     is HzcuException.LoginExpired -> ListState.SessionExpired
     else -> when (this) {
         is ListState.Content -> copy(
@@ -246,11 +289,20 @@ fun <T> ListState<T>.failWith(error: HzcuException): ListState<T> = when (error)
         )
         else -> ListState.Failed(error)
     }
+    }
 }
 
-/** 翻页失败：**保留已有内容**，只把翻页标志关掉并记下原因。 */
+/**
+ * 翻页失败：**保留已有内容**，只把翻页标志关掉并记下原因。
+ * 同样地，**取消不算失败**（见 [failWith] 里那条根因说明）。
+ */
 fun <T> ListState<T>.failLoadMore(error: HzcuException): ListState<T> =
-    if (error is HzcuException.LoginExpired) {
+    if (error.isCancellation()) {
+        when (this) {
+            is ListState.Content -> copy(meta = meta.copy(loadingMore = false))
+            else -> this
+        }
+    } else if (error is HzcuException.LoginExpired) {
         ListState.SessionExpired
     } else when (this) {
         is ListState.Content -> copy(

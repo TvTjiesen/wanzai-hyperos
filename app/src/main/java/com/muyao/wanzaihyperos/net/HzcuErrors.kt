@@ -21,6 +21,36 @@ sealed class HzcuException(
 ) : Exception(message, cause) {
 
     /**
+     * **诊断用人话**：把「被压成一句文案」的那层底下真正的异常带出来。
+     *
+     * 为什么需要它：`asPortalException()` / `asCjh52Failure()` / 各仓库的
+     * `HzcuException.Parse("签到数据解析失败", cause = it)` 都会把原始异常收进 [cause]，
+     * 而界面只渲染 `message` —— 真机上就只能看到「解析失败」四个字，
+     * 到底是 401、超时、还是 JSON 结构变了完全看不出来；数据层要能跑 JVM 单测，
+     * 也不能随便 `android.util.Log`。本轮排查訊息／新聞／签到三处报错就是卡在这一步。
+     *
+     * 做成成员而不是顶层扩展函数：八个渲染点各加一行 import 太容易漏，
+     * 漏一处就变成「一半的错误诚实、一半不诚实」，比全不诚实更难查。
+     *
+     * 纪律：只带**异常类名 + message + 已有的 details**，绝不带请求正文、URL、凭据；
+     * 长度截断，避免把整段 HTML 错误页糊到卡片上。
+     */
+    val userText: String
+        get() {
+            var deepest: Throwable = this
+            var guard = 0
+            while (deepest.cause != null && deepest.cause !== deepest && guard < 8) {
+                deepest = deepest.cause!!
+                guard++
+            }
+            val inner = deepest.message?.take(160)
+            val head = message?.takeIf { it.isNotBlank() } ?: "请求失败"
+            val tail = if (deepest === this && inner.isNullOrBlank()) ""
+            else " · ${deepest.javaClass.simpleName}${inner?.let { ": $it" } ?: ""}"
+            return head + tail + (details?.take(120).let { if (it.isNullOrBlank()) "" else " · $it" })
+        }
+
+    /**
      * 服务端明确要求重新认证（HTTP 401 / 信封 code=401 / 正文说自己没登录）。
      *
      * ⚠️ 与「网络不通」严格区分：这个要引导重新登录，

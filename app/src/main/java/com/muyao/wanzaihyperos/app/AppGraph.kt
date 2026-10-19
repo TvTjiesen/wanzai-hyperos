@@ -1,6 +1,7 @@
 package com.muyao.wanzaihyperos.app
 
 import com.muyao.wanzaihyperos.data.cjh52.GrowthRepository
+import kotlinx.coroutines.launch
 import com.muyao.wanzaihyperos.data.cjh52.LiveGrowthRepository
 import com.muyao.wanzaihyperos.data.cjh52.ClazzRepository
 import com.muyao.wanzaihyperos.data.cjh52.LiveClazzRepository
@@ -117,6 +118,39 @@ class AppGraph private constructor(
     /** B19：智雲課堂倉庫（週課表 + 回放）。 */
     val zy: com.muyao.wanzaihyperos.data.zy.ZyRepository,
 ) {
+
+    /**
+     * 网络取数的**生命周期归属**：应用级，不是页面级。
+     *
+     * ★ 本轮真机根因（訊息／新聞「取不到」＋待办「正在整理…」永远转圈）：
+     *   页面以前在自己的 `LaunchedEffect(Unit)` 里直接 `runCatching { repo.refresh() }`，
+     *   于是请求**寄生在页面的组合生命周期上** —— 切个 tab、左右滑一下，组合离开，
+     *   协程被取消，OkHttp/Compose 抛 `LeftCompositionCancellationException`；
+     *   仓库的 `runCatching` 把它当普通失败，写进**仓库级**的 StateFlow，
+     *   假错误就一直挂在那，下次进同一页还是「取不到」。
+     *   另一半症状同理：唯一在飞的那次请求被取消后**没人补发**，状态停在 `FirstLoad`，
+     *   界面就永远「正在取得…」（connect 15s / read 20s 的超时也救不了，因为根本没在等）。
+     *
+     * 取数是**应用的事实**，不该因为某一帧没人看就被掐掉。页面只负责订阅结果。
+     *
+     * ⚠️ `SupervisorJob`：一个取数失败/取消不能连带停掉其它取数。
+     */
+    val ioScope: kotlinx.coroutines.CoroutineScope =
+        kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+        )
+
+    /**
+     * 把一次取数挂到 [ioScope] 上：页面只负责订阅结果，**不 owns 请求的生命**。
+     *
+     * 做成成员函数而不是顶层扩展，是为了让五个板块页一行 import 都不用加 ——
+     * 漏 import 只会编译失败，但「漏了包一层、又挂回组合生命周期」是**能编译过的回归**，
+     * 那种才难查。
+     */
+    fun fetch(block: suspend () -> Unit) {
+        ioScope.launch { runCatching { block() } }
+    }
+
 
     /** 启动时该落在哪一页：已经登录就直奔主壳，否则先登录。 */
     fun startRoute(): StartRoute =

@@ -40,6 +40,15 @@ class AppUiState {
 
     /** 底部选中 tab 下标。由主壳与内容共用同一份状态（不给 NavDisplay 推导）。 */
     var selectedTab by mutableStateOf(0)
+
+    /**
+     * 課程表用哪種排版：`true` = 週網格（WakeUp 那一類），`false` = 按天列表。
+     *
+     * ⚠️ **和 [themeMode] 一样只在进程内**，没有落盘。这个工程的界面偏好目前一律如此；
+     *   要落盘应该单开一张卡统一做（顺带把主题选择也落盘），不要在这一页先加第一个
+     *   SharedPreferences，否则会出现「一半偏好记得、一半不记得」这种更难解释的状态。
+     */
+    var timetableGrid by mutableStateOf(true)
 }
 
 /** 记住一个 [AppUiState]。 */

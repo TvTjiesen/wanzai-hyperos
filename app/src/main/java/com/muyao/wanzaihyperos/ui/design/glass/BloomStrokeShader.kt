@@ -202,22 +202,31 @@ data class GlassHighlight(
 /**
  * 把雙光源高光套到 [BackdropEffectScope]。
  *
- * ⚠️ 需要 API 33+（RuntimeShader）。不支援時靜默跳過 ——
+ * ⚠️ 需要 `RuntimeShader`（用引擎自己的判據，不是 `SDK_INT`）。不支援時靜默跳過 ——
  * 沒有高光只是「少了點質感」，不該讓界面壞掉。
+ *
+ * ## ★ 尺寸必須由調用方傳進來（和折射同一個坑）
+ *
+ * `BackdropEffectScope.size` 在 `effects` lambda 裡可能是 **`Size.Unspecified`（NaN）**。
+ * 而 NaN 的殺傷力在於它**不會被 `w <= 0f` 攔住**（NaN 與任何數比較都是 false），
+ * 於是一路算進 uniform 裡變成 NaN —— 高光不報錯，只是**根本看不見**。
+ * 所以這裡：傳了 [explicitSize] 就用它；否則也要用 `!(w > 0f)` 把 NaN 擋掉。
  *
  * @param shape 容器形狀。**必須是 RoundedCornerShape**，否則跳過（不猜）。
  */
 fun BackdropEffectScope.bloomStrokeHighlight(
     highlight: GlassHighlight,
     shape: Shape,
+    explicitSize: androidx.compose.ui.geometry.Size? = null,
 ) {
     val rr = shape as? androidx.compose.foundation.shape.RoundedCornerShape ?: return
     if (highlight.alpha <= 0f) return
 
-    val sizePx = size
+    val sizePx = explicitSize ?: size
     val w = sizePx.width
     val h = sizePx.height
-    if (w <= 0f || h <= 0f) return
+    // NaN 也要被攔住 —— 不許寫成 w <= 0f || h <= 0f。
+    if (!(w > 0f) || !(h > 0f)) return
 
     val halfW = w * 0.5f
     val halfH = h * 0.5f
