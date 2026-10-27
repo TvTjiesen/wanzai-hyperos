@@ -16,7 +16,21 @@ import android.provider.Settings
  * adb shell settings put global hzr_glass_bar_blur 4      # 回默认
  */
 object GlassTuning {
-    const val BAR_DEFAULT_DP = 4f
+    /**
+     * 底栏模糊 dp。**2026-10-21 由 4f 改为 20f** ——
+     * 板上 `.tabbar{backdrop-filter:blur(26px) saturate(1.55)}`，
+     * 26 CSS px × 0.886 ≈ 23dp，取 20（8ms 帧预算下留一档余量）。
+     *
+     * 4f 是那版**悬浮胶囊**（64dp 高、只盖一格 tab）时候的值：面积小、又叠了
+     * lens(24dp) 折射， blur 只需要「有一点雾」。现在整条满宽贴底、
+     * lens 按板删掉（CSS 没有折射），只剩 blur 撑着「这是一层玻璃」，
+     * 4dp 在 68% 的 --glass 垫色下等于没糊。
+     *
+     * A/B（改完 2 秒生效，不用重装）：
+     *   adb shell settings put global hzr_glass_bar_blur 4    # 回到胶囊那版的糊法
+     *   adb shell settings put global hzr_glass_bar_blur 20   # 板上这版（默认）
+     */
+    const val BAR_DEFAULT_DP = 20f
     const val VEIL_DEFAULT_DP = 30f
     const val LENS_DEFAULT_DP = 24f
 
@@ -71,34 +85,109 @@ object GlassTuning {
     var pillBlurDp = 0f
 
     /**
-     * 1 = 允许右上角那颗钮真的去采页面内容（liveBlur）。
+     * 1 = 右上角那颗钮真的去采页面内容（liveBlur）。**默认关**（2026-10-19 真机 A/B 定的）。
      *
-     * 默认 0（关）。这颗钮是 44dp 的小圆面，cfg26 实测一开就变实心黑圆盘，
-     * 当时还没修"共享采样层被离场页清空"那件事。现在每页一份层 + backdropIsLive
-     * 闸门都在了，留这个键在真机上做 A/B：能糊住就把它默认打开，糊不住就保留浅色实心，
-     * 别再靠我猜。`adb shell settings put global hzr_glass_btn_live 1`
+     * ## 为什么以前关着
+     *
+     * 这颗钮只有 44dp，cfg26 那版一开就变**实心黑圆盘**。当时还没修
+     * 「共享采样层被离场页清空」那件事 —— 黑不是"糊不出来"，是空样本被画成不透明黑。
+     *
+     * ## 这次重做 A/B 的结论：**四页能糊、首页会黑，所以还不能开**
+     *
+     * 用**换包**做的（不是热调：这台机上 `settings put global` 那条通道
+     *  实测**改变不了画面** —— 拿控制组 `hzr_glass_off 1` 量过，全图零变化，
+     *  所以以前那些"热调 A/B 结论"都不能信，必须换包）。
+     *
+     * 量的是钮那一块 78×78 的**总亮度**（当年那块黑的判据就是这个数从 ~735 掉到 ~445）：
+     *
+     * | 页面 | liveBlur 关 | liveBlur 开 |
+     * |---|---|---|
+     * | 課程表 / 消息 / 應用 / 設定 | ~720 | ~691–720（跟着滚动变，说明真采到内容） |
+     * | **首頁** | ~720 浅色 | **168.4**（mean 42/54/73 = 深蓝黑） |
+     *
+     * 而且首页那一颗**不会自愈**：停留 4 秒、切去課表再切回来、再等 5 秒，
+     * 四次采样全是同一个 168.4 —— 不是过渡帧，是稳定状态。
+     * 那个颜色正是首页「视窗」那幅画的色调，所以症状指向
+     * **采样层在这颗钮上的取样的位置跑到了视窗那块画上**（坐标空间不一致），
+     * 不是"没采到"。这是一个要单独查的东西，不是一颗能凑合的按钮。
+     *
+     * 所以：**保持 0**，等采样偏移查清楚再默认打开。
+     * 想自己看：`adb shell settings put global hzr_glass_btn_live 1`
+     * （⚠️ 这台机上这条通道目前**不生效**，要看效果得改这里的默认值重新装）。
+     */
+    /**
+     * 右上角搜索钮要不要真的实时折射（liveBlur）。
+     *
+     * ## 2026-10-20 重新量过：**默认打开**
+     *
+     * T60 那次关掉它，是因为一开就把首页那颗钮画成**黑饼**（亮度 168.4，四次采样不自愈）。
+     * 今晚在同一台机（PLZ110）、同一颗钮上重量，**黑饼不复现了**：
+     *
+     * | 位置 | btnLive=1 实测（RGB / 亮度） |
+     * |---|---|
+     * | 按钮盘内（未滚动） | (226,235,251) / **234.1** |
+     * | 同一行按钮左侧页面 | (151,158,168) / 157.0（那是大字「20」的笔画） |
+     * | 按钮右边贴边处 | (221,230,250) / 230.2 |
+     * | 滚到画上再量：盘内 | (232,240,254) / **239.2** |
+     * | 滚到画上再量：盘正下方（画里） | (233,236,245) / 236.1 |
+     *
+     * 盘内亮度跟着**它自己那块背景**走（234→239），不再是钉死的 168 ——
+     * 也就是说采样拿到的就是按钮底下的内容。T60 那个黑块是**当时那一版**的症状
+     * （那之后顶栏接线整块重做过），不是一个还在等修的 bug。
+     *
+     * ★ 留这条注释的原因：如果哪天它又变回黑饼，判据现成 ——
+     *   同一坐标量「盘内」与「盘正下方」，两者一致=采样对、只是背景本来暗（改配色），
+     *   差很多=采样错位（改坐标空间）。别再靠猜。
      */
     @Volatile
-    var btnLive = 0f
+    var btnLive = 1f
 
     /** adb `settings put global hzr_debug 1`：界面侧自检要不要往 logcat 写 */
     @Volatile
     var debugLog = false
 
     /**
-     * 二级页（路由）切换的时长，单位 ms。**默认 280 = 参考（变焦环）的位移时长**。
+     * 二级页（路由）切换的时长，单位 ms。**默认 180**（第 9 轮审计：主导航应削到 170–200ms）。
      *
-     * 参考那边是 `tween<IntOffset>(280, FastOutSlowIn)`，Miuix 的 nav 只有"深度"这一条
-     * 动画可给时长，所以整条 transition 只能有一个时长（换算见 `nav/RouteTransitions.kt`）。
+     * 为什么不是参考（变焦环）的 280：页面切换属「几十次/天」那一档 ——
+     * 标准 §1 对它的要求是"删掉，或只留几乎察觉不到的"。280ms 在这一档上偏长，
+     * 而且参考那边是"整页推进 + 缩放"的复合动作，我们只有一条深度曲线，同一条时长体感更重。
+     *
      * 留这个键是因为**快慢是观感，由他判**，不该由我猜完就烘死。
      *
      * A/B（不用重装，改完 2 秒生效）：
-     *   adb shell settings put global wz_nav_ms 0     # 用 Miuix 自带的默认运动曲线
-     *   adb shell settings put global wz_nav_ms 280   # 参考的数值（默认）
-     *   adb shell settings put global wz_nav_ms 450   # 明显放慢，用来确认"是不是它的问题"
+     *   adb shell settings put global wz_nav_ms 140   # 与"减弱动效"那一档同速（纯 alpha 档的时长）
+     *   adb shell settings put global wz_nav_ms 180   # 默认
+     *   adb shell settings put global wz_nav_ms 280   # 旧默认，用来对比
+     *   ⚠️ `0`（和负数）**不再是"用 Miuix 默认曲线"**：那条语义会让"关掉动效"变成"位移照旧、
+     *      时长还不由我们定"。现在 `<= 0` 只表示"不要位移"，走同一个 140ms 纯 alpha 档
+     *      （见 `nav/RouteTransitions.kt` 的 `routeMotionMs` 与它的单测）。
      */
     @Volatile
-    var navMs = 280f
+    var navMs = 180f
+
+    /**
+     * 周条横扫的**落点投影时长**（毫秒）—— B4-15② 业主点名要的 A/B 键之一。
+     *
+     * 语义：`projected = 位移 + 速度 × 本值`，再按格宽取整。物理上它就是"抬手后还会滑多久"。
+     * 热调（不用重装，改完下一次抬手就生效 —— 它每帧读，不走观察器）：
+     *   adb shell settings put global wz_fling_ms 110   # 默认（Android 样条 fling 的等效量级）
+     *   adb shell settings put global wz_fling_ms 60    # 更"干脆"
+     *   adb shell settings put global wz_fling_ms 200   # 更"飘"
+     */
+    @Volatile
+    var flingProjectionMs = 110f
+
+    /**
+     * 抬手速度的**取窗宽度**（毫秒）—— B4-15② 第二个 A/B 键。
+     *
+     * 太小 ⇒ 样本不够（`<3` 直接判 0，按纯位置走）；太大 ⇒ 把"慢下来的那一段"也算进去、速度被平均掉。
+     *   adb shell settings put global wz_strip_win_ms 80   # 默认
+     *   adb shell settings put global wz_strip_win_ms 40   # 更"看最后一瞬"
+     *   adb shell settings put global wz_strip_win_ms 160  # 更"看整段"
+     */
+    @Volatile
+    var stripWindowMs = 80f
 
     /** 这两条计数是用来**证明观察器这条路在这台 ROM 上真的会响**的，不是装饰 */
     @Volatile
@@ -133,10 +222,13 @@ object GlassTuning {
             val btn = Settings.Global.getFloat(r, "hzr_glass_btn_live", btnLive)
             val dbg = Settings.Global.getInt(r, "hzr_debug", 0) == 1
             val nav = Settings.Global.getFloat(r, "wz_nav_ms", navMs)
+            val fling = Settings.Global.getFloat(r, "wz_fling_ms", flingProjectionMs)
+            val stripWin = Settings.Global.getFloat(r, "wz_strip_win_ms", stripWindowMs)
             changed = bar != barBlurDp || veil != veilBlurDp || lens != lensDp ||
                 root != rootLayer || off != recorderOff || depth != depthLens ||
                 pill != pillBlurDp ||
-                btn != btnLive || dbg != debugLog || nav != navMs
+                btn != btnLive || dbg != debugLog || nav != navMs ||
+                fling != flingProjectionMs || stripWin != stripWindowMs
             barBlurDp = bar
             veilBlurDp = veil
             lensDp = lens
@@ -147,6 +239,8 @@ object GlassTuning {
             btnLive = btn
             debugLog = dbg
             navMs = nav
+            flingProjectionMs = fling
+            stripWindowMs = stripWin
         } catch (e: Throwable) {
             // 读不到就用当前值，热调只是排障工具，不该影响界面
         }

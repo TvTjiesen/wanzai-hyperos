@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.design
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,7 +38,13 @@ object Dims {
     // ---- 間距（Spacing）----------------------------------------------------
 
     /** 螢幕左右邊距。所有列表頁的內容都用它對齊。 */
-    val screenH = 12.dp
+    /**
+     * 正文列左右边距。**板上一切列表/分区头/网格都是 `padding:0 18px`**
+     * （`.sec-head/.timeline/.tasklist/.agenda/.inbox/.filters/.appgroup/.wps`），
+     * × 0.886 ⇒ **16dp**。原来给 12dp，五屏一起比板窄一圈留白，
+     * 卡片、时间线、网格全部错位一格（复评 2026-10-21 量出来 x=42px=12.0dp）。
+     */
+    val screenH = 16.dp
 
     /** 螢幕上下邊距（捲動內容的 padding）。 */
     val screenV = 8.dp
@@ -115,12 +122,23 @@ object Dims {
      */
     val containerCorner = 14.dp
 
+    /**
+     * 牆紙格圓角（外觀頁那四格 + 相冊那一格）。
+     *
+     * 設計板 `.wp{border-radius:13px;aspect-ratio:1/.92}` ⇒ × 0.886 = **11.5dp**。
+     *
+     * ⚠️ 這一格以前用的是 `Glyph.tileCorner`（**11dp** —— 那是 38dp 列表行磁貼的檔位），
+     *    而畫布那邊寫 `11.5.dp` ⇒ **同一格兩塊半徑**（clip 11 / 畫布 11.5）。
+     *    現在 clip、描邊、畫布三處統一走這條。
+     */
+    val wallpaperTileCorner = 11.5.dp
+
     // ---- 圖示與元件尺寸 ----------------------------------------------------
 
     /** 頂部導航的圖示大小。 */
     val iconNav = 22.dp
 
-    /** 一般動作圖示（重新整理等）。 */
+    /** 一般動作圖示（刷新等）。 */
     val iconAction = 20.dp
 
     /** 小標記點（未讀點）。 */
@@ -201,25 +219,34 @@ object Dims {
  *
  * Miuix 有自己的 `TextStyles`（title1/2/3、body1/2、footnote…），
  * 但那是**語義名**，實際 sp 值由 Miuix 決定。業主要的美化要求
- * 「17 是預設主文字、11 是最小檔」這種**具體刻度**，而 Miuix 的
+ * 「主行 13 是最常見那一檔、8 是最小檔」這種**具體刻度**，而 Miuix 的
  * title/body 對應不到這些值上。
  *
  * 所以這裡定義**一份刻度**，頁面按「用途」挑（`Type.body`），
  * 需要時再映射到 Miuix 的樣式（見 [toTextStyle] 的說明）。
  *
- * ## 刻度來源
+ * ## 刻度來源（v2 定稿板 · 2026-10-21 重定標）
  *
- * 這是 OmniRing 真機上 `grep fontSize` 的**頻次統計**結果
- *（規範 §3）—— 也就是說這些數字是「實際被用了多少次」反推出來的，
- * 不是誰拍腦袋定的。
+ * 舊刻度是 OmniRing 真機上 `grep fontSize` 的**頻次統計**結果（規範 §3），
+ * 主行 17 / 最小 11。業主改為「按 v2 板一比一」後，這條絕對值不再成立 ——
+ * 板上的手機框 392 CSS px 對應本机 **347dp**，換算係數 **0.886**：
  *
- * | 字號 | 用途 | 真機頻次 |
- * |------|------|---------|
- * | 17 | **列表主行、卡片標題、按鈕**（預設主文字） | 7（最高） |
- * | 14 | 正文 | 6 |
- * | 12 | 說明、時間戳、腳註 | 6 |
- * | 13 | 摘要、設定項副標題 | 5 |
- * | 11 | 最小可用檔（tab 標籤、免責腳註） | 4 |
+ * | 板上（CSS px） | ×0.886 | 本工程檔位 |
+ * |---|---|---|
+ * | `.tab span` 8.5 | 7.5 | **8 = micro** |
+ * | `.trow .meta` 9.5 | 8.4 | **9 = caption** |
+ * | `.arow .meta` 9.5 / `.count` 10.5 | 8.4 / 9.3 | **10 = summary** |
+ * | `.trow .name` 12.5 / `.mrow .t` 12 | 11.1 / 10.6 | **11 = secondary** |
+ * | `.btn` 10.5 / `.chip` 10（帶内邊距的控件文字） | 9.3 / 8.9 | **12 = bodyEmphasis** |
+ * | `.arow .name` 13.5（課表主行） | 12.0 | **13 = body** |
+ * | `.sec-head h3` 15 | 13.3 | **13**（分區標題同檔，靠字重分辨） |
+ * | `.focus-title` 18 | 16.0 | **16 = title** |
+ *
+ * 板上另有 42/58px 的大標題（沉浸態），換算 37/51sp —— 那兩處是**場景字**
+ *（鎖屏態大時間、頁面大字），不進這份階梯，由頁面按場景寫。
+ *
+ * ⚠️ 這是**相對刻度**的勝利，不是「字越小越好」：sp 仍跟系統字體縮放走，
+ * 開大字的用戶看到的每一檔都比這裡大。floor 由 `DesignTokensTest` 守。
  *
  * ## 四條硬規則（每條都被業主打回過）
  *
@@ -227,7 +254,7 @@ object Dims {
  *    （業主原話「奇怪的抖動」）。選中**只用顏色**。
  * 2. **不許插中間值**（16.5、13.5 之類）。要加檔位先想清楚它替代誰。
  * 3. 行高：正文 1.4~1.5、標題 1.15~1.2；
- *    **中文小字（11~13）必須 ≥1.5**，否則行會黏在一起。
+ *    **中文小字（8~13）必須 ≥1.5**，否則行會黏在一起。
  *    （繁體筆畫更密，這條比簡體更要緊。）
  * 4. 數字/英文混排（學號、GPA、時間、教室號、節次）用**等寬數字**，
  *    否則列表裡數字會左右跳。見 [tabular]。
@@ -235,32 +262,42 @@ object Dims {
 object Type {
 
     /** 頁面大標題（**折疊的那個**，是列表首項而不是頂欄的一部分）。 */
-    val largeTitle = 32.sp
+    val largeTitle = 34.sp
 
     /** 沉浸態標題、品牌名。 */
-    val displayTitle = 24.sp
+    val displayTitle = 26.sp
 
     /** 分區主標題。 */
-    val title = 19.sp
+    val title = 18.sp
 
     /** **列表主行、卡片標題、按鈕文字** —— 頻次最高 = 預設主文字。 */
-    val body = 17.sp
+    val body = 15.sp
 
-    /** 稍強調的正文。少用。 */
-    val bodyEmphasis = 15.sp
+    /** 稍強調的正文、控件內文字（按鈕、chip）。少用。 */
+    val bodyEmphasis = 14.sp
 
     /** 正文。 */
-    val secondary = 14.sp
+    val secondary = 13.sp
 
     /** 摘要、設定項副標題。 */
-    val summary = 13.sp
+    val summary = 12.sp
 
     /** 說明、時間戳、腳註。 */
-    val caption = 12.sp
+    val caption = 11.sp
 
-    /** 最小可用檔（tab 標籤、免責腳註）。**再小不許。** */
-    val micro = 11.sp
+    /** 最小可用檔（底欄 tab 標籤、角標）。**再小不許。** */
+    val micro = 10.sp
 
+    /**
+     * 密排行高（只给**格子里的课名**这种「一行容不下就整块作废」的地方用）。
+     *
+     * 常規小字行高是 1.55 倍（`LINE_HEIGHT_SMALL`），11sp 字實占 17sp。
+     * 但課表格子只有 45.49dp 寬、兩節的塊只有 62dp 高：按 1.55 倍排，
+     * 3 行課名 + 1 行教室 = 4×17 = 68dp ⇒ 教室那行必然被切在底邊（2026-10-26 真機實測「教六…」）。
+     * 12sp 行高配 11sp 字仍是 1.09 倍行距，CJK 字面高度約 0.88em，行與行不會相碰；
+     * 換來的是同一門課能多顯示一行。這是「看得清是哪門課」優先於「行距好看」的取捨。
+     */
+    val lineTight = 12.sp
     /** 行高倍數：正文。 */
     const val LINE_HEIGHT_BODY = 1.45f
 
@@ -327,4 +364,169 @@ object Motion {
 
     /** 載入 spinner 的延遲：**超過這個時間才出現**，更快就別閃。 */
     const val SPINNER_DELAY_MS = 1500L
+
+    // ── 彈簧（v2 定稿的外觀浮層）──────────────────────────────────────
+    //
+    // 浮層屬「偶爾」檔：允許一點回彈，但不過頭。退場走臨界阻尼 + 更高剛度，
+    // 這樣它總比進場先穩下來。寫成常量的理由是 `MotionGuardTest` 的棘輪：
+    // 同一組數散在五個檔案裡各寫一遍遲早分叉，收在令牌裡才只有一處。
+    const val OVERLAY_IN_DAMPING = 0.86f
+    const val OVERLAY_IN_STIFFNESS = 520f
+    const val OVERLAY_OUT_DAMPING = 1.0f
+    const val OVERLAY_OUT_STIFFNESS = 900f
+}
+
+/**
+ * 圖標磁貼的**底色三檔**（B4-13：三檔原本散在 `SettingsSectionPage` / `AccountsPage` 裡各寫一遍十六進制）。
+ *
+ * 這三枚是淺色板的飽和色，白字壓在上面 **4.5–6.2:1**（最低是橙 `#B65E3D` 那檔 4.51，
+ * 綠 6.17、灰 5.07），深色板上同樣成立 ⇒ 只收口，不改值。
+ */
+object Tone {
+    /** 已登錄 / 正常。 */
+    val ok = Color(0xFF2E6B64)
+
+    /** 拿到了但沒激活 / 需要他動一下。 */
+    val warn = Color(0xFFB65E3D)
+
+    /**
+     * 未登錄 / 中性說明。
+     *
+     * 2026-10-27 冷白纸面（#F4F6F8）之后重挑：`#696E74` 对最暗那档 `#ECF0F4` 只剩 **4.49:1**，
+     * 差 0.01 不达标。现在是 **#666B71** —— 对纸面 4.96、对最暗档 4.69、对卡片 5.24、对课块底 4.53，
+     * 四层全过 4.5；比原值只深 3 个灰阶，观感不变。
+     */
+    val quiet = Color(0xFF666B71)
+
+    /**
+     * 暗檔的 [quiet]。
+     *
+     * [quiet] 是按纸底挑的：换成冷白纸面后对 #F4F6F8 是 4.96:1，但换到暗档的卡片底 #222526 上只剩
+     * **3.05:1** —— 2026-10-27 在模拟器深色档量到整周板轴上的「09:50 / 11:30」就是这个数，
+     * 10sp 小字远不够。这个值对暗卡片 5.94:1、对暗页底 6.80:1。
+     */
+    val quietDark = Color(0xFFA3A9AF)
+
+    /** 亮面墨色（板 `--ink`）。以前在预览/卡片里散写了 7 处 `Color(0xFF1A1917)`。 */
+    val ink = Color(0xFF1A1917)
+
+    /** 暗面墨色（板 `body.dark --ink`）。 */
+    val inkDark = Color(0xFFF2EFE7)
+
+    /** 预览卡片压在照片上的那层深底（比纯黑暖一点，压出来不发灰）。 */
+    val deep = Color(0xFF28302F)
+}
+
+/**
+ * 整周课块的**一套实色**（B4-04 v4，2026-10-24）。
+ *
+ * 为什么不再用「同色相 + 55% alpha」：那套的填充对纸面最坏只有 **1.09:1**，
+ * 块和底几乎同色，课表看上去是一片糊的米色；描边对填充也只有 1.42。
+ * 现在课块是一块**实色浅底**，颜色信息只放在左边缘那条 3dp 色脊上。
+ *
+ * 所有数字都是算出来的，不是挑出来的（扫全 360 色相、不是只扫我这周这 13 门）：
+ * - 色脊 hsl(h, 0.55, 0.32) 对块底最坏 **3.58:1**（对白卡 4.29）⇒ 过 WCAG 1.4.11 的 3:1
+ * - 块底对白卡 **1.19:1**、对纸 **1.10:1** ⇒ 只是「看得出有个块」，**不假装**过 1.4.11
+ * - 墨 / 教室 / 老师 对块底 **14.78 / 5.76 / 5.02**（深档 11.77 / 7.71 / 6.13）
+ * - 撞课徽标字 #A9522F 压 #F7EAE4 **4.53:1**（直接拿 Tone.warn 只有 3.83，不够 4.5）
+ */
+object Chip {
+    /** 课块实色底（亮档 / 深档）。 */
+    val face = Color(0xFFE8ECF0)
+    val faceDark = Color(0xFF2C2F2E)
+
+    /** 1dp 可见边：只求「看得见这条边」，不求过对比度（对块底 1.14 / 1.33）。 */
+    val edge = Color(0xFFD9DFE5)
+    val edgeDark = Color(0xFF3E4240)
+
+    /** 教室（第二级墨）：对块底 5.76 / 深档 7.71。 */
+    val ink2 = Color(0xFF575D63)
+    val ink2Dark = Color(0xFFC9C3B8)
+
+    /** 老师（第三级墨）：对块底 5.02 / 深档 6.13。不许用 opacity 造这一级（0.66 的墨只有 3.x）。 */
+    val ink3 = Color(0xFF5E646A)
+    val ink3Dark = Color(0xFFA6A095)
+
+    /** 撞课徽标：底 + 字。 */
+    val badgeFace = Color(0xFFF7EBE8)
+    val badgeFaceDark = Color(0xFF3A2620)
+    val badgeInk = Color(0xFFA9522F)
+    val badgeInkDark = Color(0xFFF0B49C)
+
+    /**
+     * 左缘色脊：**十枚手选色**，按课程序号轮转。
+     *
+     * 旧写法是 Color.hsl((courseId * 137.5) % 360, 0.55, 0.32) —— 全色相轮转，
+     * 实测对块底 #E8ECF0 的对比度从 4.09（青绿 174°）到 9.57（紫 264°），差 2.3 倍，
+     * 一排课看过去就是「有的重有的轻」，业主说的「乱」就是这个。
+     * 手选这十枚把明度压在同一段里：浅档对块底最坏 5.13、对卡 5.93；
+     * 深档十枚对 #2C2F2E 最坏 5.62。全部过 WCAG 1.4.11 的 3:1 且留足余量。
+     * 顺序是排过的：相邻两枚色相差 ≥24°，撞在一起也认得出是两门课。
+     */
+    private val spineLight = intArrayOf(
+        0xFF2F6B6E.toInt(), 0xFF3A6180.toInt(), 0xFF3D5A8A.toInt(), 0xFF4A5480.toInt(),
+        0xFF5B4E76.toInt(), 0xFF6B4A64.toInt(), 0xFF7A4A55.toInt(), 0xFF7A5540.toInt(),
+        0xFF5F6338.toInt(), 0xFF3F6B4F.toInt(),
+    )
+
+    /** 深档同序：深底上要抬明度，色相不动。 */
+    private val spineDark = intArrayOf(
+        0xFF7DBFC2.toInt(), 0xFF8FBBDD.toInt(), 0xFF93B4E8.toInt(), 0xFF9EA9DC.toInt(),
+        0xFFB39ED1.toInt(), 0xFFCFA0C4.toInt(), 0xFFDCA6AE.toInt(), 0xFFD9A98E.toInt(),
+        0xFFBCC487.toInt(), 0xFF8FC7A5.toInt(),
+    )
+
+    /** courseId 允许是 0（撞课占位），负数也兜住，绝不越界。 */
+    fun spineOf(courseId: Int, isDark: Boolean): Color {
+        val table = if (isDark) spineDark else spineLight
+        val i = ((courseId % table.size) + table.size) % table.size
+        return Color(table[i.toInt()])
+    }
+
+    /** 色脊宽度（绝对定位画，不占排版宽度）。 */
+    const val SPINE_DP = 3f
+
+    /** 课块圆角。小样写 12dp；不动 Dims.cardCorner（18dp，卡片用）。 */
+    val corner = 12.dp
+}
+
+/**
+ * 設置頁圖標的**線性規則**（B4-13）：一枚圖標 = 20dp 畫布 + **0.11**（比例，不是秒）線寬 + 圓頭，
+ * 需要圓角的圓/方塊一律 **0.08**（比例）。四條都寫在這裡，別在某一枚圖標裡偷偷改一個數。
+ *
+ * ※ 上一版把比例寫成「0.11s / 0.08s」，`s` 是畫布邊長的變數、不是秒 —— 已改。
+ */
+object Glyph {
+    /** 畫布邊長。 */
+    val size = 20.dp
+
+    /** 線寬 ÷ 邊長（20dp 上 = 2.2dp）。 */
+    const val STROKE_RATIO = 0.11f
+
+    /** 圓角 ÷ 邊長（20dp 上 = 1.6dp）。 */
+    const val CORNER_RATIO = 0.08f
+
+    /**
+     * 圖形**內部那些小矩形**（成績單三行、表格格）的圓角 ÷ 自身短邊。
+     * 它和 [CORNER_RATIO] 是兩條規則不是一條：小矩形按畫布比例算，圓角會小到看不出來。
+     */
+    const val INNER_RECT_CORNER_RATIO = 0.2f
+
+    /** 列表行左邊那顆**磁貼**的邊長（圖標畫在它裡面）。 */
+    val tile = 38.dp
+
+    /**
+     * 磁貼圓角。
+     *
+     * ⚠️ **只給 38dp 的列表行磁貼用**（`SettingsChrome.SettingGlyph` 的彩色底）。
+     *    別的尺寸另有檔位，別再拿這一條頂著：
+     *    牆紙格 = `Dims.wallpaperTileCorner`（**11.5dp**，設計板 `.wp`）、
+     *    小元件/小托盤 = `Dims.chipCorner`（**8dp**）、
+     *    卡片與大面 = `Dims.cardCorner`（**18dp**）。
+     *    **不許抬這條的值** —— 抬了就是把 38dp 磁貼那一大批的形一起改掉（回歸面）。
+     */
+    val tileCorner = 11.dp
+
+    /** 自繪開關的圓鈕直徑（[SettingsChrome] 的 `PillSwitch`）。 */
+    val knob = 22.dp
 }

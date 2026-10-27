@@ -27,7 +27,7 @@ sealed class HzcuException(
      * `HzcuException.Parse("签到数据解析失败", cause = it)` 都会把原始异常收进 [cause]，
      * 而界面只渲染 `message` —— 真机上就只能看到「解析失败」四个字，
      * 到底是 401、超时、还是 JSON 结构变了完全看不出来；数据层要能跑 JVM 单测，
-     * 也不能随便 `android.util.Log`。本轮排查訊息／新聞／签到三处报错就是卡在这一步。
+     * 也不能随便 `android.util.Log`。本轮排查消息／新聞／签到三处报错就是卡在这一步。
      *
      * 做成成员而不是顶层扩展函数：八个渲染点各加一行 import 太容易漏，
      * 漏一处就变成「一半的错误诚实、一半不诚实」，比全不诚实更难查。
@@ -135,7 +135,7 @@ sealed class HzcuException(
     ) : HzcuException(
         message = "统一身份认证已通过，但没能取到门户令牌",
         details = buildString {
-            append("这不是密码错误，是「token 从哪取」这一环尚未证实。\n跳转链（已脱敏，无凭据）：")
+            append("这不是密码错误，是“token 从哪取”这一环尚未证实。\n跳转链（已脱敏，无凭据）：")
             chain.forEach { append('\n').append(it) }
         },
         cause = cause,

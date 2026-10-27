@@ -27,6 +27,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -98,7 +99,7 @@ fun SearchPage(
                 (searchState as com.muyao.wanzaihyperos.data.ListState.Failed).error.shortErrorText(),
             )
         searchState is com.muyao.wanzaihyperos.data.ListState.SessionExpired ->
-            SearchState.Failed("登录状态已失效，请到「我的」重新登录后再试")
+            SearchState.Failed("登录状态已失效，请到“我的”重新登录后再试")
         else -> SearchState.Results(results)
     }
 
@@ -134,7 +135,7 @@ color = Color.Transparent,
                 onSearch = { q -> query = q },
                 expanded = true,
                 onExpandedChange = { },
-                label = "输入应用名，例如「课表」",
+                label = "输入应用名，例如“课表”",
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -142,8 +143,8 @@ color = Color.Transparent,
             )
 
             DemoBanner(
-                text = "数据来自学校门户搜索接口。注意：服务端的 appName 是**未转义的 LIKE 匹配**，" +
-                    "搜「%」会命中全部 —— 这不是模糊搜索语义。",
+                text = "数据来自学校门户搜索接口。注意：服务端的 appName 是未转义的 LIKE 匹配，" +
+                    "搜“%”会命中全部 —— 这不是模糊搜索语义。",
             )
 
             // 防抖：用户还在打字时不要发请求（QPS 红线）。
@@ -199,14 +200,14 @@ color = Color.Transparent,
                     if (s.items.isEmpty()) {
                         StatePlaceholder(
                             state = PageState.Empty,
-                            detail = "没有匹配「$query」的应用（是「没有匹配」，不是加载失败）",
+                            detail = "没有匹配“$query”的应用（是“没有匹配”，不是加载失败）",
                         )
                     } else {
                         LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
                             item {
                                 Text(
                                     text = "找到 ${s.items.size} 个应用",
-                                    style = MiuixTheme.textStyles.footnote2,
+                                    style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = Type.tabular),
                                     color = colors.onSurfaceVariantSummary,
                                     modifier = Modifier.padding(horizontal = 28.dp, vertical = 6.dp),
                                 )

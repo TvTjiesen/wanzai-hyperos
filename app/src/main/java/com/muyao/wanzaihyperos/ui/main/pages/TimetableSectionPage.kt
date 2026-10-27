@@ -1,22 +1,30 @@
 package com.muyao.wanzaihyperos.ui.main.pages
 
 import androidx.compose.foundation.background
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
+import com.muyao.wanzaihyperos.ui.design.ai.AiBall
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallRow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -31,38 +39,69 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sign
+import com.muyao.wanzaihyperos.ui.design.liquid.rememberPageChromePilot
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import com.muyao.wanzaihyperos.R
+import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.data.UiPrefs
+import com.muyao.wanzaihyperos.data.schedule.PeriodClock
 import com.muyao.wanzaihyperos.data.tronclass.TronSchedule
 import com.muyao.wanzaihyperos.data.tronclass.TronScheduleSlot
+import com.muyao.wanzaihyperos.data.schedule.jwVerdictOf
+import com.muyao.wanzaihyperos.data.schedule.pickSlots
 import com.muyao.wanzaihyperos.ui.AppUiState
 import com.muyao.wanzaihyperos.ui.design.AppCard
+import com.muyao.wanzaihyperos.ui.design.Chip
 import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.PeriodTimeEditor
+import com.muyao.wanzaihyperos.ui.design.Tone
 import com.muyao.wanzaihyperos.ui.design.Type
-import com.muyao.wanzaihyperos.ui.design.glass.GlassSurface
-import com.muyao.wanzaihyperos.ui.design.glass.LocalGlassBackdrop
 import com.muyao.wanzaihyperos.ui.design.liquid.LargeTitle
 import com.muyao.wanzaihyperos.ui.design.liquid.LocalLargeTitle
 import com.muyao.wanzaihyperos.ui.design.liquid.LocalNavBarVisible
 import com.muyao.wanzaihyperos.ui.design.liquid.LocalPageActive
 import com.muyao.wanzaihyperos.ui.design.liquid.LocalPageChrome
 import com.muyao.wanzaihyperos.ui.design.liquid.iosHeaderInset
+import com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp
+import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.time.LocalDate
 
@@ -87,10 +126,10 @@ import java.time.LocalDate
  * ## 兩種排版（業主 2026-10-18 點名要 WakeUp 那一類）
  *
  * - **網格**：左一列節次 + 七（或五）列星期，課程塊按 `periodStart..periodEnd`
- *   **豎向合併**、顏色按 `courseId` 走 137.5° 黃金角色相哈希。
+ *   **豎向合併**、左緣色脊按 `courseId` 從十枚手選色裡輪轉（見 [CourseChip] 的配色段）。
  *   版式照 WakeUp / [Sleepy](https://github.com/lingion/sleepy) 那一類**自己寫**
  *   —— Sleepy 是 GPL-3.0，**一行代碼都不搬**，只参照它的版面結構。
- * - **列表**：原本那種按天分段的卡片（資訊不丟，趕時間時看得更快）。
+ * - **列表**：按天分段的**時間線**（左邊節次、右邊課名/老師/教室，趕時間時看得更快）。
  *
  * ⚠️ 節次**不顯示幾點幾分**：學校沒有「節次→時間」表（見 `TronScheduleSlot` 檔頭），
  * 猜一個時間就是編造。WakeUp 那個版式裡的時分列，我們只能放「第 N 節」。
@@ -103,27 +142,109 @@ import java.time.LocalDate
 fun TimetableSectionPage(
     graph: AppGraph,
     uiState: AppUiState,
+    /** 「去教务系统」那一頁（要在那裡輸一次帳號密碼，課表才爬得動）。 */
+    onOpenJw: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
     val state by graph.schedule.state.collectAsState()
-    val backdrop = LocalGlassBackdrop.current
+    val jwState by graph.jwTimetable.state.collectAsState()
+
+    // 目前教學週（由 schedule 自己算，它會問 `teachingWeeks()`）。
+    // 提到這裡是因為**週切換那一行**也要用它：那行現在要寫「第 6 周 · 2026-2027学年第1学期」，
+    // 而它渲染在課表內容之前，拿不到內容分支裡的局部變數。
+    // 頂部「第 N 周」「‹ ›」和下面的內容必須用**同一個**周次。
+    // 上一版標題只讀 schedule.currentWeek，而內容分支（和點陣）早就會退回
+    // `UiPrefs.weekFromAnchor` 推算 ⇒ 冷啟動時標題寫「還沒取到教學周」，
+    // 底下卻老老實實列著「第 6 周」的課，翻周箭頭也像死的（审查 2026-10-21）。
+    // 這裡只讀錨點、不寫盤：一條裝飾性的標題不該改持久化狀態。
+    val scheduleWeek = (state as? ListState.Content)?.items?.firstOrNull()
+        ?.currentWeek as? com.muyao.wanzaihyperos.data.CountValue.Known
+    val baseWeek = scheduleWeek?.value?.takeIf { it > 0 }
+        ?: com.muyao.wanzaihyperos.data.UiPrefs.weekFromAnchor(java.time.LocalDate.now().toEpochDay())
+    /** 學期名：**學校自己寫的**那一段（教务课表页标题里的「2026-2027学年第1学期」）。空 = 还没取到。 */
+    val termLabel = (jwState as? ListState.Content)?.items?.firstOrNull()?.termLabel.orEmpty()
+    /**
+     * 課表**只认教务那一份**（业主 2026-10-20：「数据来源那行去掉，统一用教务系统的」）。
+     *
+     * 以前这里读 `UiPrefs.timetableSource` 并给一屏一个切换器。去掉的理由不是"少一个按钮"：
+     * 两份来源本来就该有一份是权威（排课在正方），让一个学生去判断"哪份对"是把我们的
+     * 数据分歧转嫁给他 —— 他每次进来都要重新选一次，选错了还看不出区别。
+     *
+     * 学在城院那份**没有删**：教务取不到时仍然退回它（课表这一屏每天要用，
+     * 不能因为教务登录态掉了就空白），但那是**兜底**，由顶部横幅说明，而不是让他选。
+     */
+    val useJiaowu = true
 
     // 要顯示哪一週。
     //
     // `0` = 目前教學週（由 schedule 自己算，它會問 `teachingWeeks()`）；
     // 正負數 = 相對偏移。**不重新請求資料** —— 資料本來就含全學期。
     var weekOffset by remember { mutableIntStateOf(0) }
-    // 三天窗口从哪一天開始：默認讓**今天落在中間**（左邊是昨天、右邊是明天）。
-    var windowStart by remember {
-        mutableIntStateOf((java.time.LocalDate.now().dayOfWeek.value - 1).coerceIn(1, 5))
+    /** 日程模式下看的是哪一天（1=周一…7=周日）。默认今天。 */
+    // ★ 第 5 轮审计必修 4：这一排只到周五，**初值先夹进 1..5**
+    //   （`WeekDateStrip` 内部还会再夹一次兜底），否则周六周日进来无高亮。
+    var selectedDay by remember {
+        mutableIntStateOf(LocalDate.now().dayOfWeek.value.coerceIn(1, 5))
     }
     var picked by remember { mutableStateOf<TronScheduleSlot?>(null) }
+    // 2026-10-28 业主「我想要那种点击放大的动画」：详情不再插进列表，而是从**被点那一格**
+    // 长到页面中央。所以点的时候要把那一格的位置记下来（root 坐标），并减掉页面自身原点。
+    var pickedAnchor by remember { mutableStateOf<Rect?>(null) }
+    var pageOrigin by remember { mutableStateOf(Offset.Zero) }
+    /** 「節次時間」就地编辑（填完课表上每块课立刻显示几点到几点）。 */
+    var showClockEditor by remember { mutableStateOf(false) }
+
+    // ---- 頂部一週點陣的資料 ------------------------------------------------
+    //
+    // 點陣畫在週切換條旁邊，而「目標週 / 用哪一份資料」的推導在下面的內容分支裡。
+    // 這裡用的是**同一份 state、同一個 WeekLayout.forWeek**，不重新請求、不改狀態機。
+    // 刻意不呼叫 UiPrefs.noteWeek：它會把週錨點寫盤，而點陣在載入態也會畫，
+    // 一條只讀的裝飾條不該去改持久化狀態。
+    // ★ 独立审计 v3 #4 第 4 轮必修 4（N4）：这一页以前有**第二套 crawling 判法**
+    //   （`jwState is ListState.FirstLoad`），而 `SlotSource.kt` 自己就禁了那种写法。
+    //   只认 `isCrawling` 又会给本页留一帧空档（组合完 → LaunchedEffect 才发请求），
+    //   那一帧会画另一份 ⇒ 又是那个闪。所以这里说的是**一个可验证的事实**：
+    //   本页一进来必发这一发（:238 那个 `LaunchedEffect`），在它落回非 FirstLoad 之前，
+    //   "在路上"为真。这不是拿状态猜，是拿本页自己的意图记。
+    val jwWillFetch = remember { androidx.compose.runtime.mutableStateOf(true) }
+    androidx.compose.runtime.LaunchedEffect(jwState) {
+        if (jwState !is ListState.FirstLoad) jwWillFetch.value = false
+    }
+    val jwCrawlingNow = graph.jwTimetable.isCrawling.value || jwWillFetch.value
+
+    val stripSchedule = (state as? ListState.Content)?.items?.firstOrNull()
+    val stripJw = (jwState as? ListState.Content)?.items?.firstOrNull()
+    // 選資料的規則全工程只有 `pickSlots` 一份（與正文、首页、外观预览同一条，见该档案注释）：
+    // 教務還在爬時**不拿學在城院頂上去**，否則點陣會先亮起幾門他其實沒上的課。
+    val stripAllSlots = pickSlots(
+        jwSlots = if (useJiaowu) stripJw?.slots.orEmpty() else emptyList(),
+        jwVerdict = jwVerdictOf(
+            state = jwState,
+            crawling = jwCrawlingNow,
+            hasSlots = !stripJw?.slots.isNullOrEmpty(),
+        ),
+        tronSlots = stripSchedule?.slots.orEmpty(),
+    ).slots
+    // 外层 baseWeek 已含锚点兜底，这里不再重复算一次（两处算法迟早分叉）。
+    val stripTargetWeek = baseWeek?.plus(weekOffset)
+    // 週次不知道時 forWeek 會原樣回傳全學期 —— 那點會按「整學期」亮，不是「這週」。
+    // 所以不知道週次就一個點都不畫（空清單），也不編一個週次出來。
+    val stripSlots = if (stripTargetWeek == null) {
+        emptyList()
+    } else {
+        com.muyao.wanzaihyperos.data.schedule.WeekLayout.forWeek(stripAllSlots, stripTargetWeek)
+    }
 
     LaunchedEffect(Unit) {
         // 应用级作用域（`AppGraph.fetch`）：切走页面不该把课表请求取消，
         // 更不该让取消被写成「取不到課表」。见 `AppGraph.ioScope` 注释。
         graph.fetch { graph.schedule.refresh() }
+        // 教務那份**只在選了它時才爬**：它要走 WebView 兩段登入，
+        // 沒選就爬是白做一次登入（而且會把共用 WebView 導到課表頁）。
+        if (useJiaowu) {
+            graph.fetch { graph.jwTimetable.refresh() }
+        }
     }
 
     // ── 顶栏试点接线（T53）────────────────────────────────────────────
@@ -132,415 +253,253 @@ fun TimetableSectionPage(
     // **标题是列表的第 0 项**，跟着内容一起滚；滚到顶就由 `IosTopBar` 接手小标题。
     // 折叠度 = 标题被滚出去的比例，只用 `firstVisibleItem` 的信息，
     // 不接嵌套滚动 —— 参考原话，也是它不会和底栏抢手势的原因。
-    val chrome = LocalPageChrome.current
-    val active = LocalPageActive.current
+    // 頂欄接線抽到 `rememberPageChromePilot()`（T53 的試點代碼）——
+    // 現在有五個板塊要接，抄五遍遲早分叉。
+    val pilot = rememberPageChromePilot()
     val largeTitle = LocalLargeTitle.current
     val barVisible = LocalNavBarVisible.current
-    val listState = rememberLazyListState()
-    var titleHeightPx by remember { mutableFloatStateOf(1f) }
+    val listState = pilot.listState
+    // ★ 第 9 轮审计必修 4：滚动状态报给玻璃层（滚动期降采样）。见 `PageChrome.scrolling`。
+    androidx.compose.runtime.SideEffect { pilot.onScroll(listState.isScrollInProgress) }
 
-    LaunchedEffect(listState, largeTitle, active) {
-        if (!active) return@LaunchedEffect
-        snapshotFlow {
-            if (largeTitle.isEmpty()) 1f
-            else if (listState.firstVisibleItemIndex > 0) 1f
-            else listState.firstVisibleItemScrollOffset / titleHeightPx.coerceAtLeast(1f)
-        }.collect { chrome.progress = it.coerceIn(0f, 1f) }
+    // 小球跟着内容走（业主 2026-10-25「小球不要单独一个图层，要与其他内容同层」）：
+    // 这一页有两份课表来源（教务 / 学在城院），网格是 pickSlots 拼出来的 ——
+    // 只要有一份能用，屏幕上就有课表，那种时候画 Error 是撒谎。见 AiBallStates.ofTimetable。
+    val inFlight by graph.inFlight.collectAsState()
+    val ballState = AiBallStates.ofTimetable(state, jwState, fetching = inFlight > 0)
+
+    // 2026-10-28 业主：「底下的提示词也太明显了，淡化它的存在」。
+    // 原来它是 primary 12% 淡底 + primary 11sp 字，读起来像一句操作提示、跟顶栏强调色抢。
+    // 现在没有底、字降一档（micro）、颜色走次墨：留下「取到几门课、哪一份」，不再教人点格子
+    //（点格子会就地放大，那句话已经过时了）。
+    Box(modifier = Modifier.padding(top = 6.dp, start = 1.dp)) {
+        Text(
+            text = "第 $week 周 · 本周 $courseCount 门课 · " + source.label,
+            style = TextStyle(fontFeatureSettings = Type.tabular),
+            fontSize = Type.micro,
+            color = if (isDark) Tone.quietDark else Tone.quiet,
+        )
     }
-
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = Dims.screenH,
-            end = Dims.screenH,
-            // 标题自己带 inset，这里不再留 56dp 顶白
-            bottom = if (barVisible) 132.dp else 44.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
+    // 節次時間就地编辑：**存一次就落盘**（PeriodTimeEditor 每改一格就 save），
+    // 所以这里不需要「保存」钮，也不会有「改了但忘了存」那种状态。
+    // ── 点格子就地放大 ────────────────────────────────────────────────
+    // 业主 2026-10-28：「我不喜欢这种生硬的在底下显示」「我想要那种点击放大的动画」。
+    // 以前是往列表里插一张 SlotDetailCard —— 内容在下面凭空长出来，手指点的那一格
+    // 和详情之间没有任何视觉联系。现在详情浮在同一页上，并从**那一格的实际矩形**
+    // 长大到最终位置：起点来自 onGloballyPositioned 量出的真实坐标，不写死。
+    androidx.activity.compose.BackHandler(enabled = picked != null) {
+        picked = null
+    }
+    val zoomSlot = picked
+    if (zoomSlot != null) {
+        SlotZoomOverlay(
+            slot = zoomSlot,
+            anchor = pickedAnchor,
+            pageOrigin = pageOrigin,
+            onClose = { picked = null },
+        )
+    }
+    OverlayDialog(
+        show = showClockEditor,
+        onDismissRequest = { showClockEditor = false },
+        title = "节次时间",
+        summary = "教务系统只标到“第几节”和上午/下午，不给几点。" +
+            "第几行就是第几节，填完这一屏课立刻写明几点到几点；留空就只显示节次。",
     ) {
-        if (largeTitle.isNotEmpty()) {
-            item(key = "large_title") {
-                Box(
-                    modifier = Modifier.onSizeChanged {
-                        if (it.height > 0) titleHeightPx = it.height.toFloat()
-                    }
-                ) {
-                    LargeTitle(text = largeTitle, topInset = iosHeaderInset())
-                }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 460.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            PeriodTimeEditor(rows = UiPrefs.periodTimes) { rows ->
+                UiPrefs.savePeriodTimes(rows)
             }
         }
-
-        // ---- 週切換（玻璃）--------------------------------------------------
-        item(key = "week-switch") {
-            GlassSurface(backdrop = backdrop, modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    WeekNavButton("‹", desc = "上一週") { weekOffset -= 1 }
-                    Text(
-                        text = when (weekOffset) {
-                            0 -> "本學期 · 本週"
-                            -1 -> "本學期 · 上一週"
-                            1 -> "本學期 · 下一週"
-                            else -> if (weekOffset > 0) "本學期 · $weekOffset 週後" else "本學期 · ${-weekOffset} 週前"
-                        },
-                        fontSize = Type.body,
-                        fontWeight = Type.weightBody,
-                        color = colors.onBackground,
-                        modifier = Modifier.weight(1f),
-                        textAlign = TextAlign.Center,
-                    )
-                    WeekNavButton("›", desc = "下一週") { weekOffset += 1 }
-                }
-            }
-        }
-
-        // ---- 排版切換 -------------------------------------------------------
-        item(key = "view-switch") {
-            ViewModeSwitch(grid = uiState.timetableGrid) { uiState.timetableGrid = it }
-        }
-
-        // ---- 課表內容 -------------------------------------------------------
-        when (val s = state) {
-            is ListState.FirstLoad -> item(key = "loading") {
-                Text(
-                    "正在取得課表…",
-                    fontSize = Type.secondary,
-                    color = colors.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(Dims.cardPadding),
-                )
-            }
-
-            is ListState.Failed -> item(key = "failed") {
-                AppCard {
-                    Column(Modifier.padding(Dims.cardPadding)) {
-                        Text(
-                            "取不到課表",
-                            fontSize = Type.body,
-                            fontWeight = Type.weightBody,
-                            color = colors.error,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            s.error.userText,
-                            fontSize = Type.caption,
-                            color = colors.onSurfaceVariantSummary,
-                        )
-                    }
-                }
-            }
-
-            is ListState.Content -> {
-                // ⚠️ `schedule.state` 是 `ListState<TronSchedule>`，而 `Content.items`
-                // 是 `List<TronSchedule>` —— **單元素清單**（倉庫把單一 schedule 包起來）。
-                // 所以要先 `firstOrNull()` 才是 TronSchedule 本身。
-                val schedule = s.items.firstOrNull()
-                // 目前教學週：schedule 自己算好的（CountValue.Known 才有值）。
-                val baseWeek = (schedule?.currentWeek as? com.muyao.wanzaihyperos.data.CountValue.Known)?.value
-                val targetWeek = baseWeek?.plus(weekOffset)
-
-                if (targetWeek == null) {
-                    item(key = "no-week") {
-                        Text(
-                            "還不知道目前是第幾教學週，所以無法對應課表。",
-                            fontSize = Type.secondary,
-                            color = colors.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(Dims.cardPadding),
-                        )
-                    }
-                } else {
-                    val slots = schedule?.slots.orEmpty()
-                        .filter { it.activeIn(targetWeek) }
-                        .sortedWith(compareBy({ it.dayOfWeek }, { it.periodStart }))
-
-                    if (slots.isEmpty()) {
-                        item(key = "empty") {
-                            Text(
-                                "第 $targetWeek 週沒有課程。",
-                                fontSize = Type.secondary,
-                                color = colors.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(Dims.cardPadding),
-                            )
-                        }
-                    } else if (uiState.timetableGrid) {
-                        // ---- 網格（三天窗口）------------------------------
-                        item(key = "day-window") {
-                            DayWindowChips(
-                                start = windowStart,
-                                today = LocalDate.now().dayOfWeek.value,
-                                onPick = { windowStart = it },
-                            )
-                        }
-                        item(key = "grid") {
-                            AppCard {
-                                WeekGrid(
-                                    schedule = schedule,
-                                    slots = slots,
-                                    today = LocalDate.now().dayOfWeek.value,
-                                    windowStart = windowStart,
-                                    onPick = { picked = it },
-                                )
-                            }
-                        }
-                        if (picked != null) {
-                            item(key = "picked") {
-                                SlotDetailCard(slot = picked, onClose = { picked = null })
-                            }
-                        }
-                    } else {
-                        // ---- 列表（原有排版，資訊不丟）--------------------------
-                        item(key = "week-label") {
-                            Text(
-                                text = "第 $targetWeek 週",
-                                fontSize = Type.summary,
-                                color = colors.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(start = 4.dp),
-                            )
-                        }
-                        slots.groupBy { it.dayOfWeek }.forEach { (day, daySlots) ->
-                            item(key = "day-$day") {
-                                Text(
-                                    text = daySlots.first().dayLabel,
-                                    fontSize = Type.summary,
-                                    color = colors.onSurfaceVariantSummary,
-                                    modifier = Modifier.padding(top = 8.dp, start = 4.dp, bottom = 2.dp),
-                                )
-                            }
-                            daySlots.forEach { slot ->
-                                item(key = "slot-${slot.courseId}-$day-${slot.periodStart}") {
-                                    CourseCell(slot)
-                                }
-                            }
-                        }
-                    }
-
-                    // ---- 認不出來的段落**原樣列出來**（兩種排版都要有）----------
-                    //
-                    // 寧可顯示一句看不懂的字串，也不要讓某門課的上課時間靜默消失
-                    //（`TronScheduleSlot` 檔頭那條紀律）。
-                    val unparsed = schedule?.unparsed.orEmpty()
-                    if (unparsed.isNotEmpty()) {
-                        item(key = "unparsed") {
-                            AppCard {
-                                Column(Modifier.padding(Dims.cardPadding)) {
-                                    Text(
-                                        "有 ${unparsed.size} 段上課時間沒認出格式（原樣列在下面）",
-                                        fontSize = Type.summary,
-                                        color = colors.error,
-                                    )
-                                    unparsed.forEach { (courseName, raw) ->
-                                        Text(
-                                            "$courseName：$raw",
-                                            fontSize = Type.caption,
-                                            color = colors.onSurfaceVariantSummary,
-                                            maxLines = 3,
-                                            modifier = Modifier.padding(top = 4.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            else -> item(key = "none") {
-                Text(
-                    "還沒有課表資料。",
-                    fontSize = Type.secondary,
-                    color = colors.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(Dims.cardPadding),
-                )
-            }
-        }
+    }
     }
 }
 
 /**
- * 週網格：左節次軸 + 按天的列，課程塊**跨節豎向合併**。
+ * 教務系統那個 **1×1 透明 WebView**（登入器兼同源 fetch 的宿主）。
  *
- * ## 為什麼是「每列一個 Box + offset」而不是 LazyVerticalGrid
+ * 尺寸 1dp、alpha 0：**不能用 `GONE`** —— 那不執行 JS，登入會靜靜失敗
+ *（`JwPage` 的檔頭記著這條實測）。
  *
- * 一塊課要佔 `periodStart..periodEnd` 好幾行，格狀容器做不到跨行合併；
- * 絕對定位（`offset(y)` + `height(節數 × 行高)`）才是 WakeUp / Sleepy 那一類的實際画法。
- *
- * ## 為什麼週六日「有課才出現」
- *
- * 這台機 1216px 寬 ≈ 442dp。七列 + 軸最多每列 ~50dp，課名只能截成兩個字；
- * 沒課的週末列純粹佔地方。所以固定顯示週一～五，**週末有課才加進來**。
+ * `update` 裡再 attach 一次：這個引擎是**全域共用**的，
+ * 他去「教务系统」那一頁再回來時，那邊 `onDispose` 會把引擎-detach 成 null，
+ * 而這一頁的 AndroidView 不會重建 —— 不重新 attach 的話，
+ * 之後每次刷課表都會報「页面还没准备好」。
  */
 @Composable
-private fun WeekGrid(
-    schedule: TronSchedule?,
-    slots: List<TronScheduleSlot>,
+private fun JwHiddenEngine(engine: com.muyao.wanzaihyperos.data.jw.JwEngine) {
+    AndroidView(
+        modifier = Modifier.size(1.dp),
+        factory = { ctx ->
+            android.webkit.WebView(ctx).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                layoutParams = android.view.ViewGroup.LayoutParams(1, 1)
+                alpha = 0f
+                engine.attach(this)
+            }
+        },
+        update = { engine.attach(it) },
+    )
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { engine.detach() }
+    }
+}
+
+/**
+ * 本週課表板：**左側一條時間軸 + 一天一欄、單層、五天全顯示、課塊按節次對齊行**。
+ *
+ * ## 為什麼長這樣（业主 2026-10-20：「你别标时间啊，跟其他课表软件一样
+ * 侧边写个时间课程对齐时间不行吗」）
+ *
+ * 時間本來就該在**軸**上 —— 每塊課自己背一行「第3-4节 10:00-11:40」既佔地方又難讀，
+ * 而且課名越長越擠。現在：行高 = 一節，軸上寫第幾節與幾點上課，課塊落在自己那幾行上。
+ * 「單層」（一欄一道，不橫向切）照舊保住。
+ *
+ * 排布全部交給 [WeekLayout.lane]（純函式 + 單測）：它保證每一欄**恰好佔滿同樣的行數**，
+ * 所以各欄在同一條水平線上。對齊要是交給界面自己湊，就會出現
+ * 「週四的課比週二低半格」那種他一眼看得出、我在程式裡很難發現的錯。
+ */
+@Composable
+internal fun WeekBoard(
+    columns: List<com.muyao.wanzaihyperos.data.schedule.DayColumn>,
     today: Int,
-    windowStart: Int,
-    onPick: (TronScheduleSlot) -> Unit,
+    week: Int,
+    courseCount: Int,
+    source: com.muyao.wanzaihyperos.data.tronclass.ScheduleSource,
+    onPick: (TronScheduleSlot, Rect) -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
+    // 暗档的轴字要换色：[Tone.quiet] 对纸面 4.77:1，但对暗卡片只有 3.05:1；[Tone.ink]
+    // 在暗卡片上更是只有 1.14:1 —— 2026-10-27 模拟器深色档里节次号几乎看不见。
+    val isDark = colors.background.luminance() < 0.5f
+    val times = UiPrefs.periodTimes
+    val maxPeriod = com.muyao.wanzaihyperos.data.schedule.WeekLayout.rowsNeeded(columns)
+    if (maxPeriod <= 0) return
+    val rowH = 34.dp
 
-    // **三天窗口**，不是整週七列。
-    //
-    // 上一版把 5~7 天全塞進 442dp，同一時段又常撞 2~3 門課 ⇒ 每欄只剩 ~25dp，
-    // 課名豎成一串認不出的波浪（業主原話：「我都看不見課了」）。
-    // 三天 = 每天 ~130dp，撞兩門時每欄還有 ~65dp，課名能正常橫排。
-    // 換窗口用頂部那排日子按鈕，**不做橫向滑動** —— 這頁的左右滑是「切板塊」的，
-    // 在這裡加橫向滾動就會兩套水平手勢搶同一次拖動。
-    val allDays = (1..7).toList()
-    val start = windowStart.coerceIn(1, 7 - 2)
-    val days = (start..start + 2).toList()
-
-    val maxPeriod = (slots.maxOfOrNull { it.periodEnd } ?: 8).coerceAtLeast(1)
-    // 「整學期」= 本週所有格子裡最寬的那個週次區間。只有**不是**整學期的課才在格子裡
-    // 標週次（單雙週、第 5-17 週這種），否則每格都掛一行廢字。
-    val termStart = slots.minOfOrNull { it.weekStart } ?: 1
-    val termEnd = slots.maxOfOrNull { it.weekEnd } ?: termStart
-    val rowH = 56.dp
-    // 節次時間表（設定頁填的）。**沒填就只標節次號**，不編時間。
-    val periodTimes = com.muyao.wanzaihyperos.data.UiPrefs.periodTimes
-    val hasTimes = periodTimes.any { it.first.isNotBlank() }
-    val axisW = if (hasTimes) 46.dp else 34.dp
-    val rowPx = with(LocalDensity.current) { rowH.toPx() }
-
-    // 每天要几栏（同一时段撞几门课）。表頭與列共用這一份，列寬才不會和標題錯位。
-    val lanesOfDay = days.associateWith { day ->
-        val ends = mutableListOf<Int>()
-        slots.filter { it.dayOfWeek == day }.sortedBy { it.periodStart }.forEach { s ->
-            val free = ends.indexOfFirst { it < s.periodStart }
-            if (free >= 0) ends[free] = s.periodEnd else ends.add(s.periodEnd)
-        }
-        ends.size.coerceAtLeast(1)
-    }
-
-    // 表頭：参照站只寫「一 二 三…」（不帶「周」字），今天那一列用主题色加粗。
-    Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 8.dp)) {
-        Spacer(Modifier.width(axisW))
-        days.forEach { day ->
-            val isToday = day == today
-            Text(
-                text = DAY_LABELS.getOrElse(day - 1) { day.toString() },
-                fontSize = Type.summary,
-                fontWeight = if (isToday) Type.weightTitle else Type.weightBody,
-                color = if (isToday) colors.primary else colors.onSurfaceVariantSummary,
-                textAlign = TextAlign.Center,
-                // 表頭和列用同一份欄數，否則列寬放大後標題會和列錯位。
-                modifier = Modifier.weight((lanesOfDay[day] ?: 1).toFloat()),
-            )
+    // ---- 表頭：軸位空一格，後面一天一格 --------------------------------
+    // B4-04 v4 §5：表头总高 28dp（与稿的 HEADER=28 一致，334dp 那一行才算得对）。
+    // 今天那一格只做两件事 —— 换强调色 + 底下一条 2dp 短线，线画在 28dp 里面、不额外占高。
+    // 列底不再铺 6% 淡底（对卡只有 1.09:1，等于没标），也不画竖线（会和课块色脊并排成两条）。
+    Row(modifier = Modifier.fillMaxWidth().height(HeaderHeight)) {
+        Spacer(Modifier.width(AxisWidth))
+        columns.forEach { col ->
+            val isToday = col.dayOfWeek == today
+            Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = col.dayLabel.replace("周", "周"),
+                    fontSize = Type.summary,
+                    fontWeight = if (isToday) Type.weightTitle else Type.weightBody,
+                    color = if (isToday) colors.primary else colors.onSurfaceVariantSummary,
+                    textAlign = TextAlign.Center,
+                )
+                if (isToday) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 2.dp)
+                            .width(20.dp)
+                            .height(2.dp)
+                            .background(colors.primary),
+                    )
+                }
+            }
         }
     }
 
-    Row(modifier = Modifier.fillMaxWidth()) {
-        // ---- 節次軸 --------------------------------------------------------
-        //
-        // ⚠️ 只標節次號，**不標幾點幾分**：學校接口沒有「節次→時間」表
-        //   （`/api/org/{id}/teaching-weeks` 只有週次與日期），編一個時間就是造數據。
-        //   参照站那個位置是有時分的（正方的節次表是公开的），等我們拿到可靠來源再補。
-        Column(modifier = Modifier.width(axisW)) {
-            (1..maxPeriod).forEach { period ->
-                Box(modifier = Modifier.height(rowH)) {
-                    Column(modifier = Modifier.padding(top = 2.dp)) {
-                        Text(
-                            text = period.toString(),
-                            fontSize = Type.body,
-                            fontWeight = Type.weightBody,
-                            color = colors.onSurfaceVariantSummary,
-                        )
-                        // 時間是**他自己在設定頁填的**，不是我們推的：填了才顯示
-                        periodTimes.getOrNull(period - 1)?.takeIf { it.first.isNotBlank() }?.let { (s, e) ->
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        // ---- 左側時間軸 ---------------------------------------------------
+        // 節次號居中，**上課時間貼在這一行的上沿** —— 那是它真正的意思：
+        // 「从这一刻开始是第 N 节」，而不是「第 N 节的时间是…」。
+        Column(modifier = Modifier.width(AxisWidth)) {
+            (1..maxPeriod).forEach { n ->
+                // 2026-10-26 真机取证：旧写法是「节次号 Box 居中 + 时刻绝对定位贴顶」，两段各
+                // 自定位 ⇒ 34dp 的行里 10sp 行盒(14dp) + 11sp 行盒(15.4dp) = 29.4dp，只余
+                // 4.6dp；帧上「08:00」占 y938..967、「1」占 y966..998，已经交叠 2px。
+                // 改成同一列里顺排：时刻槽固定 14dp 高，没有时刻也占位，节次号因此在每一行
+                // 都停在同一高度，两段文字永不可能重叠。
+                Column(
+                    modifier = Modifier.height(rowH).fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    // B4-04 v4 §4：节次号走墨色（它是这一行的主字），时刻走实色次墨。
+                    // 原来是 onSurfaceVariantSummary + alpha 0.75 ⇒ 合成出 #949087，
+                    // 对卡只有 3.10:1，10sp 小字远不够；现在是 Tone.quiet 实色 5.07:1。
+                    Box(modifier = Modifier.height(ClockSlot), contentAlignment = Alignment.Center) {
+                        PeriodClock.startOf(times, n)?.let { t ->
                             Text(
-                                text = s,
-                                fontSize = 9.sp,
-                                color = colors.onSurfaceVariantSummary.copy(alpha = 0.8f),
+                                text = t,
+                                // 原来写死 7.5.sp —— 低于本工程 Type.micro 这条地板，
+                                // 而且 DesignTokensTest 明令「再小不許」。取 8sp。
+                                fontSize = Type.micro,
+                                color = if (isDark) Tone.quietDark else Tone.quiet,
+                                maxLines = 1,
                             )
-                            if (e.isNotBlank()) {
-                                Text(
-                                    text = e,
-                                    fontSize = 9.sp,
-                                    color = colors.onSurfaceVariantSummary.copy(alpha = 0.8f),
-                                )
+                        }
+                    }
+                    Text(
+                        text = "$n",
+                        fontSize = Type.caption,
+                        fontWeight = Type.weightBody,
+                        color = if (isDark) Tone.inkDark else Tone.ink,
+                    )
+                }
+            }
+        }
+
+        // ---- 每一天一欄 ---------------------------------------------------
+        columns.forEach { col ->
+            // B4-04 v4 §5：今天那一栏**不铺底色、不画竖线**。原来那层 6% 淡底对卡只有 1.09:1，
+            // 等于什么也没标；竖线又会和课块左缘那条色脊并排成两条。今天的位置由表头那 2dp 短线负责。
+            // B4-04 v4 §1：这一栏**不挂横向 padding**。原来 2dp×2 会和课块自己的 1dp
+            // 叠成 6dp 的缝，实测把块宽压到 42.49dp（稿是 47.49dp，少 5dp）。
+            // 列与列之间的缝由课块那层 1dp 外边距负责，与稿的 margin:1px 一一对应。
+            Column(modifier = Modifier.weight(1f)) {
+                if (col.isEmpty) {
+                    // 空格子也要佔滿这一栏的高度，否则下一栏的格子会跟它对不齐
+                    Spacer(Modifier.height(rowH * maxPeriod))
+                } else {
+                    com.muyao.wanzaihyperos.data.schedule.WeekLayout.lane(col, maxPeriod)
+                        .forEach { cell ->
+                            when (cell) {
+                                is com.muyao.wanzaihyperos.data.schedule.WeekLayout.LaneCell.Free ->
+                                    Spacer(Modifier.height(rowH * cell.rows))
+
+                                is com.muyao.wanzaihyperos.data.schedule.WeekLayout.LaneCell.Placed ->
+                                    CourseChip(
+                                        slot = cell.slot,
+                                        rows = cell.rows,
+                                        rowH = rowH,
+                                        misaligned = cell.misaligned,
+                                        conflicts = col.conflictsOf(cell.slot),
+                                        onPick = onPick,
+                                    )
                             }
                         }
-                    }
-                }
-            }
-        }
-
-        days.forEach { day ->
-            val isToday = day == today
-            val daySlots = slots.filter { it.dayOfWeek == day }
-            // 同一格撞两门课（真机实测：周二第 1-2 節有兩門）必須**分欄並排**，
-            // 不能疊在同一個位置上 —— 上一版就是疊著畫，文字互相壓成一片糊。
-            // 贪心分欄：按開始節排序，能塞進已結束的那一欄就塞，否則開新的一欄。
-            val laneEnds = mutableListOf<Int>()
-            val laneOf = HashMap<Int, Int>()
-            daySlots.sortedBy { it.periodStart }.forEach { s ->
-                val key = s.courseId * 1000 + s.periodStart
-                val free = laneEnds.indexOfFirst { it < s.periodStart }
-                if (free >= 0) {
-                    laneEnds[free] = s.periodEnd
-                    laneOf[key] = free
-                } else {
-                    laneEnds.add(s.periodEnd)
-                    laneOf[key] = laneEnds.lastIndex
-                }
-            }
-            val lanes = laneEnds.size.coerceAtLeast(1)
-
-            androidx.compose.foundation.layout.BoxWithConstraints(
-                modifier = Modifier
-                    // ★ 撞课的天**按栏数加宽**（1 栏 = 1 份权重）。上一版每列固定 1 份，
-                    //   撞两门课时那一栏被挤到 ~17dp，字竖成一串波浪（真机截图证实）。
-                    .weight(lanes.toFloat())
-                    .height(rowH * maxPeriod)
-                    .then(
-                        if (isToday) Modifier.background(colors.primary.copy(alpha = 0.06f)) else Modifier
-                    )
-                    .drawBehind {
-                        val line = colors.onBackground.copy(alpha = 0.08f)
-                        (1 until maxPeriod).forEach { i ->
-                            val y = rowPx * i
-                            drawLine(line, start = Offset(0f, y), end = Offset(size.width, y))
-                        }
-                    }
-            ) {
-                val colW = maxWidth / lanes
-                // ★ 窄於 ~46dp 就**只畫色條、不塞字**：你的數據裡週三/週五同一時段常撞
-                //   兩三門課，一欄只剩 ~25dp，硬排課名會豎成一串認不出的波浪（真機截圖證實）。
-                //   色條 + 點一下看詳情，比「看起來壞了」誠實；要看全名用「列表」排版。
-                val compact = colW < 46.dp
-                daySlots.forEach { slot ->
-                    val key = slot.courseId * 1000 + slot.periodStart
-                    val lane = laneOf[key] ?: 0
-                    CourseBlock(
-                        slot = slot,
-                        rowH = rowH,
-                        showWeek = !(slot.weekStart == termStart && slot.weekEnd == termEnd) && !compact,
-                        compact = compact,
-                        modifier = Modifier
-                            .offset(x = colW * lane, y = rowH * (slot.periodStart - 1))
-                            .width(colW)
-                            .height(rowH * (slot.periodEnd - slot.periodStart + 1)),
-                        onPick = onPick,
-                    )
                 }
             }
         }
     }
 
-    // 参照站那块面板下方是一颗淡彩玻璃胶囊「本周 13 门课程」——
-    // 它同时是我们的**取数回执**：这一周真取到几门课，一眼能核对，不用去数格子。
+    // 这一行是**取数回执**：这一周真取到几门课、来自哪一份，一眼能核对，不用去数格子。
     Box(
         modifier = Modifier
-            .padding(top = 10.dp)
+            .padding(top = 8.dp)
             .clip(RoundedCornerShape(Dims.cardCorner))
             .background(colors.primary.copy(alpha = 0.12f))
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
     ) {
         Text(
-            text = "本週 ${slots.map { it.courseId }.distinct().size} 門課程 · 點格子看詳情",
-            fontSize = Type.summary,
+            text = "第 $week 周 · 本周 $courseCount 门课 · 来源：${source.label} · 点格子看详情",
+            style = TextStyle(fontFeatureSettings = Type.tabular),
+            fontSize = Type.caption,
             fontWeight = Type.weightBody,
             color = colors.primary,
         )
@@ -548,79 +507,254 @@ private fun WeekGrid(
 }
 
 /**
- * 一格課。
+ * 「这份课表是几点存的」+ 一个重取的出口。
  *
- * ## 配色照参照站（正方教务助手）那套，不是照它代码
- *
- * `courseId × 137.5°` 取色相（黄金角哈希，同一門課恆同色，且不依賴接口回傳顏色），
- * 然後：
- * - **填充** = 同色相、低飽和、高明度 + 55% alpha（淡彩，讓背後的網格線透出來）；
- * - **描边** = 同色相、飽和一點、明度低一档，1.5dp —— 参照站那种「彩色描边的果冻块」；
- * - **文字** = 主题的 `onBackground`（浅色下深字、深色下白字），**不写死白色**。
- *
- * 上一版是实心高饱和 + 白字，在浅色主题下像贴了一堆色卡，和参照站观感差一档。
+ * 只在**教务那份是拿本地快照先画出来的**（stale）时才显眼；
+ * 刚取过的也留一行，因为「为什么这次没转圈」他也需要一句解释。
  */
 @Composable
-private fun CourseBlock(
-    slot: TronScheduleSlot,
-    rowH: Dp,
-    showWeek: Boolean,
-    compact: Boolean = false,
-    modifier: Modifier,
-    onPick: (TronScheduleSlot) -> Unit,
+private fun FreshnessLine(
+    jwState: ListState<com.muyao.wanzaihyperos.data.jw.JwTimetableResult>,
+    now: Long,
+    onReload: () -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
-    val span = slot.periodEnd - slot.periodStart + 1
-    val hue = ((slot.courseId * 137.5f) % 360f + 360f) % 360f
-    val fill = Color.hsl(hue, 0.55f, if (colors.background.luminance() < 0.5f) 0.34f else 0.78f)
-        .copy(alpha = 0.55f)
-    val stroke = Color.hsl(hue, 0.62f, if (colors.background.luminance() < 0.5f) 0.62f else 0.52f)
-    val shape = RoundedCornerShape(Dims.cardCorner)
-    val partial = showWeek
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 2.dp, vertical = 2.dp)
-            .clip(shape)
-            .background(fill)
-            .drawBehind {
-                // 描边自己画：Modifier.border 会算在内容尺寸里，1.5dp 的边会把两行的格子挤掉一行
-                drawRect(
-                    color = stroke,
-                    style = Stroke(width = 1.5.dp.toPx()),
-                    topLeft = Offset(0.75f.dp.toPx(), 0.75f.dp.toPx()),
-                    size = Size(size.width - 1.5.dp.toPx(), size.height - 1.5.dp.toPx()),
-                )
-            }
-            .clickable { onPick(slot) }
+    // ★ 第 4 轮必修 3（N5）：只 cast Content ⇒ 教务落进 Empty（真给了空表）时这一行退成
+    //   「更新时间未知」，可 `ListState.Empty` 自己带着**真的** `updatedAtMillis`（ListState.kt:154-163）。
+    val meta = (jwState as? ListState.Content)?.meta ?: (jwState as? ListState.Empty)?.meta
+    val stale = meta?.stale == true
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.padding(horizontal = 5.dp, vertical = 4.dp)) {
-            // 窄欄只留前 4 個字（豎著兩行剛好）—— 純色條認不出是哪門課，
-            // 全名又會豎成波浪；兩個字是這塊屏上「能認」的下限。
-            Text(
-                text = if (compact) slot.courseName.take(4).ifBlank { "課" }
-                else slot.courseName.ifBlank { "（未命名）" },
-                fontSize = if (compact) 10.sp else if (span >= 2) 11.sp else 10.sp,
-                fontWeight = Type.weightTitle,
-                color = colors.onBackground,
-                maxLines = if (compact) 2 else if (span >= 2) 3 else 2,
-            )
-            if (span >= 2 && !compact) {
+        Text(
+            // ★ 独立审计（v3 #4 第 2 轮第 5 条）：「正在重新取」以前挂在 `stale` 上。
+            //   `stale` 是"这份是上次存下来的"的意思（播种出来的快照天生就是 stale），
+            //   而真在跑的只有 `meta.refreshing` —— 于是这一行长期对他说"正在取"，
+            //   而那一刻**没有任何请求在跑**。界面不许说数据证明不了的话。
+            text = com.muyao.wanzaihyperos.data.agoLabel(meta?.updatedAtMillis, now) +
+                when {
+                    meta?.refreshing == true -> " · 正在重新取"
+                    stale -> " · 这是上次存的"
+                    else -> ""
+                },
+            fontSize = Type.caption,
+            color = colors.onSurfaceVariantSummary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "重取",
+            fontSize = Type.caption,
+            color = colors.primary,
+            modifier = Modifier
+                .clickable(onClickLabel = "重新从教务系统取课表") { onReload() }
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/** 左側時間軸那一欄的寬度（要放得下「08:00」+ 節次號，又不能把五欄擠窄）。 */
+private val AxisWidth = 38.dp
+
+/** 轴上一行里时刻那一槽的固定高度（10sp 行盒 = 14dp），没有时刻也占位。 */
+private val ClockSlot = 14.dp
+
+/** 表頭高度（B4-04 v4 §2：34×9 + 28 = 334dp，這一格必須真的是 28dp 才算得对）。 */
+private val HeaderHeight = 28.dp
+
+/**
+ * 一格課（時間網格裡的一塊）。
+ *
+ * ## 為什麼塊上不再寫「第 N-M 節 / 幾點」
+ *
+ * 业主 2026-10-20：「**你别标时间啊，跟其他课表软件一样侧边写个时间课程对齐时间不行吗**」。
+ * 節次和時間現在由**左側那條軸**負責（[WeekBoard]），塊的位置本身就是時間。
+ * 塊上再寫一遍只是把課名該佔的地方吃掉。
+ * （詳情卡沒有軸，所以那邊照舊寫 [clockLine]。）
+ *
+ * ## 內容随占幾行而變
+ *
+ * 一節課只有 34dp，硬塞「課名+老師+教室」會截成看不懂的半截字 ——
+ * 所以單節的塊只給課名，兩節以上才加老師/教室。
+ * **宁可少给一行字，也不给一行被裁掉的字**（那种"看着有其实没了"的坑今天已经踩过一次）。
+ *
+ * ## 配色（照参照站那套，不照它代碼）
+ *
+ * 底色 = 一塊實色 `Chip.face`；左緣一條 3dp 色脊，顏色由 `Chip.spineOf(courseId)` 從
+ * **十枚手選色**裡按課程序號輪轉（同一門課恆同色，且不依賴接口回傳顏色）。
+ *
+ * 舊寫法是 `hsl(courseId × 137.5°)` 全色相輪轉 —— 同一排課的色脊明度差到 2.3 倍
+ * （青綠 174° 對塊底 4.09，紫 264° 9.57），看着就是「有的重有的輕」。
+ * 手選十枚把明度壓進同一段：淺檔最壞 5.13、深檔 5.62。
+ * 文字 = 主題 `onBackground`（**不寫死白色**，否則淺色主題下看不清）。
+ */
+@Composable
+private fun CourseChip(
+    slot: TronScheduleSlot,
+    /** 這一塊佔幾行（= 幾節）。 */
+    rows: Int,
+    rowH: Dp,
+    /** true = 它被前面撞課的塊擠下了自己的行 ⇒ 必須標出來，否則他會以為這是連堂。 */
+    misaligned: Boolean,
+    conflicts: List<TronScheduleSlot>,
+    onPick: (TronScheduleSlot, Rect) -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    val isDark = colors.background.luminance() < 0.5f
+    // B4-04 v4 §3：颜色只剩左缘那条 3dp 色脊，块本身是一块实色浅底。
+    // 旧写法是「同色相低饱和高明度 + 55% alpha」，对纸面最坏 1.09:1 —— 块和底几乎同色。
+    val spine = Chip.spineOf(slot.courseId, isDark)
+    val face = if (isDark) Chip.faceDark else Chip.face
+    val edge = if (isDark) Chip.edgeDark else Chip.edge
+    val ink2 = if (isDark) Chip.ink2Dark else Chip.ink2
+    val ink3 = if (isDark) Chip.ink3Dark else Chip.ink3
+    val badgeFace = if (isDark) Chip.badgeFaceDark else Chip.badgeFace
+    val badgeInk = if (isDark) Chip.badgeInkDark else Chip.badgeInk
+    val shape = RoundedCornerShape(Chip.corner)
+    val tight = rows <= 1
+    val showDetail = rows >= 2
+    // 徽标上的 N = 「同格还有几门」。misaligned 只会发生在被撞课挤下来时，那时 conflicts 必然非空；
+    // 这里仍取一次 max，免得哪天 lane() 的语义变了徽标静悄悄变成 +0。
+    val extra = maxOf(conflicts.size, if (misaligned) 1 else 0)
+    // 这一格在屏幕上的真实矩形 —— 点开时放大的起点。随撞课/翻周/字号自己变，不写死。
+    var cellRect by remember { mutableStateOf<Rect?>(null) }
+
+    // 外層**恰好佔 rows 行**：塊與塊之間的縫走內層 padding，
+    // 這樣每一欄加起來的高度一樣，格子才對得齊。
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(rowH * rows)
+            // 1dp，与稿的 .chip{margin:1px} 对齐：两块之间 2dp 缝，块宽 47.49dp。
+            .padding(1.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .background(face)
+                .drawBehind {
+                    // 描邊自己畫：`Modifier.border` 會算進內容尺寸，1dp 的邊會把三行的塊擠掉一行。
+                    drawRect(
+                        color = edge,
+                        style = Stroke(width = 1.dp.toPx()),
+                        topLeft = Offset(0.5f.dp.toPx(), 0.5f.dp.toPx()),
+                        size = Size(size.width - 1.dp.toPx(), size.height - 1.dp.toPx()),
+                    )
+                    // 左緣色脊：絕對定位畫出來，**不佔排版寬度**（所以文字那 35.49dp 已經把它扣掉了）。
+                    drawRect(
+                        color = spine,
+                        topLeft = Offset.Zero,
+                        size = Size(Chip.SPINE_DP.dp.toPx(), size.height),
+                    )
+                }
+                .onGloballyPositioned { c ->
+                    cellRect = Rect(
+                        offset = c.positionInRoot(),
+                        size = Size(c.size.width.toFloat(), c.size.height.toFloat()),
+                    )
+                }
+                .clickable { onPick(slot, cellRect ?: Rect.Zero) },
+        ) {
+            // 2026-10-26 真机三轮取证（这台设备的 font_scale = 1.15，每字比设计稿再宽 15%）：
+            //   列宽 45.49dp，可用文字宽 = 45.49 − 左右内边距。
+            //   第一轮 4+3dp 剩 38.49dp、13sp ⇒ 2.73 字/行，这门课显示成「B/S / 架…」。
+            //   第二轮 3+2dp + 12sp 剩 40.49dp ⇒ 2.93 字/行，仍是「B/S架 / 构应用…」。
+            //   第三轮 3+1dp + 11sp（Type.caption）剩 41.49dp ⇒ 3.41 字/行，能显示 7 个字。
+            //   左边 3dp 仍给色脊留 1dp 余量，不压它。
+            Column(Modifier.padding(start = 3.dp, end = 1.dp, top = 2.dp, bottom = 2.dp)) {
                 Text(
-                    text = slot.periodLabel,
-                    fontSize = 9.sp,
-                    color = colors.onBackground.copy(alpha = 0.62f),
-                    maxLines = 1,
+                    text = slot.courseName.ifBlank { "（未命名）" },
+                    // ★ 清单 #11（业主「字太小」）：这一栏是他看课表格子必读的课名。以前 tight 档
+                    //   压到 8.5sp，低于 Type.micro(10sp) 这条地板，也不读令牌。
+                    //   2026-10-26 真机三轮之后两档统一走 Type.caption(11sp)：13sp / 12sp 在这台
+                    //   font_scale 1.15 的设备上把课名截成「B/S架 / 构应用…」，认不出是哪门课；
+                    //   11sp 一行 3.41 字，同一门课能显示到 7 个字。字更小但认得出 —— 这是
+                    //   「看得清是哪门课」优先于「字号好看」的取舍，不是随手缩字。
+                    fontSize = Type.caption,
+                    fontWeight = Type.weightTitle,
+                    color = colors.onBackground,
+                    // 行距收到 12sp（字号 11sp）：默认 1.448 倍行距一行实占 18.3dp，
+                    //   两节的块只剩 62dp，3 行课名 + 1 行教室要 73dp ⇒ 只能给 2 行课名。
+                    //   收到 12sp 后一行 13.8dp，3 行课名 + 教室 = 55.2dp，加内距 4dp 共 59.2dp ≤ 62dp ⇒ 两节的块也能给 3 行课名（实测 13sp 时 63.8dp 溢出 1.8dp，教室行被切掉下半）。
+                    //   这不是「为了塞字把行距压到看不清」：11sp 字 + 13.8dp 行距仍是 1.25 倍，
+                    //   CJK 宋黑系的字面高度约 0.88em，不会上下相碰。
+                    lineHeight = Type.lineTight,
+                    // 行数按块高给，不是越多越好：这台设备 font_scale = 1.15，CJK 字体一行实占
+                    //   11sp×1.15×1.448 ≈ 18.3dp。两节的块 68dp 减去外距 1×2 与内距 2×2 只剩 62dp，
+                    //   3 行课名 + 1 行教室 = 4×18.3 = 73dp ⇒ 教室那行会被切在底边上（2026-10-26
+                    //   真机实测：两节的块里「教六…」正好被截在底边）。所以两节仍只给 2 行课名；
+                    //   三节的块 102dp 剩 96dp，够 3 行课名 + 教室 + 老师，那一档才给 3 行。
+                    // 截断有 TextOverflow.Ellipsis 兜着，点开还有详情卡的完整课名。
+                    maxLines = if (rows >= 2) 3 else 2,
+                    overflow = TextOverflow.Ellipsis,
+                    // ★ 有 +N 徽标时**课名一个字都不让**：实测把课名 end 内边距设成 14dp 后，
+                    //   这一格的课名只剩「数 …」（35.49 − 14 = 21.49dp ÷ 13sp ≈ 1.6 字）。
+                    //   而「课名是什么」永远比「同格还有几门」要紧 ⇒ 让位的是下面那两行细节。
+                    modifier = Modifier,
                 )
+                // ★ 撞课那一格（有 +N 徽标）**不写教室/老师**：徽标就落在右下角那一行，
+                //   两样东西抢同一块 78×34dp 的地方谁都看不清。地点/老师在点开的详情卡里有全称，
+                //   一条都没丢（SlotDetailCard 有 时间/周次/状态/教师/地点/来源/原文）。
+                if (showDetail && extra == 0) {
+                    // ★ 真机截图证实：把「老师·教室」拼成一行会被裁成
+                    //   「陈明·文」（文1-103 少了后半）、「周勇·」（教室整个没了）——
+                    //   而这一栏最要紧的信息恰恰是**去哪间教室**。
+                    //   所以拆成两行、各自一行一截，并**优先给教室**。
+                    //   两行的块只放教室（老师再挤就谁都不清楚了），三行以上两个都给。
+                    if (slot.room.isNotBlank()) {
+                        Text(
+                            text = slot.room,
+                            fontSize = Type.caption,   // 清单 #11：原 8.5sp，低于地板，改走令牌
+                            lineHeight = Type.lineTight,        // 与课名同一条紧行距，见上面的注释
+                            fontWeight = Type.weightBody,
+                            color = ink2,   // v4：实色 #5F5A50 对块底 5.76:1，不用 80% 透明造灰
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,   // 截了要看得出来，不能静悄悄少字
+                        )
+                    }
+                    if (rows >= 3 && slot.teacher.isNotBlank()) {
+                        Text(
+                            text = slot.teacher,
+                            fontSize = Type.caption,   // 清单 #11：原 8.5sp，低于地板，改走令牌
+                            lineHeight = Type.lineTight,
+                            color = ink3,   // v4：实色 #68635A 对块底 5.02:1（造灰的 #736E64@66% 只有 4.26）
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                // 学校标的「待筛选」（红字斜体那种）。不标出来，他会把一门还没确认的课当成今天要去的课。
+                if (slot.statusLabel.isNotBlank()) {
+                    Text(
+                        text = slot.statusLabel,
+                        fontSize = Type.micro,   // 清单 #11：原 8sp，低于地板
+                        fontWeight = Type.weightTitle,
+                        color = colors.error,
+                        maxLines = 1,
+                    )
+                }
+                // 撞课不再在块里堆字（旧写法「同时 +N」在 ~78dp 的窄栏里被截成「同时 +」）：
+                // v4 §6 改成右上角一枚 +N 徽标，画在下面 Column 之外，不占正文行高。
             }
-            if (partial) {
-                Text(
-                    text = slot.weekLabel,
-                    fontSize = 9.sp,
-                    color = colors.onBackground.copy(alpha = 0.62f),
-                    maxLines = 1,
-                )
+            // 右上角「+N」：同格还有几门。底色是块底上再压一层极浅赭，字色 #A9522F 对它 4.53:1。
+            // 绝对定位，不动正文布局；课名那一侧靠 end 内边距让出 13dp（见上一段的 maxLines 注释）。
+            if (extra > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 2.dp, end = 2.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(badgeFace)
+                        .padding(horizontal = 2.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        text = "+$extra",
+                        fontSize = Type.micro,   // 稿里的 8px 低于 10sp 地板，这里必须走令牌
+                        color = badgeInk,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
@@ -643,7 +777,7 @@ private fun SlotDetailCard(slot: TronScheduleSlot?, onClose: () -> Unit) {
         Column(Modifier.padding(Dims.cardPadding)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = slot.courseName.ifBlank { "（未命名課程）" },
+                    text = slot.courseName.ifBlank { "（未命名课程）" },
                     fontSize = Type.body,
                     fontWeight = Type.weightBody,
                     color = colors.onBackground,
@@ -657,9 +791,23 @@ private fun SlotDetailCard(slot: TronScheduleSlot?, onClose: () -> Unit) {
                 )
             }
             Spacer(Modifier.height(6.dp))
-            DetailRow("時間", "${slot.dayLabel} ${slot.periodLabel}")
-            DetailRow("週次", slot.weekLabel)
-            DetailRow("原文", slot.raw)
+            DetailRow(
+                "时间",
+                listOfNotNull(
+                    "${slot.dayLabel} ${slot.periodLabel}",
+                    clockLine(slot).takeIf { it.isNotBlank() },
+                ).joinToString(" "),
+            )
+            DetailRow("周次", slot.weekLabel)
+            // 學校自己标的选课状态（红字斜体=待筛选）。没标就不占一行。
+            if (slot.statusLabel.isNotBlank()) DetailRow("状态", slot.statusLabel)
+            // 老師／教室／來源：**來源給了才顯示**。
+            // 空時整行不佔位 —— 顯示一排「—」會被讀成「學校說沒有老師」，
+            // 而實際是這一份來源根本沒這個欄位（學在城院那份就沒有）。
+            if (slot.teacher.isNotBlank()) DetailRow("教师", slot.teacher)
+            if (slot.room.isNotBlank()) DetailRow("地点", slot.room)
+            DetailRow("来源", slot.source.label)
+            if (slot.raw.isNotBlank()) DetailRow("原文", slot.raw)
         }
     }
 }
@@ -685,153 +833,847 @@ private fun DetailRow(label: String, value: String) {
 }
 
 /**
- * 排版切換：一顆膠囊轨道，兩個選項。
+ * 日程 / 整周：板子是「左边今天几号几门课，右边两颗小胶囊」。
  *
- * 不用 Miuix `TabRow`：它自帶水平嵌套滚动/overscroll（`miuix-skill` 的
- * component-selection.md 第 116 行明写过），會和這頁剛加的水平滑動切板塊打架。
+ * 不用 Miuix `TabRow`：它帶水平嵌套滚动，會和這頁左右滑切板塊打架。
  */
 @Composable
-private fun ViewModeSwitch(grid: Boolean, onChange: (Boolean) -> Unit) {
+private fun DayModeSwitch(
+    label: String,
+    /** 第二档：日期 + 节数，板上是 10.5px/--sub。 */
+    meta: String,
+    firstLabel: String,
+    weekMode: Boolean,
+    onFirst: () -> Unit,
+    onWeek: () -> Unit,
+) {
     val colors = MiuixTheme.colorScheme
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Dims.cardCorner))
-            .background(colors.onBackground.copy(alpha = 0.06f))
-            .padding(3.dp)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        ViewModePill("網格", selected = grid, modifier = Modifier.weight(1f)) { onChange(true) }
-        ViewModePill("列表", selected = !grid, modifier = Modifier.weight(1f)) { onChange(false) }
-    }
-}
-
-@Composable
-private fun ViewModePill(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(Dims.chipCorner))
-            .background(if (selected) colors.primary.copy(alpha = 0.16f) else Color.Transparent)
-            .clickable { onClick() }
-            .padding(vertical = 8.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            fontSize = Type.summary,
-            fontWeight = if (selected) Type.weightTitle else Type.weightBody,
-            color = if (selected) colors.primary else colors.onSurfaceVariantSummary,
-        )
-    }
-}
-
-/**
- * 三天窗口的起點按鈕（一…五；週六/週日只在真有課時才給）。
- *
- * 用按鈕而不是橫向滑動：這頁的左右滑已經歸「切板塊」，再疊一层橫向滾動就是兩套手勢
- * 搶同一次拖動（上一輪剛在閏值上栽過一次，不重犯）。
- */
-@Composable
-private fun DayWindowChips(start: Int, today: Int, onPick: (Int) -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    val lastStart = if (today >= 6) 5 else 5
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Dims.tight),
-    ) {
-        (1..lastStart).forEach { s ->
-            val selected = s == start
-            val coversToday = today in s..s + 2
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(Dims.chipCorner))
-                    .background(
-                        if (selected) colors.primary.copy(alpha = 0.16f)
-                        else colors.onBackground.copy(alpha = 0.05f)
-                    )
-                    .clickable(onClickLabel = "看${DAY_LABELS[s - 1]}起三天") { onPick(s) }
-                    .padding(vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) {
+        // 板 `.dayhead .l{display:flex;align-items:baseline;gap:8px}`：
+        // 周几与「日期 · N 门课」在**同一行**（基线对齐），不是上下两行 ——
+        // 拆成两行会把标题下面撑出 37 CSS 的间隙（板 29），整屏第一块就往下坠。
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Text(
+                text = label,
+                // 板 `.dayhead h3{font-size:17px;font-weight:740;letter-spacing:-.02em}` ⇒ 15sp
+                fontSize = Type.body,
+                fontWeight = Type.weightTitle,
+                letterSpacing = (-0.02).em,
+                color = colors.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (meta.isNotBlank()) {
                 Text(
-                    text = "${DAY_LABELS.getOrElse(s - 1) { s.toString() }}${if (coversToday) "·今" else ""}",
+                    text = meta,
+                    // 板 `.dayhead .n{font-size:10.5px;color:var(--sub)}` ⇒ 9.3sp
                     fontSize = Type.caption,
-                    fontWeight = if (selected) Type.weightTitle else Type.weightBody,
-                    color = when {
-                        selected -> colors.primary
-                        coversToday -> colors.onBackground
-                        else -> colors.onSurfaceVariantSummary
-                    },
+                    color = colors.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(bottom = 2.dp),
                 )
             }
+        }
+        Spacer(Modifier.width(8.dp))
+        // 板 `.seg{display:flex;padding:3px;border:1px solid var(--line);
+        // border-radius:999px;gap:1px}` ⇒ 外面这一圈是**容器**，里面两颗才轮流填墨底。
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .border(1.dp, colors.dividerLine, RoundedCornerShape(50))
+                .padding(2.7.dp),
+            horizontalArrangement = Arrangement.spacedBy(0.9.dp),
+        ) {
+            ModePill(firstLabel, selected = !weekMode, onClick = onFirst)
+            ModePill("整周", selected = weekMode, onClick = onWeek)
         }
     }
 }
 
-/**
- * 切週的圓形小鈕（參照站頂部那對 ‹ ›）。
- *
- * ⚠️ `label` 只是字形，`desc` 才給無障礙用 —— 把「‹」當 contentDescription
- *   的話 TalkBack 會念成「左尖括號」，等於沒有。
- */
 @Composable
-private fun WeekNavButton(label: String, desc: String, onClick: () -> Unit) {
+private fun ModePill(label: String, selected: Boolean, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
+    Text(
+        text = label,
+        fontSize = Type.caption,
+        fontWeight = if (selected) Type.weightTitle else Type.weightBody,
+        color = if (selected) colors.background else colors.onSurfaceVariantSummary,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) colors.onBackground else Color.Transparent)
+            .clickable(onClickLabel = "切换到$label") { onClick() }
+            .padding(horizontal = 9.dp, vertical = 4.5.dp),
+    )
+}
+
+@Composable
+private fun WeekNavButton(
+    label: String,
+    desc: String,
+    /** true = 这一枚是「上一周」，箭头要水平翻面。 */
+    backwards: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    // 板 `.week-nav .chev span{width:26px;height:26px;border:1px solid var(--line);
+    // border-radius:999px}` × 0.886 ⇒ **23dp 的描边圆、底是透明的**，
+    // 里面用板上同一颗线性箭头（`#i-chev`）。
+    // 原来是一颗 `primary@0.10` 的实心淡盘 —— 比板重一整档，顶栏右边看着鼓。
     Box(
         modifier = Modifier
-            .size(34.dp)
+            .size(23.dp)
             .clip(CircleShape)
-            .background(colors.primary.copy(alpha = 0.12f))
+            .border(1.dp, colors.dividerLine, CircleShape)
             .clickable(onClickLabel = desc) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
+        // 板上只有一颗 `#i-chev`（朝右）。往左那枚**同一字形水平翻面**，
+        // 不另画第二个图标 —— 左右长得不一样是常见的错。
+        Icon(
+            imageVector = ImageVector.vectorResource(R.drawable.ic_board_chev),
+            contentDescription = null,
+            tint = colors.onSurfaceVariantSummary,
+            modifier = Modifier
+                .size(11.dp)
+                .scale(scaleX = if (backwards) -1f else 1f, scaleY = 1f)
+                .semantics { contentDescription = desc },
+        )
+    }
+}
+
+/** 投影时长（秒）：热调键 `wz_fling_ms` 优先，缺省回落到老常量（B4-15②）。 */
+internal fun flingSeconds(): Float =
+    (com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning.flingProjectionMs / 1000f)
+        .coerceIn(0.02f, 0.40f)
+
+/**
+ * 抬手速度的取窗（毫秒）：**最近这段窗内首尾差 ÷ dt**，样本不足 3 个 ⇒ 0。
+ *
+ * ## ★ 为什么不用 `VelocityTracker`（第 3 轮真机审计 Block 头条）
+ *
+ * Compose 的 Lsq2 估计器有效窗只有 **40ms / 最少 3 个样本**，而且它要求调用方**不要把 UP 喂进去**
+ * （UP 的位置 = 最后一次 move 的位置，是个**零位移的重复点**；官方实现里 UP 走
+ * `changedToUp` 分支、不 add 数据点，UP 距最后 move 超 40ms 还会整窗作废）。
+ * 我上一轮为了"抢到之前的 move 也要进窗"改成自己 `addPosition` 每事件都喂 ⇒ 把这条保护拆了，
+ * 真机上的后果是**符号反了**：手指抬手真速度 −1350 px/s（向左），估计器给出 +975 px/s（向右），
+ * `projected = −149 + 975×0.11 = −41.8`（阈值 110.4 的 38%）⇒ **一次快甩不翻天**，
+ * 而且条子抬手后"被吸回去"而不是"被甩出去"。
+ *
+ * 换成"最近 80ms 首尾差"之后：符号永远与手指一致（首尾两点都是手指自己的位置）、
+ * 稀疏事件下**明确返回 0**（按纯位置判定），而不是被一个病态拟合硬凑出一个数。
+ * 60~100ms 这个窗宽是第 3 轮审计给的口径（"放宽到 60–100ms"），取中值 80ms。
+ */
+internal fun releaseWindow(
+    samples: List<Pair<Long, Float>>,
+    nowMs: Long,
+    windowMs: Long = com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning.stripWindowMs.toLong().coerceIn(20L, 400L),
+): List<Pair<Long, Float>> =
+    samples.filter {
+        // B4-15②：窗宽走热调键 `wz_strip_win_ms`（默认 80ms；测试可传显式值）
+        nowMs - it.first <= windowMs
+    }
+
+internal fun releaseVelocityOf(
+    samples: List<Pair<Long, Float>>,
+    nowMs: Long,
+    windowMs: Long = com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning.stripWindowMs.toLong().coerceIn(20L, 400L),
+): Float {
+    val win = releaseWindow(samples, nowMs, windowMs)
+    if (win.size < 3) return 0f
+    val (t0, x0) = win.first()
+    val (t1, x1) = win.last()
+    val dtMs = t1 - t0
+    if (dtMs <= 0L) return 0f
+    return (x1 - x0) / (dtMs / 1000f)
+}
+
+/**
+ * 落地格数：`projected` 是「位移 + 速度 × [flingSeconds]」，除以**整格宽**再四舍五入
+ * ⇒ 门槛正好是半格（`cellPx / 2`）。
+ *
+ * ★ 第 5 轮真机审计要的：**判据必须抽成生产函数**。以前它是内联在组合里的，
+ *   而 `ReleaseVelocityTest` 在测试里**自己又写了一遍**（本地 `step()` + 本地 `cellPx`）——
+ *   于是"生产除数从 220.8 改成 110.4"这种回归测试照样绿（一行生产代码都没守到）。
+ */
+internal fun weekFlipStep(projected: Float, cellPx: Float): Int =
+    if (cellPx <= 0f) 0 else (-projected / cellPx).roundToInt().coerceIn(-1, 1)
+
+/**
+ * 課表頂部的日期條（v2）：星期 + 月日数字 + 有课小圆点，**点一天就切到那天**。
+ *
+ * 圆点只按**本周 slots** 统计：有 ≥1 节才画，所以「没点」就是「这天本周没课」，
+ * 不是「资料还没来」的猜测。
+ */
+@Composable
+private fun WeekDateStrip(
+    monday: LocalDate,
+    selected: Int,
+    today: Int,
+    dotsFor: (Int) -> Int,
+    onSelect: (Int) -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    // ── v3 清单 #5：这一排格子可以横扫切天 ────────────────────────────
+    //
+    // 判据全部以「一格」为单位，不写死 dp —— 字号缩放、换屏幕宽度都还成立。
+    // 橡皮筋复用 `liquid/GlassControls.kt` 里那一份 `rubberBand`（动效标准第 5 步：
+    // 二者择一，不许写第三种）。
+    val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
+    // ★ 独立审计（v3 #5 第 1 轮）：以前用默认 `enabled = true`，而 `Motion.kt:207`
+    //   那个 `rememberHapticsEnabled` **全工程 0 个调用点** ⇒ 触感开关在所有触发点等于没接。
+    val haptics = com.muyao.wanzaihyperos.ui.design.rememberHaptics(
+        enabled = com.muyao.wanzaihyperos.ui.design.rememberHapticsEnabled(
+            androidx.compose.ui.platform.LocalContext.current,
+        ),
+    )
+    val dragX = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var cellPx by remember { mutableFloatStateOf(0f) }
+    // ★ 必修 4（定义域洞）：`selected` 来自 `LocalDate.dayOfWeek.value` = **1..7**，
+    //   而这一排只到周五：`coerceIn(1, 5)` 与 `isSelected` 对 6/7 永不成立
+    //   ⇒ **周六周日进这一页，五点全无高亮、全无阴影**；`pastEnd` 也只测 5/1，
+    //   selected=6/7 时周一那侧橡皮筋根本不生效（能无阻力推满 220.8px）。进门先夹一次。
+    val sel = selected.coerceIn(1, 5)
+
+    // ★ 离开这一页必须把登记撤掉 —— 不然那块矩形一直挂在排除表里，
+    //   其它页的"横滑切板块"就永久失灵（这种"修一处坏一处"本工程栽过）。
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            com.muyao.wanzaihyperos.ui.main.HorizontalDragZones.set("week-strip", null)
+        }
+    }
+
+    Row(
+        // 板 `.weekstrip{display:flex;gap:5px;padding:6px 14px 10px;align-items:stretch}` ⇒ gap 4.4dp
+        // 板 `.weekstrip{padding:6px 14px}` ⇒ 在 16dp 列表内边距里**不再另缩 4dp**
+        //（缩了以后周条比正文列还窄，选中绿块和下面行的左右边全不齐，复评 2026-10-21）。
+        // ★ 不能用负 padding 去「撑回」板上那 4px：`Modifier.padding` 明确拒绝负值，
+        // 真机上直接 `IllegalArgumentException: Padding must be non-negative` 崩在切课表那一下
+        //（2026-10-21 23:00 logcat 抓到现场）。宁可留这 4px 的差，也不拿崩溃换像素。
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 0.dp, vertical = 2.dp)
+            .onSizeChanged { cellPx = it.width / 5f }
+            // ★ v3 #5：把自己登记成"这块区域的横向手势归我"。
+            //   切板块那条手势跑在 `PointerEventPass.Initial`（父层先看到），
+            //   不登记的话真机上横扫周条会被它抢走 —— 实测三下横扫人就到了设置页。
+            .onGloballyPositioned {
+                com.muyao.wanzaihyperos.ui.main.HorizontalDragZones.set("week-strip", it.boundsInRoot())
+            }
+            // 只动合成层的 translationX，不动 padding/width —— 拖一下不许重测布局。
+            .graphicsLayer { translationX = dragX.value }
+            .pointerInput(sel, cellPx) {
+                if (cellPx <= 0f) return@pointerInput
+                val slop = viewConfiguration.touchSlop
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    // 抬手速度的样本（毫秒时间戳 + **累计位移**）—— 见下面那段注释与 [releaseVelocityOf]。
+                    //
+                    // ★★ 第 5 轮真机审计的**真根因**（靠 `wz-motion` 那行日志定位，不是猜的）：
+                    //   样本里原来记的是 `change.position.x` = 手指在**这一排的局部坐标系**里的 x，
+                    //   而这一排自己挂着 `graphicsLayer { translationX = dragX.value }`
+                    //   ⇒ **坐标系跟着条子一起动**：条子往左移 100px，手指在局部系里反而"往回走 +100"。
+                    //   真机日志（几何：手指 −100px/56ms，单调向左）：
+                    //     samples = 804 | 779 | 754 | 779 | 779 | 804   ← 出去又"回来"了
+                    //     ⇒ v = **+641 px/s**（向左的甩，算出向右的速度）⇒ `projected = −29.5` ⇒ 不翻天
+                    //   这也解释了第 3 轮那次"符号反转"：同一个机理。
+                    //   `change.previousPosition` 与 `change.position` 在同一帧同一坐标系里，
+                    //   所以它们的**差**是干净的手指增量（`drag` 一直是对的、−100 ✓）。
+                    //   ⇒ 样本池记 `drag`（累计位移），坐标系怎么动都不影响它。
+                    val samples = ArrayDeque<Pair<Long, Float>>()
+                    samples.addLast(down.uptimeMillis to 0f)
+                    // ★★ 第 2 轮真机审计（#5 Block）：接管**必须从表现值接着动**。
+                    //   以前这里写 `var total = 0f` ⇒ 每个新手势都从 0 重开，
+                    //   真机 A/B（同一套抓取手势，分别在上一段释放后 30ms / 300ms 抓下去，
+                    //   抓取瞬间表现值是 −65 与 −1）**两次结果完全一样（都到 −85）** ⇒
+                    //   抓取瞬间条子在哪儿完全不影响抓完去哪。那正是动效标准内核第 2 条
+                    //   「被打断时从表现值接着动，不许从头再来」被直接踩掉。
+                    //   `base` 取抓取那一刻的 `dragX`（= 屏幕上的值），`drag` 只记**本次手势**的位移。
+                    val base = dragX.value
+                    var drag = 0f
+                    var dyTotal = 0f
+                    var claimed = false
+                    var releaseVelocity = 0f
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            val dxIn = change.position.x - change.previousPosition.x
+                            // ★★ 第 3 轮真机审计 **Block 头条**：抬手速度的取法整个换掉。
+                            //
+                            // 事故形态（真机 `SYNTHETIC0000001`，第 3 轮）：一次**快甩**之后天不翻，
+                            // 而且条子抬手后是"被吸回去"而不是"被甩出去"。逐帧拟合给出：
+                            //   手指抬手真速度 **−1350 px/s（向左）**，弹簧初速反解 **+975 px/s（向右）**
+                            //   ⇒ `projected = drag + v·0.11 = −149 + 107 = −41.8`（阈值 110.4 的 38%）⇒ 不翻天。
+                            //
+                            // 机理：Compose 的 Lsq2 估计器有效窗只有 **40ms / 最少 3 个样本**，
+                            // 而 UP 的位置 = 最后一次 move 的位置（**零位移的重复点**）——
+                            // 把 UP 也喂进去，最小二乘的斜率会被这个重复点拽偏甚至**翻号**。
+                            // （官方实现里 UP 是不喂的，我上一轮为了"抢到之前的 move 也要进窗"
+                            //   改成自己 `addPosition` 每事件都喂，把这条保护拆了。）
+                            //
+                            // 所以这里不再押那个奇异窗：**按"最近 80ms 首尾差 ÷ dt"自己算**，
+                            // 样本不足 3 个或 dt ≤ 0 ⇒ **v = 0（按纯位置判定）**，不用病态拟合硬凑。
+                            // 见 [releaseVelocityOf] 与它的单测（含"补一个重复点不许把符号翻过去"那条回归）。
+                            // 记**累计位移**（干净的手指轨迹），不是局部坐标 —— 见上面那段
+                            samples.addLast(change.uptimeMillis to drag)
+                            while (samples.size > 16) samples.removeFirst()
+                            // ★ 第 2 轮审计的缺陷 2：`dxIn` 只能记一次。
+                            //   以前 `:1441`（未抢到那支）与 `:1493`（抢到之后）**各加一遍**
+                            //   ⇒ 抢到的那一帧位移被记两次：慢拖 9 个 move 手指走 −83px、条子走 −93px；
+                            //   抓取那一下手指 −43px、条子 −86px（整整 2 倍）⇒ 一帧内 42px 死跳，
+                            //   而且"半格"实际是 99px（44.8%）而不是 110.4px（50%）。
+                            drag += dxIn
+                            dyTotal += change.position.y - change.previousPosition.y
+
+                            if (!claimed) {
+                                // ★★ 独立审计（v3 #5 第 1 轮）**Block 头条**：这一排以前**没有轴向锁**
+                                //   （`isConsumed` / `position.y` 在全文件命中 0 次），
+                                //   而周条是课表页 LazyColumn 的第 1 项 —— 手指压着它**竖着滚列表**时
+                                //   x 增量照样在累，`abs(total) >= cellPx*0.5`（110.4px）或
+                                //   `|v| >= 50dp/s`（175px/s）在斜向快滚里极易满足
+                                //   ⇒ 他只是滚了一下列表，天就被切走、还震了一下。
+                                //   这一改的是「他今天有哪几节课」，直接踩「别让人走错教室」那条红线。
+                                //   判据抄同工程已经写对的那一份（`SwipeToSwitchSection.kt:87-93`）：
+                                //   竖向先赢 ⇒ 交还给列表；横向先赢 ⇒ 这一排接管。
+                                //   ⚠️ 抢到的判据一律用 **`drag`（本次手势的位移）**，不用 `base + drag`：
+                                //     接手时条子可能正停在 −65，用总位移会让"手指才动 1px"就判成横向大幅拖拽。
+                                if (abs(dyTotal) > slop * 1.5f && abs(dyTotal) > abs(drag) * 1.2f) {
+                                    break
+                                }
+                                if (change.isConsumed) {
+                                    // 已经被别人（列表惯性/父层）吃掉 ⇒ 不抢。
+                                    break
+                                }
+                                if (abs(drag) > slop * 1.5f && abs(drag) > abs(dyTotal) * 1.2f) {
+                                    claimed = true
+                                } else if (!change.pressed) {
+                                    // 轻点（没到横向阈值就抬起）⇒ 既不切天也不回弹动画，交给 clickable。
+                                    break
+                                } else {
+                                    continue
+                                }
+                            }
+
+                            if (!change.pressed) {
+                                // ★ 抬手分**正常抬手 / 被抢走**两种（必修 2）：
+                                //   以前 `if (!change.pressed)` 一律当同一件事，被系统取消的手势
+                                //   照样提交切日 + 发触感。这里能走到这一步说明已经 claimed 且
+                                //   这个 pointer 自己还活着 ⇒ 是用户真放的手。
+                                val v = releaseVelocityOf(samples, change.uptimeMillis)
+                                releaseVelocity = v
+                                // ★★ 第 5 轮真机审计：注入用的 evdev 内核时间戳**本身不可靠**
+                                //   （`v7sf60.bin` 里 DOWN 记在 +0.00ms、第一个 move 记在 +662983ms），
+                                //   所以"App 内部那组 `uptimeMillis`"离线复算不出来 —— 根因只能在运行时看。
+                                //   这一行把判据要用的量**一次全打出来**（tag `wz-motion`，logcat grep 它）：
+                                //   靠它区分两个嫌疑：
+                                //     甲 = 样本池里根本没有"释放瞬间那一段"（Compose 把中间 move 批处理掉了
+                                //           ⇒ 要把 `change.historical` 里的历史点也喂进来）；
+                                //     乙 = 池子里有 DOWN 这个**零速度样本**，落在窗口首元素 ⇒ 算成整段平均。
+                                if (com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning.debugLog) run {
+                                    val win = releaseWindow(samples, change.uptimeMillis)
+                                    android.util.Log.i(
+                                        "wz-motion",
+                                        "weekstrip release drag=$drag base=$base dragX=${dragX.value} " +
+                                            "samples=${samples.joinToString("|") { "${it.first}:${it.second}" }} " +
+                                            "nowMs=${change.uptimeMillis} winSize=${win.size} " +
+                                            "t0=${win.firstOrNull()?.first} t1=${win.lastOrNull()?.first} " +
+                                            "dtMs=${(win.lastOrNull()?.first ?: 0L) - (win.firstOrNull()?.first ?: 0L)} " +
+                                            "v=$v projected=${drag + v * flingSeconds()} step=" +
+                                            weekFlipStep(drag + v * flingSeconds(), cellPx),
+                                    )
+                                }
+                                // ★ 必修 5：**速度真的交接给动画**（以前 `initialVelocity` 全文件 0 次，
+                                //   `v` 只当布尔与符号用，落点是"半格 OR 速度符号"的二值判定）。
+                                //   落点按**投影**算：`projected = 位移 + v · 0.11f`
+                                //   —— 0.11f 是 Android 样条 fling 的等效投影时长（`PathInterpolator`
+                                //   + 摩擦衰减积分出来的量纲），**真机 A/B 已证有效，别动**。
+                                //   标准里那条 Web 的 `d/(1−d)`（d≈0.998）是 px/s + 毫秒量纲，不许照搬。
+                                //
+                                // ★ 第 2 轮审计要我拍板的一条：翻天的位移量用**手指自己的那段**（`drag`），
+                                //   不用 `base + drag`。理由：翻不翻天是"他这一下想干什么"的问题，
+                                //   语义一直是「手指走够半格」；而 `base + drag` 会让"条子正在大幅回弹时
+                                //   手指只挪 1px 也翻天"。**视觉位置与判重量的关系写在这里**：
+                                //   位置（`base + drag`）负责"条子跟着手"，判重用 `drag` 负责"这一下算不算数"，
+                                //   两者各自单调、且不像以前那样共用一个被记两遍的 `total`。
+                                val projected = drag + v * flingSeconds()
+                                val step = weekFlipStep(projected, cellPx)
+                                val next = (sel + step).coerceIn(1, 5)
+                                if (next != sel) {
+                                    haptics.commit()   // 因果明确的时刻：这一发真的把请求发出去了
+                                    onSelect(next)
+                                }
+                                break
+                            }
+
+                            // 位置 = **抓取时的表现值 + 本次手势的位移**（第 2 轮审计必修 2）
+                            val pos = base + drag
+                            // 往哪边是"出界"：周一(1) 再往右、周五(5) 再往左都没有那一天。
+                            // ★ 必修 4：全部用**夹过定义域的 sel** —— 周六周日 `selected` 是 6/7，
+                            //   以前这里判 `selected == 5 / == 1` 永不成立 ⇒ 周一那侧橡皮筋根本不生效，
+                            //   可以无阻力推满 220.8px。
+                            val pastEnd = (pos < 0f && sel == 5) || (pos > 0f && sel == 1)
+                            val want = if (pastEnd) {
+                                com.muyao.wanzaihyperos.ui.design.liquid.rubberBand(pos, cellPx)
+                            } else {
+                                pos.coerceIn(-cellPx, cellPx)
+                            }
+                            // ★ 必修 6：**跟手是直接操作，不是动画** ⇒ 无条件走。
+                            //   以前写的是 `dragX.snapTo(if (motion.canMove) want else 0f)`，
+                            //   减弱动效下手指推着条子屏幕上什么都不动、只在抬手时天被切走
+                            //   —— 那才是真的"零反馈"。
+                            // ⚠️ 台账里"这里不用 scope.launch"那句**在语言层面不成立**，我试过：
+                            //   `Animatable.snapTo/animateTo` 带 `@RestrictSuspension`，
+                            //   在 `awaitEachGesture` 体里直调会被编译器拒绝
+                            //   （实跑原文：Restricted suspending functions can invoke member or
+                            //   extension suspending functions only on their restricted coroutine scope）。
+                            //   所以派发还得走 scope；**要治的那一条（跟手不许被减弱动效关掉）已经治了**。
+                            scope.launch { dragX.snapTo(want) }
+                            change.consume()
+                        }
+                    } finally {
+                        // ★ 必修 3：**每一条出口都要回位**（抬手、竖向让路、被 consume、
+                        //   pointer 从 changes 消失、pointerInput 因 `cellPx`/定义域变化而重启）。
+                        //   以前只有"正常抬手"那一条会回位，其余把条子停在偏移值上。
+                        //   减弱动效 ⇒ 不做回弹动画，直接归零（位移停了，切天本身仍是反馈）。
+                        // 第 5 轮审计要的第二行：动画**真正拿到**的初速（与上一行对照就知道有没有被吞）。
+                        // B4-15①：只走 `hzr_debug` 开关，日常包里不刷屏。
+                        if (com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning.debugLog) {
+                            android.util.Log.i(
+                                "wz-motion",
+                                "weekstrip spring initialVelocity=$releaseVelocity from=${dragX.value}",
+                            )
+                        }
+                        if (motion.canMove) {
+                            scope.launch { dragX.animateTo(
+                                0f,
+                                androidx.compose.animation.core.spring(
+                                    // 常量写法，不推高 `MotionGuardTest` 的裸写弹簧基线。
+                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                                ),
+                                initialVelocity = releaseVelocity,
+                            ) }
+                        } else {
+                            scope.launch { dragX.snapTo(0f) }
+                        }
+                    }
+                }
+            },
+        horizontalArrangement = Arrangement.spacedBy(4.4.dp),
+    ) {
+        // 板子的周条只到周五（学校周六日无课）；有几节课就画几个点，最多 3 个。
+        (1..5).forEach { day ->
+            val date = monday.plusDays((day - 1).toLong())
+            val isSelected = day == sel
+            val isToday = day == today
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    // 板 `.day{flex:1;border-radius:15px;padding:9px 0 7px}` × 0.886
+                    // ⇒ 13dp 圆角、上 8dp 下 6dp。原来 12dp/4dp 让这排格子矮了一截，
+                    // 选中那块看着像贴上去的，不像板上那种「一颗能按下去的糖」。
+                    .clip(RoundedCornerShape(13.dp))
+                    .then(
+                        if (isSelected) {
+                            Modifier.shadow(
+                                6.dp,
+                                RoundedCornerShape(13.dp),
+                                ambientColor = colors.primary.copy(alpha = 0.22f),
+                                spotColor = colors.primary.copy(alpha = 0.22f),
+                            )
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .background(if (isSelected) colors.primary else Color.Transparent)
+                    .clickable(onClickLabel = "查看" + DAY_WEEK[day - 1]) { onSelect(day) }
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = DAY_LABELS[day - 1],
+                    fontSize = Type.micro,
+                    color = if (isSelected) colors.onPrimary.copy(alpha = 0.85f)
+                    else colors.onSurfaceVariantSummary,
+                )
+                // 板 `.day .n{margin-top:4px}` ⇒ 3.5dp
+                Spacer(Modifier.height(3.5.dp))
+                Text(
+                    text = date.dayOfMonth.toString(),
+                    fontSize = Type.body,
+                    fontWeight = if (isSelected || isToday) Type.weightTitle else Type.weightBody,
+                    color = when {
+                        isSelected -> colors.onPrimary
+                        isToday -> colors.primary
+                        else -> colors.onBackground
+                    },
+                    style = TextStyle(fontFeatureSettings = Type.tabular),
+                    maxLines = 1,
+                )
+                // 板 `.dots{height:4px;margin-top:5px}` ⇒ 3.5dp 高、4.4dp 上边距
+                Spacer(Modifier.height(4.4.dp))
+                // 有几节课就几个点（最多 3 个）；没课也占住同样高度，整条不会上下跳。
+                Row(
+                    modifier = Modifier.height(3.5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.2.dp),
+                ) {
+                    repeat(dotsFor(day)) {
+                        Box(
+                            modifier = Modifier
+                                // 板 `.dots i{width:3px;height:3px}` ⇒ 2.6dp
+                                .size(2.6.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    // ★ 未选中那几格的点是 **--sub @ 55%**（板 `.day.has .dots i`），
+                                    // 不是薄荷实心：整排五点全绿会把「选中的那天」这件事稀释掉。
+                                    if (isSelected) colors.onPrimary.copy(alpha = 0.8f)
+                                    else colors.onSurfaceVariantSummary.copy(alpha = 0.55f)
+                                ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 日程裡的日標題：一條短豎線 + 星期，和下面的課卡屬於同一組。 */
+@Composable
+private fun AgendaDayHeader(label: String, isToday: Boolean) {
+    val colors = MiuixTheme.colorScheme
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 0.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 3.dp, height = 12.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(
+                    if (isToday) colors.primary
+                    else colors.onSurfaceVariantSummary.copy(alpha = 0.35f)
+                ),
+        )
+        Spacer(Modifier.width(8.dp))
         Text(
             text = label,
-            fontSize = Type.title,
+            fontSize = Type.summary,
             fontWeight = Type.weightTitle,
-            color = colors.primary,
-            modifier = Modifier.semantics { contentDescription = desc },
+            color = if (isToday) colors.primary else colors.onBackground,
         )
     }
 }
 
 /**
- * 一堂課的格子（列表排版用）。
+ * 一堂課的一行（「按天日程」排版，v2 時間線）。
  *
- * ⚠️ 顯示用的是 `TronScheduleSlot` **自帶的顯示名**（`dayLabel` / `periodLabel`），
- * 不是自己拼的 —— 那些屬性已經處理好「單節 vs 連堂」的差別
- * （`第3節` vs `第3-4節`）。自己拼容易在連堂時顯示成「第3節」而漏掉 4。
+ * 版面：左邊固定一列節次（`第3-4节` + 能算出來的上課時刻），中間課名與老師/教室，
+ * 右邊最多一顆「現在」膠囊（或學校標的「待筛选」）。
+ *
+ * ⚠️ 這裡**刻意不加點擊**：詳情卡是網格版點格子才有的（`picked`），
+ * 日程這邊沒有詳情頁；加一個點不出東西的入口，比不加更糟。
+ *
+ * 用不透明的 [AppCard] 而不是玻璃：這一頁下面沒有可採樣的 backdrop，
+ * 玻璃會退化成實底，等於白多一層合成。
+ *
+ * ⚠️ 時刻只顯示 `PeriodClock.startOf` 算得出來的那一頭，算不出就留白 ——
+ * 「現在」也一樣，起止兩頭缺一頭就不標：編一個下課時間會讓他把已下課的課當成還在教室。
  */
 @Composable
-private fun CourseCell(slot: TronScheduleSlot) {
+private fun CourseCell(slot: TronScheduleSlot, isToday: Boolean) {
     val colors = MiuixTheme.colorScheme
-    AppCard {
-        Column(modifier = Modifier.padding(Dims.cardPadding)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = slot.courseName.ifBlank { "（未命名課程）" },
-                    fontSize = Type.body,
-                    fontWeight = Type.weightBody,
-                    color = colors.onBackground,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
+    val times = UiPrefs.periodTimes
+    val start = PeriodClock.startOf(times, slot.periodStart)
+    val end = PeriodClock.endOf(times, slot.periodEnd)
+    val ongoing = isToday && isOngoing(start, end)
+    val lessonCount = (slot.periodEnd - slot.periodStart + 1).coerceAtLeast(1)
+    // 老師、教室、上午/下午/晚上合成一行；空欄位不佔位，也不寫「—」冒充「學校說沒有」。
+    val meta = listOf(slot.teacher, slot.room, slot.slotLabel)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+    // 節次和時刻逐行對齊要靠等寬數字；用 tnum，不用 Monospace（中文會變字體）。
+    val tabular = MiuixTheme.textStyles.main.copy(fontFeatureSettings = Type.tabular)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 7.dp)
+            // 這條豎線就是時間線：把節次列和課程內容切開，淡到只做分組、不搶課名。
+            .drawBehind {
+                val x = (AgendaPeriodWidth + 7.dp).toPx()
+                drawLine(
+                    color = colors.onSurfaceVariantSummary.copy(alpha = 0.14f),
+                    start = Offset(x, 0f),
+                    end = Offset(x, size.height),
+                    strokeWidth = 1.dp.toPx(),
                 )
+            },
+        verticalAlignment = Alignment.Top,
+    ) {
+            // 板子左列是「上课时间 / 下课时间」两行，节数交给右侧 chip。
+            Column(modifier = Modifier.width(AgendaPeriodWidth).padding(end = 4.dp)) {
                 Text(
-                    text = slot.periodLabel,
+                    text = start ?: slot.periodLabel,
                     fontSize = Type.caption,
-                    color = colors.primary,
+                    fontWeight = Type.weightBody,
+                    color = colors.onSurfaceVariantSummary,
+                    style = tabular,
+                    maxLines = 1,
+                )
+                if (end != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = end,
+                        fontSize = Type.caption,
+                        // v4：不用透明度造灰。原来 0.75 合成出 #949087，对卡 3.10:1，10sp 小字不合格。
+                        color = if (colors.background.luminance() < 0.5f) Tone.quietDark else Tone.quiet,
+                        style = tabular,
+                        maxLines = 1,
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f).padding(start = 21.dp)) {
+                Text(
+                    text = slot.courseName.ifBlank { "（未命名课程）" },
+                    fontSize = Type.secondary,
+                    fontWeight = Type.weightTitle,
+                    color = colors.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (meta.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = meta,
+                        fontSize = Type.micro,
+                        color = colors.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            // 右側只留一個狀態：正在上 > 學校標的待筛选。兩者都沒有就整塊不佔位。
+            when {
+                ongoing -> {
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 8.dp, top = 1.dp)
+                            .clip(CircleShape)
+                            .background(colors.primary.copy(alpha = 0.12f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    ) {
+                        Text(
+                            text = "现在",
+                            fontSize = Type.caption,
+                            fontWeight = Type.weightTitle,
+                            color = colors.primary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+
+                slot.statusLabel.isNotBlank() -> Text(
+                    text = slot.statusLabel,
+                    fontSize = Type.caption,
+                    fontWeight = Type.weightBody,
+                    color = colors.error,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = 8.dp, top = 1.dp),
+                )
+
+                else -> Text(
+                    text = "$lessonCount 节",
+                    style = TextStyle(fontFeatureSettings = Type.tabular),
+                    fontSize = Type.micro,
+                    color = colors.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .padding(start = 8.dp, top = 1.dp)
+                        .clip(RoundedCornerShape(Dims.chipCorner))
+                        .background(colors.onBackground.copy(alpha = 0.05f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp),
                 )
             }
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = slot.raw.ifBlank { slot.weekLabel },
-                fontSize = Type.caption,
-                color = colors.onSurfaceVariantSummary,
-                maxLines = 2,
-            )
         }
-    }
+}
+
+/**
+ * 日程左側節次列的固定寬度。
+ *
+ * 「第10-11节」在 12sp + tnum 下真机量到 210px（560dpi ⇒ 60dp）；
+ * 上一版 66dp − 6dp 留白恰好只剩 60dp，`maxLines=1` 没有省略号 ⇒
+ * 「节」被从右边切掉（2026-10-21 真机截图）。
+ * 现在 76dp − 4dp = 72dp，留 12dp 余量；课名那一列仍有两百多 dp，不会挤成竖条。
+ */
+private val AgendaPeriodWidth = 42.dp
+
+/**
+ * 「現在正在上」= 起止時刻都算得出來，且本地時間落在 [start, end) 裡。
+ * 任何一頭未知都回 false（**不知道就不標**，不猜）。
+ */
+private fun isOngoing(start: String?, end: String?): Boolean {
+    val from = start?.let { runCatching { java.time.LocalTime.parse(it) }.getOrNull() } ?: return false
+    val to = end?.let { runCatching { java.time.LocalTime.parse(it) }.getOrNull() } ?: return false
+    val now = java.time.LocalTime.now()
+    return !now.isBefore(from) && now.isBefore(to)
 }
 
 private val DAY_LABELS = listOf("一", "二", "三", "四", "五", "六", "日")
+
+private val DAY_WEEK = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+/**
+ * 一塊課上的「幾點」那行。
+ *
+ * ★ 三級優先，且**最後一級是空字符串**（业主 2026-10-19：「你课表和时间对不上」）：
+ *
+ * 1. 他在「設定 → 節次時間」填過的時間（`10:00-11:40`）—— 這是唯一能精確到點的來源；
+ * 2. 沒填時退回**學校自己標的時段**（教务表左列的「上午/下午/晚上」，真機取證：
+ *    正方那一欄只有時段分組，`docs/B22-JW-CELL-HTML.txt` 裡學校給的 11 個具名欄位
+ *    就沒有一個是「幾點」）；
+ * 3. 兩個都沒有 ⇒ 這一行不出現。
+ *
+ * 為什麼寧可不寫也不給個默認時間：**編一個時間就是造數據**，
+ * 而學生按編出來的時間去上課是要遲到的。
+ */
+private fun clockLine(slot: TronScheduleSlot): String {
+    val times = UiPrefs.periodTimes
+    return PeriodClock.label(times, slot.periodStart, slot.periodEnd) ?: slot.slotLabel
+}
+
+/**
+ * 「課表上沒有幾點」這件事要**在課表上能解決**，不是讓他自己去設定里找。
+ *
+ * 判據用「本週visible的課裡，有沒有任何一塊能算出時間」——
+ * 不是「填沒填過」：填了 1-4 節但本週有第 8-9 節的課，那一塊仍然不知道幾點，
+ * 而那句「已填 4 节」會讓他以為設定了卻還是對不上（這正是這次抱怨的形態）。
+ */
+@Composable
+private fun ClockHint(slots: List<TronScheduleSlot>, onOpen: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    val times = UiPrefs.periodTimes
+    val noClock = slots.count { slot ->
+        PeriodClock.label(times, slot.periodStart, slot.periodEnd) == null
+    }
+    if (noClock == 0) return
+    // 板子上没有这张卡的位置：压成一行，只在真的有课缺时间时出现。
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Dims.containerCorner))
+            .background(colors.onBackground.copy(alpha = 0.05f))
+            .clickable(onClickLabel = "补节次时间") { onOpen() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "有 $noClock 节对不到几点",
+            style = TextStyle(fontFeatureSettings = Type.tabular),
+            fontSize = Type.caption,
+            fontWeight = Type.weightBody,
+            color = colors.onBackground,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            // 学校日历那份已经盖住了绝大多数课块（`SchoolPeriods`）；
+            // 这里只针对**两头都查不到**的那种（例如第 12 节上的课）。
+            text = "补时间 ›",
+            fontSize = Type.caption,
+            color = colors.primary,
+        )
+    }
+}
+
+
+/**
+ * 点格子后就地放大的详情层。
+ *
+ * 三条硬要求（都来自实测，不是审美偏好）：
+ * 1. 起点必须是**那一格的真实矩形**。写死一个比例的话，撞课那一列、翻到别的周、
+ *    真机 font_scale 1.15 之后都对不上，看起来像从屏幕中间弹出来（业主原话「生硬」）。
+ * 2. 只能缩放 + 位移，不能改布局：把 content 换成另一套排版会在动画中途跳一下。
+ * 3. 关掉动效时降级为一次短淡入，**不是零**（动效标准第 3 条：减少动效 ≠ 没有动效）。
+ */
+@Composable
+private fun SlotZoomOverlay(
+    slot: TronScheduleSlot,
+    anchor: Rect?,
+    pageOrigin: Offset,
+    onClose: () -> Unit,
+) {
+    val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
+    val haptics = com.muyao.wanzaihyperos.ui.design.rememberHaptics(
+        enabled = com.muyao.wanzaihyperos.ui.design.rememberHapticsEnabled(
+            androidx.compose.ui.platform.LocalContext.current,
+        ),
+    )
+    val progress = remember(slot) { androidx.compose.animation.core.Animatable(0f) }
+    var panelRect by remember { mutableStateOf<Rect?>(null) }
+    val motionSpec = com.muyao.wanzaihyperos.ui.design.Motion
+    LaunchedEffect(slot) {
+        haptics.tick()
+        if (motion.canMove) {
+            progress.animateTo(
+                1f,
+                animationSpec = androidx.compose.animation.core.spring(
+                    dampingRatio = motionSpec.OVERLAY_IN_DAMPING,
+                    stiffness = motionSpec.OVERLAY_IN_STIFFNESS,
+                ),
+            )
+        } else {
+            progress.animateTo(1f, animationSpec = androidx.compose.animation.core.tween(motionSpec.FAST_MS))
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
+        // 遮罩：既有「这一层在最上面」的提示，也顺手吃掉点击（点空白处收起）。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.30f * progress.value))
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClose,
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dims.screenH)
+                .align(Alignment.Center)
+                .onGloballyPositioned { c ->
+                    panelRect = Rect(
+                        offset = c.positionInRoot() - pageOrigin,
+                        size = Size(c.size.width.toFloat(), c.size.height.toFloat()),
+                    )
+                }
+                .graphicsLayer {
+                    val target = panelRect
+                    val from = anchor
+                    if (target != null && from != null && from.width > 1f && target.width > 1f) {
+                        val t = progress.value
+                        // 等比缩放：取宽高比里更小的那个，免得先被撑变形再回正。
+                        val s0 = minOf(from.width / target.width, from.height / target.height)
+                            .coerceIn(0.06f, 1f)
+                        val s = s0 + (1f - s0) * t
+                        scaleX = s
+                        scaleY = s
+                        translationX = from.center.x + (target.center.x - from.center.x) * t - target.center.x
+                        translationY = from.center.y + (target.center.y - from.center.y) * t - target.center.y
+                        alpha = 0.30f + 0.70f * t
+                    }
+                },
+        ) {
+            SlotDetailCard(slot = slot, onClose = onClose)
+        }
+    }
+}

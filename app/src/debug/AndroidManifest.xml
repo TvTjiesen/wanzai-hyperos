@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  只屬於 debug 構建的清單（源集機制：src/debug 與 src/main 合併，release 不含這裡的東西）。
+
+  為什麼要一個預覽 Activity：課表那一頁的資料要**登錄了學校才有**，
+  而驗收時手上那台機不一定登錄著 —— 於是我永遠看不到新版排版長什麼樣，
+  只能靠猜。這個入口把排版單獨拉出來跑，**只讀內存裡的佔位資料**：
+  不碰網絡、不碰憑據、不進 release。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".dev.BoardPreviewActivity"
+            android:exported="true"
+            android:label="课表排版预览(仅测试)"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
+            android:name=".dev.AiBallLabActivity"
+            android:exported="true"
+            android:label="AI 小球调试台(仅测试)"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+    </application>
+</manifest>

@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.muyao.wanzaihyperos.ui.design.Type
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -110,7 +111,7 @@ fun AppsPage(
                     text = "共 $appCount 个应用 · ${uiGroups.size} 个分组" +
                         (if (entryCount != appCount) "（含重复入口 $entryCount 条）" else "") +
                         if (demoIndex != 0) "（演示状态）" else "",
-                    style = MiuixTheme.textStyles.footnote2,
+                    style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = Type.tabular),
                     color = colors.onBackgroundVariant,
                 )
                 TextButton(
@@ -218,7 +219,7 @@ fun AppsPage(
                     text = "以上信息来自学校门户实时下发（应用名、地址、标的色）。" +
                         "图标是本地按名字推断的 —— 不下载门户的 app_img，" +
                         "因为 ${uiGroups.size} 组共 $appCount 个图标就是 $appCount 次请求，会违反限流红线。",
-                    style = MiuixTheme.textStyles.footnote2,
+                    style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = Type.tabular),
                     color = colors.onSurfaceVariantSummary,
                 )
             }

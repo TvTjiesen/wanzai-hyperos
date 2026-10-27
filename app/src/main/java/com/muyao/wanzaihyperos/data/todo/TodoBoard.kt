@@ -48,7 +48,7 @@ enum class TodoSource(val label: String) {
  * 刻意**不**把兩個來源的原始模型合成一個大類：
  * 它們的欄位語義不同（作業有截止時間、審批有處理狀態），
  * 強行合併會造出一堆「對 A 有意義對 B 永遠是 null」的欄位。
- * 這裡只保留**兩邊都成立**的資訊 + 一個指向原始資料的引用。
+ * 這裡只保留**兩邊都成立**的信息 + 一個指向原始資料的引用。
  */
 data class TodoItem(
     val source: TodoSource,
@@ -74,6 +74,22 @@ data class TodoItem(
     val sortTimeMillis: Long?,
     /** 時間的顯示文字（原始形態，如 `2026.10.14 23:30`）。空 = 沒有。 */
     val timeText: String,
+    /**
+     * 學在城院那一路的**課程 id**（其他來源為 0）。
+     *
+     * 給「點一行 → 打開那一門課的作業詳情」用。0 表示這個來源沒有課程概念，
+     * 界面據此**不該把這一行做成可點**（點了也不知道要打開什麼）。
+     */
+    val courseId: Int = 0,
+    /**
+     * 這條待辦**能不能在原生頁裡辦掉**（目前只有學在城院的作業是 true）。
+     *
+     * ★ 為什麼單獨一個旗標而不是讓界面去推（「來源==TRONCLASS 就能辦」）：
+     *   學在城院的待辦裡還有報名、繳費這類 `type` 不是 homework 的條目，
+     *   把它們也做成可點 → 會拿錯 id 去發**寫請求**。
+     *   旗標在轉換處設（那里看得到原始 `type`），界面只負責照它亮/滅。
+     */
+    val actionable: Boolean = false,
 )
 
 /**
@@ -243,7 +259,7 @@ object TodoBoardBuilder {
  * ⚠️ **截止時間是 UTC（尾碼 `Z`）**，實測值形如 `2026-10-14T15:30:00Z`。
  * 直接照原樣顯示會**差 8 小時** —— 那是會讓人錯過交作業的錯，不是顯示問題。
  * 所以這裡把解析出的毫秒**轉成本地時間**再顯示；
- * 解析不出來時才退回原始字串（至少不丟資訊）。
+ * 解析不出來時才退回原始字串（至少不丟信息）。
  */
 fun TronTodo.toTodoItem(): TodoItem = TodoItem(
     source = TodoSource.TRONCLASS,
@@ -254,6 +270,9 @@ fun TronTodo.toTodoItem(): TodoItem = TodoItem(
     // ★ 用模型上的 localTimeText（內部用 formatTronLocalTime 轉本地時間）。
     //   這裡**不要**自己再寫一份轉換 —— 兩個地方各寫一份，早晚會有一處忘記改。
     timeText = localTimeText,
+    courseId = courseId,
+    // 只有「真的是作業」才允許點進詳情+提交（見 [TronTodo.isHomework]）。
+    actionable = isHomework,
 )
 
 /** 門戶的事務 → 統一視圖。 */

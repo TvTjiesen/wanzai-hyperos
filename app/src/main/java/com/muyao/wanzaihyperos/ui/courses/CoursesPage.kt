@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.courses
 
+import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUp
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import androidx.compose.runtime.setValue
@@ -102,9 +103,9 @@ fun CoursesPage(
         modifier = modifier.fillMaxSize(),
         topBar = {
             SmallTopAppBar(
-                title = "我的課程",
+                title = "我的课程",
 color = Color.Transparent,
-                subtitle = "來自場景管理（cjh52）",
+                subtitle = "来自场景管理（cjh52）",
                 navigationIcon = {
                     IconButton(onClick = onExit) {
                         Icon(
@@ -118,7 +119,7 @@ color = Color.Transparent,
                     IconButton(onClick = { /* 由外層 scope 觸發 */ }) {
                         Icon(
                             imageVector = MiuixIcons.Refresh,
-                            contentDescription = "重新載入",
+                            contentDescription = "重新加载",
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -166,14 +167,14 @@ private fun SummaryBar(courseCount: Int, slotCount: Int, isStale: Boolean) {
     val colors = MiuixTheme.colorScheme
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
         Text(
-            text = "共 $courseCount 門課 · $slotCount 個上課時段",
-            style = MiuixTheme.textStyles.body1,
+            text = "共 $courseCount 门课 · $slotCount 个上课时段",
+            style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = Type.tabular),
             color = colors.onBackground,
         )
         if (isStale) {
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "這次沒重新整理成功，顯示的是上一次的資料",
+                text = "这次没刷新成功，显示的是上一次的资料",
                 style = MiuixTheme.textStyles.footnote2,
                 color = colors.onBackgroundVariant,
             )
@@ -182,7 +183,7 @@ private fun SummaryBar(courseCount: Int, slotCount: Int, isStale: Boolean) {
 }
 
 /**
- * 一張課程卡：課程資訊 + **全部時段**。
+ * 一張課程卡：課程信息 + **全部時段**。
  *
  * 時段數 >1 時刻意顯示「N 個時段」的標記 ——
  * 讓「這門課不止一個時段」這件事在使用者面前是**顯式**的，
@@ -208,8 +209,8 @@ private fun CourseCard(course: Course) {
                 )
                 if (course.slots.size > 1) {
                     Text(
-                        text = "${course.slots.size} 個時段",
-                        style = MiuixTheme.textStyles.footnote2,
+                        text = "${course.slots.size} 个时段",
+                        style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = Type.tabular),
                         color = colors.primary,
                     )
                 }
@@ -227,7 +228,7 @@ private fun CourseCard(course: Course) {
             if (course.slots.isEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "尚未排定上課時段",
+                    text = "尚未排定上课时段",
                     style = MiuixTheme.textStyles.footnote1,
                     color = colors.onSurfaceVariantSummary,
                 )
@@ -274,7 +275,7 @@ private fun SlotRow(slot: CourseSlot) {
             add("${slot.start}~${slot.end}")
         }
         if (slot.displayLocation.isNotBlank()) add(slot.displayLocation)
-        slot.weekRange?.let { add("${it.first}-${it.last} 週") }
+        slot.weekRange?.let { add("${it.first}-${it.last} 周") }
     }
     Text(
         text = parts.joinToString(" · "),

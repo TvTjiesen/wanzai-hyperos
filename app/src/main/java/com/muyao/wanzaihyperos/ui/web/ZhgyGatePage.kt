@@ -126,8 +126,8 @@ fun ZhgyGatePage(
         AppList(modifier = Modifier.fillMaxSize().padding(top = innerPadding.calculateTopPadding())) {
             item {
                 HintText(
-                    "这个系统的登录由「钉钉」签发授权码，本 App 拿不到，所以需要你提供一次入口链接。\n" +
-                        "在能正常打开智慧公寓的地方复制网址（含 code= 的那一串），回到这里贴上。",
+                    "这个系统的登录由“钉钉”签发授权码，本 App 拿不到，所以需要你提供一次入口链接。\n" +
+                        "在能正常打开智慧公寓的地方复制网址（含 code= 的那一串），回到这里粘贴。",
                 )
             }
 
@@ -137,7 +137,7 @@ fun ZhgyGatePage(
                 TextField(
                     value = input,
                     onValueChange = { input = it; error = null },
-                    label = "贴上智慧公寓的网址（含 code=）",
+                    label = "粘贴智慧公寓的网址（含 code=）",
                     singleLine = false,
                     maxLines = 4,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -150,7 +150,7 @@ fun ZhgyGatePage(
                 Button(
                     onClick = { pasteFromClipboard() },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("从剪贴板贴上") }
+                ) { Text("从剪贴板粘贴") }
             }
 
             item {
@@ -158,7 +158,7 @@ fun ZhgyGatePage(
                     onClick = {
                         val code = ZhgySession.extractCode(input)
                         if (code.isNullOrBlank()) {
-                            error = "没认出 code。请贴完整网址（里面要有 code=… 那一段）。"
+                            error = "没认出 code。请粘贴完整网址（里面要有 code=… 那一段）。"
                         } else {
                             session.save(code, System.currentTimeMillis())
                             // 輸入框要清掉 —— 畫面上不該繼續留著憑據。
@@ -174,14 +174,14 @@ fun ZhgyGatePage(
 
             item {
                 HintText(
-                    "说明：只会从你贴的网址里抽出 code 那一段，存在手机的加密存储里；" +
+                    "说明：只会从你粘贴的网址里抽出 code 那一段，存在手机的加密存储里；" +
                         "其余参数不会保留。这个码可以重复使用，设置一次即可 —— 重装 App 才会清掉。",
                 )
             }
             item {
                 HintText(
                     "为什么不能自动登录：该入口需要钉钉容器签发的授权码，网页环境取不到；" +
-                        "门户给的那条路径在没有钉钉时必定显示「授权码已过期」。",
+                        "门户给的那条路径在没有钉钉时必定显示“授权码已过期”。",
                 )
             }
         }

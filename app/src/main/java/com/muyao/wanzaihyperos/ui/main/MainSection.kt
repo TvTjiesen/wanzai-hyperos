@@ -1,12 +1,7 @@
 package com.muyao.wanzaihyperos.ui.main
 
-import androidx.compose.ui.graphics.vector.ImageVector
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.GridView
-import top.yukonga.miuix.kmp.icon.extended.Home
-import top.yukonga.miuix.kmp.icon.extended.Messages
-import top.yukonga.miuix.kmp.icon.extended.Settings
-import top.yukonga.miuix.kmp.icon.extended.Weeks
+import androidx.annotation.DrawableRes
+import com.muyao.wanzaihyperos.R
 
 /**
  * **五個板塊**（業主指定的分法）。
@@ -15,7 +10,7 @@ import top.yukonga.miuix.kmp.icon.extended.Weeks
  * |---|---|
  * | [Home] | 今日課程、簽到、待辦 |
  * | [Timetable] | 完整一週課表（可互動） |
- * | [Notify] | 訊息與新聞（**分兩段**） |
+ * | [Notify] | 消息與新聞（**分兩段**） |
  * | [Apps] | 已重構（原生）／未重構（網頁）**分開** |
  * | [Settings] | 帳號、外觀、關於 |
  *
@@ -26,11 +21,21 @@ import top.yukonga.miuix.kmp.icon.extended.Weeks
  */
 enum class MainSection(
     val label: String,
-    val icon: ImageVector,
+    /**
+     * v2 定稿板上是**線性**圖標（`fill:none;stroke:currentColor;stroke-width:1.65`），
+     * Miuix 自帶那套是實心面性 —— 一比一复刻就只能自己落 drawable。
+     *
+     * 這五個 `ic_board_*` **不是手抄的**，是 `tools/board_icons_to_xml.py` 直接從
+     * `wz-v2.html` 的 `<symbol id="i-home|i-cal|i-msg|i-grid|i-gear">` 生成出來的
+     * （rect/circle 展開成 path，`filter="url(#soft)"` 那種投影在可 tint 圖標上沒有對應物，丟掉）。
+     * 要改形狀就改板、重跑腳本，不要在 xml 里手描 —— 手描一次就再也對不上板了。
+     * 上色交給底欄的 tint（選中 accent / 未選 faint），不另存一份顏色的圖。
+     */
+    @DrawableRes val iconRes: Int,
 ) {
-    Home("首頁", MiuixIcons.Home),
-    Timetable("課程表", MiuixIcons.Weeks),
-    Notify("訊息", MiuixIcons.Messages),
-    Apps("應用", MiuixIcons.GridView),
-    Settings("設定", MiuixIcons.Settings),
+    Home("首页", R.drawable.ic_board_home),
+    Timetable("课表", R.drawable.ic_board_cal),
+    Notify("消息", R.drawable.ic_board_msg),
+    Apps("应用", R.drawable.ic_board_grid),
+    Settings("设置", R.drawable.ic_board_gear),
 }

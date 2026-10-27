@@ -37,7 +37,7 @@ class GlassLivenessTest {
         assertTrue("读不回应判死，实际 $v", v is GlassLiveness.Verdict.Dead)
         assertTrue(
             "死因应说明是读不回，实际 ${(v as GlassLiveness.Verdict.Dead).reason}",
-            v.reason.contains("讀不回來"),
+            v.reason.contains("读不回来"),
         )
     }
 
@@ -48,7 +48,7 @@ class GlassLivenessTest {
         assertTrue("值被改掉应判死，实际 $v", v is GlassLiveness.Verdict.Dead)
         assertTrue(
             "死因应说明被别人改掉，实际 ${(v as GlassLiveness.Verdict.Dead).reason}",
-            v.reason.contains("被別人改掉"),
+            v.reason.contains("被别人改掉"),
         )
     }
 

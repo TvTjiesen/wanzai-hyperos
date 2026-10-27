@@ -167,7 +167,7 @@ class LiveTodoRepository(
     /**
      * 把異常收成一句**給使用者看**的短話。
      *
-     * 為什麼不直接把 `message` 顯示出來：那些訊息裡可能有 URL、參數名、
+     * 為什麼不直接把 `message` 顯示出來：那些消息裡可能有 URL、參數名、
      * 甚至（別處的）憑據片段。只給一句人能懂的。
      */
     private fun shortReason(t: Throwable): String = when (t) {
@@ -176,7 +176,7 @@ class LiveTodoRepository(
         is HzcuException.Parse -> "服务端返回了无法解析的内容"
         // ⚠️ 不要把所有別的異常都說成「取數失敗」——
         //   那句話讓真機排查時完全看不出方向（分不清 HTTP 碼、超時、還是解析）。
-        //   帶上異常類型名（**不含任何訊息文本**，避免服務端文案裡的憑據片段）。
+        //   帶上異常類型名（**不含任何消息文本**，避免服務端文案裡的憑據片段）。
         is HzcuException.HttpStatus -> "服务端返回 HTTP ${t.statusCode}"
         else -> "取数失败（${t.javaClass.simpleName}）"
     }

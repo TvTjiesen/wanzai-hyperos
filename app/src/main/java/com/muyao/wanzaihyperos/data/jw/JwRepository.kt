@@ -116,8 +116,8 @@ sealed interface JwFailure {
         get() = when (this) {
             EngineNotReady -> "页面还没准备好，请点右上角重新加载"
             BadCredential -> "账号或密码不对"
-            is PageNotLoaded -> "打不开教務系統登录页（可能是网络问题）"
-            is FormNotFound -> "教務系統登录页的结构变了（$detail），这个功能需要更新"
+            is PageNotLoaded -> "打不开教务系统登录页（可能是网络问题）"
+            is FormNotFound -> "教务系统登录页的结构变了（$detail），这个功能需要更新"
             SessionExpired -> "登录已过期"
             is Other -> detail
         }
@@ -165,8 +165,8 @@ class LiveJwRepository(
     /** 每個功能一份狀態。 */
     private val states = mutableMapOf<JwFeature, MutableStateFlow<ListState<JwRawPage>>>()
 
-    /** 這次啟動已經登入成功的上下文。 */
-    private val loggedIn = mutableSetOf<String>()
+    /** 兩段登入的協調者（課表那一支共用同一個，見 [JwLoginCoordinator]）。 */
+    private val login = JwLoginCoordinator(engine, session, clock)
 
     override fun state(feature: JwFeature): StateFlow<ListState<JwRawPage>> =
         states.getOrPut(feature) { MutableStateFlow(ListState.FirstLoad) }.asStateFlow()
@@ -181,7 +181,7 @@ class LiveJwRepository(
             flow.value = flow.value.startRefresh()
 
             val result = runCatching {
-                ensureLoggedIn()
+                login.ensureLoggedIn()
                 fetch(feature)
             }
 
@@ -196,7 +196,7 @@ class LiveJwRepository(
                     // **那是替服務端撒謊**（學校明明有 22 筆）。真機踩過。
                     when {
                         page.looksLikeHtml -> {
-                            loggedIn.clear()
+                            login.clear()
                             flow.value.failWith(JwFailure.SessionExpired.toHzcuException())
                         }
 
@@ -209,46 +209,14 @@ class LiveJwRepository(
                 },
                 onFailure = { e ->
                     // 帶原因的用原因；其餘當 Other。
-                    // **訊息會顯示在界面上** —— 這台機器上 App 的 Log 拿不到，
+                    // **消息會顯示在界面上** —— 這台機器上 App 的 Log 拿不到，
                     // 界面就是唯一的排查窗口。
                     val failure: JwFailure = (e as? JwDomainFailure)?.failure
-                        ?: JwFailure.Other(e.message ?: "取數失敗")
+                        ?: JwFailure.Other(e.message ?: "取数失败")
                     flow.value.failWith(failure.toHzcuException())
                 },
             )
         }
-    }
-
-    /**
-     * 確保兩個上下文都登入。
-     *
-     * ⚠️ 帳密缺一不可；缺了就拋 [JwDomainFailure]（引導去登入），
-     * **不要**默默回空資料 —— 那會讓界面顯示「沒有考試」而其實是沒登入。
-     */
-    private suspend fun ensureLoggedIn() {
-        val account = session.account()
-        val password = session.password()
-        if (account.isNullOrBlank() || password.isNullOrBlank()) {
-            throw JwDomainFailure(JwFailure.SessionExpired)
-        }
-
-        // ★ 先等 WebView 交進來（見 [JwEngine.awaitAttached] 的競態說明）。
-        //   少了這步，第一幀進來時 webView 還是 null，login() 會失敗。
-        if (!engine.awaitAttached()) {
-            throw JwDomainFailure(JwFailure.EngineNotReady)
-        }
-
-        for (path in listOf("/xtgl/login_slogin.html", JwEngine.JWGLXT_LOGIN_PATH)) {
-            if (loggedIn.contains(path)) continue
-            val failure = engine.login(account, password, path)
-            if (failure != null) {
-                // ★ 把**具體原因**帶到界面 —— 少了它，「WebView 沒就緒」和
-                //   「密碼錯」在使用者眼裡一模一樣（真機踩過）。
-                throw JwDomainFailure(failure)
-            }
-            loggedIn.add(path)
-        }
-        session.markLogin(clock())
     }
 
     /** 抓一支功能的資料介面。 */
@@ -273,7 +241,7 @@ class LiveJwRepository(
         if (text.startsWith("__ERR__")) {
             return JwRawPage(
                 feature, null, 0, looksLikeHtml = false,
-                failure = JwFailure.Other("請求失敗：${text.removePrefix("__ERR__").take(60)}"),
+                failure = JwFailure.Other("请求失败：${text.removePrefix("__ERR__").take(60)}"),
             )
         }
         val trimmed = text.trimStart()
@@ -287,7 +255,7 @@ class LiveJwRepository(
         if (root == null) {
             return JwRawPage(
                 feature, null, text.length, looksLikeHtml = false,
-                failure = JwFailure.Other("教務系統回的格式看不懂（${text.length} 字元），可能需要更新"),
+                failure = JwFailure.Other("教务系统回的格式看不懂（${text.length} 字元），可能需要更新"),
             )
         }
         return JwRawPage(feature, root, text.length, looksLikeHtml = false)
@@ -313,5 +281,68 @@ class LiveJwRepository(
     private companion object {
         /** 一次要多少筆。實測 50 筆的回應約 46 KB，可接受。 */
         const val PAGE_SIZE = 50
+    }
+}
+
+
+/**
+ * 教務系統的**兩段登入協調者**。
+ *
+ * ## 為什麼要抽出來
+ *
+ * 「考試/成績」與「課表」是兩個倉庫，但它們共用同一個隱藏 WebView 與同一份帳密，
+ * 而**兩段登入**（入口上下文 + `/jwglxt` 上下文）這件事只要做錯一次，
+ * 表現就是「所有功能頁 302 回登入頁」（`docs/B18-WALKTHROUGH.md` §2 那個坑）。
+ * 兩處各寫一份，遲早有一份忘了第二段。
+ *
+ * ## 失敗時**帶原因**而不是帶布林
+ *
+ * 這台機器上 App 的 `Log` 拿不到（HyperOS 過濾），界面是唯一排查窗口 ——
+ * 「WebView 沒就緒」「密碼錯」「站改版」必須是三句不同的話。
+ */
+class JwLoginCoordinator(
+    private val engine: JwEngine,
+    private val session: JwSession,
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    /** 這次啟動已經登入成功的上下文。 */
+    private val loggedIn = mutableSetOf<String>()
+
+    /** 取數被導回登入頁時要清掉快取，下次重登（不清就會一路 302 到重啟）。 */
+    fun clear() {
+        loggedIn.clear()
+    }
+
+    /**
+     * 確保兩個上下文都登入。
+     *
+     * ⚠️ 帳密缺一不可；缺了就拋 [JwDomainFailure]（引導去登入），
+     * **不要**默默回空資料 —— 那會讓界面顯示「沒有考試」「本週沒課」，
+     * 而其實是沒登入。
+     */
+    suspend fun ensureLoggedIn() {
+        val account = session.account()
+        val password = session.password()
+        if (account.isNullOrBlank() || password.isNullOrBlank()) {
+            throw JwDomainFailure(JwFailure.SessionExpired)
+        }
+
+        // ★ 先等 WebView 交進來（見 [JwEngine.awaitAttached] 的競態說明）。
+        //   少了這步，第一幀進來時 webView 還是 null，login() 會失敗。
+        if (!engine.awaitAttached()) {
+            throw JwDomainFailure(JwFailure.EngineNotReady)
+        }
+
+        for (path in listOf("/xtgl/login_slogin.html", JwEngine.JWGLXT_LOGIN_PATH)) {
+            if (loggedIn.contains(path)) continue
+            val failure = engine.login(account, password, path)
+            if (failure != null) {
+                // ★ 把**具體原因**帶到界面 —— 少了它，「WebView 沒就緒」和
+                //   「密碼錯」在使用者眼裡一模一樣（真機踩過）。
+                throw JwDomainFailure(failure)
+            }
+            loggedIn.add(path)
+        }
+        session.markLogin(clock())
     }
 }

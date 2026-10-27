@@ -32,7 +32,7 @@ interface ZyRepository {
     /** 這一週的課表。 */
     val week: StateFlow<ListState<ZyScheduleItem>>
     suspend fun load(force: Boolean = false)
-    /** 點某一節課時，取它的回放資訊。 */
+    /** 點某一節課時，取它的回放信息。 */
     suspend fun liveInfo(item: ZyScheduleItem): ZyLiveInfo?
 }
 
@@ -70,13 +70,13 @@ class LiveZyRepository(
                     ?: throw ZyDomainFailure(ZyFailure.NoResponse)
                 if (text.startsWith("__ERR__")) {
                     throw ZyDomainFailure(
-                        ZyFailure.Other("請求失敗：${text.removePrefix("__ERR__").take(60)}"),
+                        ZyFailure.Other("请求失败：${text.removePrefix("__ERR__").take(60)}"),
                     )
                 }
                 if (text.trimStart().startsWith("<")) throw ZyDomainFailure(ZyFailure.NotLoggedIn)
                 val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
                     ?: throw ZyDomainFailure(
-                        ZyFailure.Other("智雲課堂回的格式看不懂（${text.length} 字元），可能需要更新"),
+                        ZyFailure.Other("智云课堂回的格式看不懂（${text.length} 字元），可能需要更新"),
                     )
                 val week = ZyScheduleParser.parse(root)
                 // 信封裡明確失敗（success=false）→ 當成登入失效，不要畫成「這週沒課」
@@ -97,7 +97,7 @@ class LiveZyRepository(
                 },
                 onFailure = { e ->
                     val failure = (e as? ZyDomainFailure)?.failure
-                        ?: ZyFailure.Other(e.message ?: "取數失敗")
+                        ?: ZyFailure.Other(e.message ?: "取数失败")
                     _week.value.failWith(failure.toHzcuException())
                 },
             )

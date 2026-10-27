@@ -11,6 +11,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import com.muyao.wanzaihyperos.ui.design.liquid.animation.DampedDragAnimation
+import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.liquid.animation.InteractiveHighlight
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
@@ -85,25 +87,27 @@ import top.yukonga.miuix.kmp.blur.highlight.BloomStroke
 import top.yukonga.miuix.kmp.blur.highlight.Highlight
 import top.yukonga.miuix.kmp.blur.highlight.LightPosition
 import top.yukonga.miuix.kmp.blur.highlight.LightSource
-import top.yukonga.miuix.kmp.blur.sensor.rememberDeviceTilt
 import top.yukonga.miuix.kmp.theme.LocalContentColor
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.Platform
 import top.yukonga.miuix.kmp.utils.platform
 
-import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sign
-import kotlin.math.sin
-import kotlin.math.sqrt
 import com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning
 import com.muyao.wanzaihyperos.ui.design.liquid.backdropIsLive
 
 private val LocalIosTabScale = staticCompositionLocalOf { { 1f } }
 
-private val iosIndicatorSpecular: Highlight = Highlight(
+/**
+ * 底栏那颗滑块/容器共用的高光。
+ *
+ * ★ internal 而不是 private（业主 2026-10-20：「我要你照抄底栏玻璃的代码」）：
+ *   右上角那颗钮之前自己写了一份 BloomStroke，参数抄得像，但**没有跟重力转**，
+ *   两块玻璃的光源方向就不一致 —— 现在只有这一份，谁要用谁拿。
+ */
+internal val iosIndicatorSpecular: Highlight = Highlight(
     width = 1.dp,
     alpha = 1f,
     style = BloomStroke(
@@ -126,36 +130,27 @@ private val iosIndicatorSpecular: Highlight = Highlight(
 // Mirrors HighlightStyle.kt's LIGHT_REF — keep in sync.
 private const val LIGHT_REF_X = 0.5f
 private const val LIGHT_REF_Y = 0.7f
-private const val GRAVITY_DIR_THRESHOLD_SQ = 0.01f // |g_xy| > 0.1, ≈ 6° tilt
 
 /** Tracks gravity for a `dualPeak` highlight's primary light, with an extra UV-clockwise offset on top. */
 @Composable
-private fun rememberGravityRotatedHighlight(
+internal fun rememberGravityRotatedHighlight(
     base: Highlight,
     extraDegrees: Float = 0f,
 ): Highlight {
     val baseStyle = base.style as BloomStroke
-    val tilt by rememberDeviceTilt()
-    val rotatedPrimary = remember(tilt, baseStyle.primaryLight, extraDegrees) {
+    // ★ 2026-10-25 真机定位：以前这里直接 `val tilt by rememberDeviceTilt()`，
+    //   加速度计上报比帧还快 ⇒ 每次上报都换一份 Highlight
+    //   ⇒ drawBackdrop 的 highlight lambda 失效 ⇒ 重画 ⇒ 重采样，
+    //   首页/消息页静止也一直在出帧（90Hz 下实测 15s 695帧）。
+    //   现在改走 glass/BarOptics.kt 那套已有的量化持有器（平放死区、低通、
+    //   QUANT_STEPS 格）：光还是跟重力转，但静置时不再产生重组。
+    val (dirX, dirY) = com.muyao.wanzaihyperos.ui.design.glass.rememberGravityLightDir(extraDegrees = extraDegrees)
+    val rotatedPrimary = remember(dirX, dirY, baseStyle.primaryLight) {
         val basePrimary = baseStyle.primaryLight
-        val gx = tilt.gravityX
-        val gy = tilt.gravityY
-        val gMagSq = gx * gx + gy * gy
-        val (lx0, ly0) = if (gMagSq > GRAVITY_DIR_THRESHOLD_SQ) {
-            val invMag = 1f / sqrt(gMagSq)
-            (gx * invMag) to (gy * invMag)
-        } else {
-            0f to -1f
-        }
-        val rad = extraDegrees * PI / 180.0
-        val c = cos(rad).toFloat()
-        val s = sin(rad).toFloat()
-        val lx = c * lx0 - s * ly0
-        val ly = s * lx0 + c * ly0
         basePrimary.copy(
             position = LightPosition(
-                x = LIGHT_REF_X + lx,
-                y = LIGHT_REF_Y + ly,
+                x = LIGHT_REF_X + dirX,
+                y = LIGHT_REF_Y + dirY,
                 z = basePrimary.position.z,
             ),
         )
@@ -181,7 +176,28 @@ internal fun IosLiquidGlassNavigationBar(
     val accentColor = MiuixTheme.colorScheme.primary
     val tabContentColor = MiuixTheme.colorScheme.onSurface
     val surfaceContainer = MiuixTheme.colorScheme.surfaceContainer
-    val containerColor = if (isBlurActive) surfaceContainer.copy(alpha = 0.4f) else surfaceContainer
+    // ★ 同一道闸也管容器本体（下面 `effects` 里那三处 lens 用的是 `refract`）。
+    // 磨砂 = 糊加重 + tint 更实 + 不折射（与 `glass/BarOptics.kt` 那条唯一的材质语义同一份配比；
+    // 台账 v3 #12 第 2 轮 P1#4：以前 `liquid/` 栈只关 lens、不动 blur/tint ⇒ 两档画得一样）。
+    val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
+    val refract = if (motion.refractsGlass) 1f else 0f
+    // ★★ 第 9 轮审计必修 2：**底栏必须与顶栏读同一道降级闸**。
+    //   这一页以前 `glassIsTranslucent` **全文命中 0 次**：减弱透明度 / 高对比时，
+    //   顶栏纱（`IosChrome.kt`）、`GlassBar.kt`、`GlassSurface.kt` 全都退了实底、连采样层都不挂，
+    //   只有底栏还是半透明玻璃、还在每帧采样 ⇒ 标准 §4 那句"两套栈都要接同一个降级，半套比没有更难看"。
+    //   收口方式：并进 `barBlurActive`，下面所有 `isBlurActive` 的分支（容器色、三处 lens、滑块、
+    //   高光、两处采样）**一次全部生效**，不用逐处补。
+    val barBlurActive = isBlurActive && motion.glassIsTranslucent
+    // 这一页的列表在不在滚（滚动期把折射关掉、模糊减半，见 `PageChrome.scrolling`）
+    val scrolling = com.muyao.wanzaihyperos.ui.design.liquid.LocalPageChrome.current.scrolling
+    val containerColor = if (!barBlurActive) surfaceContainer
+        else surfaceContainer.copy(alpha = if (motion.refractsGlass) 0.4f else 0.62f)
+
+    // ★ 独立审计（v3 #12 第 1 轮）：**磨砂档在底栏滑块上 0 生效**是业主点名禁的"假开关"。
+    //   这一页以前没有 `motion` —— 三处 `lens(...)` 全写死折射量，不读 `motion.refractsGlass`，
+    //   所以「液态 / 磨砂」在这颗滑块上是同一张画面（真机实测：磨砂 vs 液态 底栏 MAD 只有 0.505、
+    //   531 个像素不同，而同一屏"关闭 vs 液态"是 12.355 / 86498 个）。
+    //   现在三处都乘这道闸：0f = 不发 lens，只剩 blur（那才是磨砂）。
 
     val tabsBackdrop = rememberLayerBackdrop()
     val density = LocalDensity.current
@@ -244,7 +260,14 @@ internal fun IosLiquidGlassNavigationBar(
                     animateToValue(targetIndex.toFloat())
                 }
                 animationScope.launch {
-                    offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+                    // ★ 第 9 轮审计必修 3：**位移也要过 `canMove`**（外壳 `WanzaiMainShell`
+                    //   的 enter/exit 早就判了，只有底栏漏了）。关掉动效时不做回弹位移，
+                    //   直接把偏移归零 —— 反馈仍在（这一下确实换了 tab），位移没有。
+                    if (motion.canMove) {
+                        offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+                    } else {
+                        offsetAnimation.snapTo(0f)
+                    }
                 }
             },
             onDrag = { _, dragAmount ->
@@ -267,7 +290,8 @@ internal fun IosLiquidGlassNavigationBar(
     val onItemClickUpdated by rememberUpdatedState(onItemClick)
     LaunchedEffect(dampedDrag) {
         snapshotFlow { currentIndex }.drop(1).collectLatest { index ->
-            dampedDrag.animateToValue(index.toFloat())
+            // ★ 同一道闸：滑块跟随 tab 的那段位移在"减弱动效"下要停掉（即时落位）。
+            dampedDrag.animateToValue(index.toFloat(), canMove = motion.canMove)
             onItemClickUpdated(index)
         }
     }
@@ -327,12 +351,24 @@ internal fun IosLiquidGlassNavigationBar(
 
     val combinedBackdrop = backdrop?.let { rememberCombinedBackdrop(it, tabsBackdrop) }
 
+    // ★ 同一道闸门也给底栏（业主 2026-10-20 的「雷霆大黑色搜索框」根因是**新换上的采样层
+    //   第一帧还是空缓冲**，Miuix 拿它去折射会画不透明黑）。底栏一直没人报黑，
+    //   是因为它底下永远有内容在画；但换页那一瞬它和顶栏踩的是同一个窗口，
+    //   所以这里一起补上，不留"顶栏修了底栏没修"的分叉。
+    val sampleSettled = rememberSampleSettled(backdrop)
+    // ★ 独立审计（禁令 1 真漏①）：滑块采的是 `CombinedBackdrop(页底, tabsBackdrop)` 两层，
+    //   而 `tabsBackdrop` 是**条件挂载**的（只有那格 tab 真的 layerBackdrop 了它才有内容）。
+    //   闸门只等 `backdrop` 那一份 ⇒ `tabsBackdrop` 出现的那一帧必然是空缓冲，
+    //   Miuix 对空样本不是"没模糊"而是**画不透明黑**（T67 那条老根因）。补一份它自己的。
+    val tabsSettled = rememberSampleSettled(tabsBackdrop)
+
     val navBarBottomPadding = WindowInsets.navigationBars.only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding()
     val bottomPaddingValue = when (platform()) {
         Platform.IOS -> 20.dp
 
         else -> {
-            if (navBarBottomPadding != 0.dp) 8.dp + navBarBottomPadding else 36.dp
+            // 业主 2026-10-22：「位置稍微低一点」=> 余量 8dp->2dp、无内衬时 36dp->16dp
+            if (navBarBottomPadding != 0.dp) 2.dp + navBarBottomPadding else 16.dp
         }
     }
 
@@ -376,7 +412,10 @@ internal fun IosLiquidGlassNavigationBar(
                     )
                     Text(
                         text = item.label,
-                        fontSize = 11.sp,
+                        // 业主 2026-10-22：「字都很小」=> 11sp->12sp。
+                        // 清单 #11 第 2 轮：这一档以前**硬编码 12sp**，#12 以后改字号阶梯它不跟着动，
+                        // 所以改走 `Type.summary`（同值，但从令牌取）。守卫见 `TypeRatchetTest`。
+                        fontSize = Type.summary,
                         fontWeight = FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -435,17 +474,24 @@ internal fun IosLiquidGlassNavigationBar(
                             onClick = {},
                         )
                         .then(
-                            if (isBlurActive && backdrop != null) {
+                            if (barBlurActive && backdrop != null && sampleSettled) {
                                 Modifier.drawBackdrop(
                                     backdrop = backdrop,
                                     shape = { pillShape },
                                     effects = {
-                                        vibrancy()
-                                        blur(blurDp.dp.toPx(), blurDp.dp.toPx())
-                                        lens(
-                                            refractionHeight = lensDp.dp.toPx(),
-                                            refractionAmount = lensDp.dp.toPx(),
-                                        )
+                                        // ★ 第 9 轮审计必修 4：滚动期降采样（见 `PageChrome.scrolling`）。
+                                        //   底栏是每帧一次全屏采样里最厚的一层，滚动期间把折射整条关掉、
+                                        //   模糊减半，停手恢复 —— kyant 没给降采样倍率，这是能拿到的把手。
+                                        if (!scrolling) vibrancy()
+                                        val barBlur = blurDp.dp.toPx() * (if (scrolling) 0.5f else 1f)
+                                        blur(barBlur, barBlur)
+                                        // 容器本体也要跟着档位（磨砂 = 只糊不折射）。
+                                        if (refract > 0f && !scrolling) {
+                                            lens(
+                                                refractionHeight = lensDp.dp.toPx(),
+                                                refractionAmount = lensDp.dp.toPx(),
+                                            )
+                                        }
                                     },
                                     highlight = { baseHighlight.copy(alpha = 0.75f) },
                                     layerBlock = {
@@ -457,11 +503,21 @@ internal fun IosLiquidGlassNavigationBar(
                                     onDrawSurface = { drawRect(containerColor) },
                                 )
                             } else {
+                                // ★ 独立审计（v3 #12 第 1 轮）：「关闭」档以前是一块**无边无框**的实心底，
+                                //   贴在同色页面上就"看不见边界"。材质标准那条写的是
+                                //   "近实底 + 明确描边"，描边的值与 `IosChrome.kt:195` 同一份（不另造）：
+                                //   深色 White@0.16 / 浅色 Black@0.10，1dp。
                                 Modifier
                                     .background(containerColor, pillShape)
+                                    .border(
+                                        1.dp,
+                                        if (isDark) Color.White.copy(alpha = 0.16f)
+                                        else Color.Black.copy(alpha = 0.10f),
+                                        pillShape,
+                                    )
                             },
                         )
-                        .then(if (isBlurActive) interactiveHighlight.modifier else Modifier)
+                        .then(if (barBlurActive) interactiveHighlight.modifier else Modifier)
                         .height(64.dp)
                         .padding(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -469,7 +525,7 @@ internal fun IosLiquidGlassNavigationBar(
                 )
             }
 
-            if (isBlurActive && backdrop != null) {
+            if (barBlurActive && backdrop != null && sampleSettled) {
                 CompositionLocalProvider(
                     LocalIosTabScale provides { lerp(1f, 1.2f, dampedDrag.pressProgress) },
                     LocalContentColor provides accentColor,
@@ -486,12 +542,20 @@ internal fun IosLiquidGlassNavigationBar(
                                 backdrop = backdrop,
                                 shape = { pillShape },
                                 effects = {
-                                    vibrancy()
-                                    blur(blurDp.dp.toPx(), blurDp.dp.toPx())
-                                    lens(
-                                        refractionHeight = lensDp.dp.toPx(),
-                                        refractionAmount = lensDp.dp.toPx(),
-                                    )
+                                    // 滚动期降采样：与容器同一条口径（见 `PageChrome.scrolling`）
+                                    if (!scrolling) vibrancy()
+                                    val sliderBlur = blurDp.dp.toPx() * (if (scrolling) 0.5f else 1f)
+                                    blur(sliderBlur, sliderBlur)
+                                    // ★ 第 2 轮 P1 追补：这是**第四处** lens，上一轮我注释写
+                                    //   「三处都乘这道闸」是虚报 —— 这一处漏了 ⇒ 磨砂档在
+                                    //   「容器 + 选中胶囊」那一层仍有折射。现在补上（连同 vibrancy 也归磨砂语义：
+                                    //   磨砂 = 糊 + 不折射 + 不做色彩振动）。
+                                    if (refract > 0f && !scrolling) {
+                                        lens(
+                                            refractionHeight = lensDp.dp.toPx(),
+                                            refractionAmount = lensDp.dp.toPx(),
+                                        )
+                                    }
                                 },
                                 onDrawSurface = { drawRect(containerColor) },
                             )
@@ -506,7 +570,8 @@ internal fun IosLiquidGlassNavigationBar(
 
             if (tabWidthPx > 0f) {
                 val tabWidthDp = with(density) { tabWidthPx.toDp() }
-                if (isBlurActive && combinedBackdrop != null && backdropIsLive(tabsBackdrop)) {
+                if (barBlurActive && combinedBackdrop != null && backdropIsLive(tabsBackdrop) &&
+                    sampleSettled && tabsSettled) {
                     Box(
                         modifier = Modifier
                             .padding(horizontal = 4.dp)
@@ -522,7 +587,7 @@ internal fun IosLiquidGlassNavigationBar(
                                 shape = { pillShape },
                                 effects = {
                                     val progress = dampedDrag.pressProgress
-                                    if (GlassTuning.depthLens >= 1f) {
+                                    if (refract > 0f && GlassTuning.depthLens >= 1f) {
                                         lens(
                                             refractionHeight = 10.dp.toPx() * progress,
                                             refractionAmount = 14.dp.toPx() * progress,
@@ -539,10 +604,12 @@ internal fun IosLiquidGlassNavigationBar(
                                         if (pillBlur > 0f) {
                                             blur(pillBlur.dp.toPx(), pillBlur.dp.toPx())
                                         }
-                                        lens(
-                                            refractionHeight = 10.dp.toPx() * progress,
-                                            refractionAmount = 14.dp.toPx() * progress,
-                                        )
+                                        if (refract > 0f) {
+                                            lens(
+                                                refractionHeight = 10.dp.toPx() * progress * refract,
+                                                refractionAmount = 14.dp.toPx() * progress * refract,
+                                            )
+                                        }
                                     }
                                 },
                                 highlight = { pillHighlight.copy(alpha = dampedDrag.pressProgress) },

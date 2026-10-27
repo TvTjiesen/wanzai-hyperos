@@ -265,6 +265,38 @@ fun styleFor(
     BarMaterial.SOLID, BarMaterial.LIQUID -> style
 }
 
+/**
+ * 卡面**垫色**的 alpha —— 按材质档给，不是按明暗给一个与档位无关的常数。
+ *
+ * ## ★ 为什么这条是 v3 #12 的真根因（不是「没接线」那一类）
+ *
+ * 上一轮查到的链路都成立：`GlassTheme` 已接上 `LocalBarMaterial`、`GlassSurface` 也真的
+ * 读了它（SOLID ⇒ `FALLBACK` 不采样，FROSTED ⇒ [styleFor] 把折射归零）。**但真机上此刻卡
+ * 三档逐位相同（卡带平均色差 0.000 / 0 个变化像素）**——因为那张卡的垫色写的是
+ * `if (isDark) 0.30f else 0.94f`，与档位无关：0.94 的白漆已经把身后的天空糊死，
+ * 折射与模糊只作用在剩下 6% 的像素上，糊不出差别来。
+ *
+ * ⇒ 档位要看得见，必须让它改**画面上那个数**，而不只是改渲染路径。
+ * 下面四个数全部取自定稿板（`wz-v2.html`），不是挑的：
+ *
+ *  · 液态 = `.focus-card.glass` 的三段白 `rgba(255,255,255,.42)` / `.19` / `.28` ⇒ 均值 **0.30**；
+ *    深色 `.focus-card.glass` = `rgba(44,52,51,.55) → rgba(21,27,27,.40)` ⇒ 均值 **0.48**。
+ *  · 磨砂 = `.focus-card{background:var(--card)}`，浅色 `rgba(255,255,255,.66)`、
+ *    深色 `body.dark --card: rgba(34,37,38,.72)` ⇒ **0.66 / 0.72**。
+ *  · 实心 = 由 [GlassSurface] 走降级分支（不采样），但数值照样要给出来：调用方要按它
+ *    **算出卡面实际铺出来的亮度**来决定字色，两边必须是同一个数
+ *    ⇒ [GlassSpec.FALLBACK_ALPHA_LIGHT] / [GlassSpec.FALLBACK_ALPHA_DARK]。
+ *
+ * ⚠️ 单调性本身是判据（`GlassModeWiringTest` 钉死）：液态 < 磨砂 < 实心。
+ * 反过来写就等于「界面说液态、画面是纸」。
+ */
+fun cardFaceAlpha(material: BarMaterial, isDark: Boolean): Float = when (material) {
+    BarMaterial.LIQUID -> if (isDark) 0.48f else 0.30f
+    BarMaterial.FROSTED -> if (isDark) 0.72f else 0.66f
+    BarMaterial.SOLID ->
+        if (isDark) GlassSpec.FALLBACK_ALPHA_DARK else GlassSpec.FALLBACK_ALPHA_LIGHT
+}
+
 /** 表面色用哪個語義色 —— 別再用引用比較去猜是哪一種。 */
 enum class GlassSurfaceColor { SURFACE_CONTAINER, WHITE }
 

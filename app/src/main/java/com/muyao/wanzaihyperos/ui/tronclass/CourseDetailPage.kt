@@ -41,7 +41,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * | 區塊 | 來源 | 為什麼要 |
  * |------|------|---------|
- * | 課程資訊 | `/api/courses/{id}` | 代碼／學分／學期／開課單位／教師 |
+ * | 課程信息 | `/api/courses/{id}` | 代碼／學分／學期／開課單位／教師 |
  * | 我的成績 | `/api/course/{id}/student-self-score` + `/score-percentages` | 學生最常回來看的 |
  * | 出勤 | `/api/course/{id}/rollcall-score` + `/student/{我}/rollcalls` | 「老師說我缺勤，我到底到沒到」 |
  * | 課程大綱 | `course_outline.common_fields` | 評分方式、教材、上課要求 |
@@ -161,7 +161,7 @@ fun CourseDetailContent(
                 )
             }
             item {
-                HintText("讨论区只能看「有哪些讨论」，看不了正文 —— 贴文内容要逐条单独取，这里不假装能读。")
+                HintText("讨论区只能看“有哪些讨论”，看不了正文 —— 贴文内容要逐条单独取，这里不假装能读。")
             }
         }
 
@@ -177,7 +177,7 @@ fun CourseDetailContent(
 /** 公告在列表裡的預覽條數（其餘靠 `showAllBulletins` 展開）。 */
 private const val PREVIEW_COUNT = 2
 
-/** 頁首：課名 + 教師／學期／學分 + 課程資訊鍵值行。 */
+/** 頁首：課名 + 教師／學期／學分 + 課程信息鍵值行。 */
 @Composable
 private fun CourseHeader(bundle: TronCourseDetailBundle) {
     val detail = bundle.detail

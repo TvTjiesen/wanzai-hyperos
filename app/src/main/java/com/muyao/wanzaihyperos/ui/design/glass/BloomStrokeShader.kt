@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.design.glass
 
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
@@ -100,7 +101,12 @@ float3 getNormal(float2 fragCoord, float sdf, float R) {
     corner.x = min(corner.x, xy_a.x);
     corner.y = min(corner.y, xy_a.y);
 
-    float2 dir = normalize(coord.xy - corner.xy);
+    // 业主 2026-10-25 报「卡片时间下面有一条线」：coord.xy 与 corner.xy 完全相等时
+    // normalize(0) 给 NaN，NaN 顺着 corner -> n -> rgb -> hl 一路传下去，最后 base + hl
+    // 把整整一行写成 (76,75,73)。这里必须挡住零长度（真机 y=675 单行、x 138..1077）。
+    float2 dxy = coord.xy - corner.xy;
+    float dlen = length(dxy);
+    float2 dir = dlen > 1e-5 ? dxy / dlen : float2(0.0, 0.0);
     corner += dir * (R - innerBlurRadius);
 
     if (any(lessThan(xy_a, corner))) {
@@ -108,7 +114,10 @@ float3 getNormal(float2 fragCoord, float sdf, float R) {
     }
 
     float2 signal = sign(xy);
-    float3 n = normalize(coord - float3(corner, 0.0));
+    float3 vv = coord - float3(corner, 0.0);
+    float vlen = length(vv);
+    // 同一处 NaN 的第二道闸：只补 dir 也够，但 corner 一旦被污染这里必须能自保。
+    float3 n = vlen > 1e-5 ? vv / vlen : float3(0.0, 0.0, -1.0);
     n.xy *= signal;
     return n;
 }
@@ -200,6 +209,16 @@ data class GlassHighlight(
 )
 
 /**
+ * 尺寸必須有限且為正才算數，否則回 null（= 這一幅層不出高光）。
+ *
+ * 為何不能只寫 `width > 0f`：NaN 與任何數比較都是 false（所以 `> 0f` 已經攔得住 NaN），
+ * 但 ∞ 會騙過它。而 `halfView.y = ∞` 會讓 `roundedBoxSDF` 退化成一維、
+ * 整塊卡面被當成高光帶（見 [bloomStrokeHighlight] 的 KDoc）。
+ */
+internal fun finiteSizeOrNull(size: Size): Size? =
+    size.takeIf { it.width.isFinite() && it.height.isFinite() && it.width > 0f && it.height > 0f }
+
+/**
  * 把雙光源高光套到 [BackdropEffectScope]。
  *
  * ⚠️ 需要 `RuntimeShader`（用引擎自己的判據，不是 `SDK_INT`）。不支援時靜默跳過 ——
@@ -210,7 +229,16 @@ data class GlassHighlight(
  * `BackdropEffectScope.size` 在 `effects` lambda 裡可能是 **`Size.Unspecified`（NaN）**。
  * 而 NaN 的殺傷力在於它**不會被 `w <= 0f` 攔住**（NaN 與任何數比較都是 false），
  * 於是一路算進 uniform 裡變成 NaN —— 高光不報錯，只是**根本看不見**。
- * 所以這裡：傳了 [explicitSize] 就用它；否則也要用 `!(w > 0f)` 把 NaN 擋掉。
+ * 所以這裡：傳了 [explicitSize] 就用它；否則也要把它擋掉。
+ *
+ * ## ★ ∞ 比 NaN 更陰險（#58 第 4 條的真因）
+ *
+ * `Constraints.Infinity` 會變成 `Float.POSITIVE_INFINITY`：它騙過 `w > 0f`，
+ * 且不像 NaN 那樣自己浮出來 —— 它讓 `halfView.y = ∞`，而 `roundedBoxSDF` 裡
+ * `halfSize.y = ∞` 會把三維 SDF 退化成一維（sdf 全負）⇒ `outMask` 全 1 ⇒
+ * 整塊卡面都被當成「高光帶」，而 `hl.a` 寫死的 1.0 把層 alpha 抬成不透明。
+ * 結果就是玻璃直接變成一塊實色板，邊緣亮邊也被蓋沒。
+ * 但領域不可能是真的無窮大，所以尺寸必須先經 [finiteSizeOrNull]。
  *
  * @param shape 容器形狀。**必須是 RoundedCornerShape**，否則跳過（不猜）。
  */
@@ -222,11 +250,10 @@ fun BackdropEffectScope.bloomStrokeHighlight(
     val rr = shape as? androidx.compose.foundation.shape.RoundedCornerShape ?: return
     if (highlight.alpha <= 0f) return
 
-    val sizePx = explicitSize ?: size
+    // NaN 與 ∞ 都要被攔住 —— 不許寫成 w <= 0f || h <= 0f（∞ 會騙過它）。
+    val sizePx = finiteSizeOrNull(explicitSize ?: size) ?: return
     val w = sizePx.width
     val h = sizePx.height
-    // NaN 也要被攔住 —— 不許寫成 w <= 0f || h <= 0f。
-    if (!(w > 0f) || !(h > 0f)) return
 
     val halfW = w * 0.5f
     val halfH = h * 0.5f

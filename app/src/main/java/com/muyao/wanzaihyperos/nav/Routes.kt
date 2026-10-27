@@ -28,6 +28,18 @@ sealed interface Route : NavKey {
     @Serializable
     data object Search : Route
 
+    /** 关于 + 开源许可（B4-10）：从设置页「关于」那一行走进来。 */
+    @Serializable
+    data object About : Route
+
+    /**
+     * B4-06：设置页「账号」二级页（六源逐条）。
+     * ⚠️ 必须 `@Serializable`：`rememberNavBackStack` 要靠它持久化栈，
+     * 漏了这条 ⇒ 该页在栈上时进程重建恢复会失败（同文件其余 20 个 Route 都有）。
+     */
+    @Serializable
+    data object AccountSources : Route
+
     /**
      * WebView 外壳（压在主壳之上）。
      *
@@ -96,18 +108,39 @@ sealed interface Route : NavKey {
      * 學在城院 → 簽到（看 + 簽）。
      *
      * 帶 `tileUrl` 同樣為了回退網頁版。
+     *
+     * ★ 第二條入口（2026-10-19）：首頁那顆「簽到」磁貼直接進這裡
+     *（业主：「做成一個簽到的磁貼點進去可以掃碼或者其他簽到方式」）。
+     * 學在城院外殼裡那個二級頁用的是**同一份** [com.muyao.wanzaihyperos.ui.tronclass.RollcallBody]。
      */
     @Serializable
     data class Rollcall(val tileUrl: String = "") : Route
 
     /**
-     * 學在城院 → 某門課的作業（**只讀**）。
-     *
-     * 帶課程 id 與課名：作業接口是課程內的，必須知道看哪門課。
-     * `courseName` 只為了標題顯示（免得使用者不知道自己在哪門課裡）。
+     * 學在城院 → 某門課的作業清單。
      */
     @Serializable
     data class Homework(val courseId: Int = 0, val courseName: String = "", val tileUrl: String = "") : Route
+
+    /**
+     * 學在城院 → **一項作業的詳情 + 提交**（2026-10-19）。
+     *
+     * 四個參數都是**識別碼 + 顯示文字**，不含憑據（通則：憑據永不進導航狀態，
+     * 見 [Zhgy] 的註釋 —— 導航狀態會被系統序列化保存/恢復）。
+     *
+     * 為什麼要帶 `homeworkId` 又還要在倉庫裡核對一次：
+     * 從待辦進來的 id 是 `/api/todos` 的 `id`，**它是否等於作業 id 沒有證據**，
+     * 而這個 id 會被拿去當提交目標。核對規則見
+     * [com.muyao.wanzaihyperos.data.tronclass.LiveHomeworkDetailRepository.resolveIn]。
+     */
+    @Serializable
+    data class HomeworkDetail(
+        val courseId: Int = 0,
+        val homeworkId: Int = 0,
+        val courseName: String = "",
+        val title: String = "",
+        val tileUrl: String = "",
+    ) : Route
 
     /**
      * B16：**愛講座**（CJH52）原生清單。**只讀**。

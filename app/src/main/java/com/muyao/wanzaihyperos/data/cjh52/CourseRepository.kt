@@ -74,7 +74,7 @@ class LiveCourseRepository(
         val me = client.postForObject(HzcuEndpoints.CJH52_GET_USER_BY_TOKEN_PATH)
         val uid = me["user"].asObjectOrNull()?.get("sid").asStringOrNull()
             ?: throw com.muyao.wanzaihyperos.net.HzcuException.Parse(
-                "CJH52 沒有回傳使用者 id（user.sid）",
+                "CJH52 没有回传使用者 id（user.sid）",
             )
 
         // 2) 取課表。
@@ -102,6 +102,6 @@ class LiveCourseRepository(
 private fun Throwable.asCjh52Exception(): com.muyao.wanzaihyperos.net.HzcuException =
     if (this is com.muyao.wanzaihyperos.net.HzcuException) this
     else com.muyao.wanzaihyperos.net.HzcuException.Parse(
-        message = "課表資料解析失敗",
+        message = "课表资料解析失败",
         cause = this,
     )

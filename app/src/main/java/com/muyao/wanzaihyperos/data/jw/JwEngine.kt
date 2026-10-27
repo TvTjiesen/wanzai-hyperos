@@ -6,6 +6,7 @@ import android.webkit.WebViewClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.resume
 
 /**
@@ -91,16 +92,31 @@ class JwEngine(private val baseUrl: String = BASE) {
      * ⚠️ 只等 `onPageFinished`。這個站的頁面會在載完後再發 XHR，
      * 所以呼叫方要自己留時間（見 [fetchText] 的說明）。
      */
-    suspend fun load(url: String): Boolean = withContext(Dispatchers.Main) {
-        val view = webView ?: return@withContext false
-        suspendCancellableCoroutine { cont ->
-            view.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(v: WebView?, u: String?) {
-                    if (cont.isActive) cont.resume(true)
+    /**
+     * 載入一個頁面，等它自己的 `onPageFinished`。
+     *
+     * ★ 第 3 轮审计必修 4：这一发以前**没有超时** —— 这个站的页面不回 `onPageFinished`
+     *   就一直挂着；调用方（教务课表仓库）的 `isCrawling` 要等整趟跑完才置假，
+     *   于是挂住 = `isCrawling` 永远 true = 首页与外观预览**永远 WAIT、永远不画格子**。
+     *   超时返回 false，调用方那一段会按「这一次没读到」结算，状态与 isCrawling 一起落地。
+     *   （`login()` 本来就有 `repeat(LOGIN_POLLS)` 的轮询上限，只有爬取链上这两处没有。）
+     */
+    suspend fun load(url: String): Boolean = try {
+        withTimeout(LOAD_TIMEOUT_MS) {
+            withContext(Dispatchers.Main) {
+                val view = webView ?: return@withContext false
+                suspendCancellableCoroutine { cont ->
+                    view.webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(v: WebView?, u: String?) {
+                            if (cont.isActive) cont.resume(true)
+                        }
+                    }
+                    view.loadUrl(url)
                 }
             }
-            view.loadUrl(url)
         }
+    } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+        false
     }
 
     /** 目前頁面網址（用於判斷登入狀態）。 */
@@ -235,6 +251,16 @@ class JwEngine(private val baseUrl: String = BASE) {
     }
 
     /**
+     * 在頁面裡求值一段 JS，回**解碼後**的字串（呼叫方自己 `JSON.parse`）。
+     *
+     * 給課表那種「讀 DOM」的用。⚠️ 和 [fetchText] 一樣，
+     * **不能**在這裡寫 `async`/`await` 等 Promise —— `evaluateJavascript`
+     * 不等 Promise（會回 `{}`，見 [fetchText] 的說明）。課表那段 JS 是同步讀 DOM，
+     * 所以直接求值就夠。
+     */
+    suspend fun eval(script: String): String? = evalJsDecoded(script)
+
+    /**
      * 求值一段 JS 並回**解碼後**的字串結果。
      *
      * ### ★ 為什麼一定要「解碼」
@@ -249,18 +275,34 @@ class JwEngine(private val baseUrl: String = BASE) {
      *
      * （先前踩過：不回解碼就當 JSON 解析，結果 `items` 永遠是空的。）
      */
-    private suspend fun evalJsDecoded(script: String): String? =
-        withContext(Dispatchers.Main) {
-            val view = webView ?: return@withContext null
-            suspendCancellableCoroutine { cont ->
-                view.evaluateJavascript(script) { raw ->
-                    if (!cont.isActive) return@evaluateJavascript
-                    cont.resume(decodeJsResult(raw))
+    /**
+     * 跑一段 JS 并拿回**解码后**的原文。同样必须带超时（理由见 [load]）。
+     * 超时/没挂载都返回 null，调用方那条会照实记一句「没读到内容」。
+     */
+    private suspend fun evalJsDecoded(script: String): String? = try {
+        withTimeout(EVAL_TIMEOUT_MS) {
+            withContext(Dispatchers.Main) {
+                val view = webView ?: return@withContext null
+                suspendCancellableCoroutine { cont ->
+                    view.evaluateJavascript(script) { raw ->
+                        if (!cont.isActive) return@evaluateJavascript
+                        cont.resume(decodeJsResult(raw))
+                    }
                 }
             }
         }
+    } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+        null
+    }
 
     companion object {
+        /** `load` 等 `onPageFinished` 的上限（第 3 轮必修 4：没超时就会把 `isCrawling` 钉成真，
+         *  首页与外观预览于是永远 WAIT、永远不画格子）。 */
+        private const val LOAD_TIMEOUT_MS = 25_000L
+
+        /** `evaluateJavascript` 回结果的上限。 */
+        private const val EVAL_TIMEOUT_MS = 15_000L
+
         const val BASE = "http://ijw.hzcu.edu.cn"
 
         /** 功能頁所在的登入上下文（**兩個都要登入**，見類註釋）。 */

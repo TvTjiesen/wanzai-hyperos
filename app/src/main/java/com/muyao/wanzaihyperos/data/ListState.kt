@@ -221,13 +221,13 @@ fun <T> ListState<T>.appendPage(
 /**
  * 「被取消」**不是**「取不到」。
  *
- * 本轮真机根因（訊息／新聞两处「取不到」）：页面在 `LaunchedEffect(Unit)` 里直接
+ * 本轮真机根因（消息／新聞两处「取不到」）：页面在 `LaunchedEffect(Unit)` 里直接
  * `runCatching { repo.refreshX() }`，仓库内部又是 `runCatching { api.fetch() }`。
  * 切走页面（点底栏、左右滑动、动画期间离场）会取消这个协程，
  * OkHttp/Compose 抛的是 `LeftCompositionCancellationException`（**不是** CancellationException 的常见子类），
  * 被 `runCatching` 当成普通失败吞掉 → `failWith(Transport("网络连接失败"))`
  * → 写进**仓库级**的 StateFlow。仓库活得比页面久，于是这条假错误会一直挂在那，
- * 下次进来还是「取不到訊息」，而真实原因只是"上一次没等完"。
+ * 下次进来还是「取不到消息」，而真实原因只是"上一次没等完"。
  *
  * 判据放在这个**共用漏斗**而不是二十个 `runCatching` 现场：
  * 漏一处就还有一处会骗人（业主反复强调过"闸门要在共用段"）。
@@ -257,6 +257,27 @@ private fun HzcuException.isCancellation(): Boolean {
  * ★ 但**取消**不进这个分支：见 [isCancellation]，取消只清掉转圈标志，
  *   不写错误、不标 `stale`（否则一次切页会永久污染仓库状态）。
  */
+/**
+ * 「这份数据多久了」——一句人话。
+ *
+ * ★ 为什么必须有它（业主 2026-10-20：「我不想每次进来都要看到他重新加载一遍」）：
+ *   首屏拿本地快照立刻画，快是快了，但**旧**这件事必须写在屏幕上。
+ *   没有这一行，"秒开"和"他看到三天前的课表而以为今天是"就分不开 ——
+ *   后者比转圈严重得多。所以快照与新鲜度提示是一件事的两半，不许只做一半。
+ *
+ * @param updatedAtMillis null = 还不知道什么时候取的（说「时间未知」，不编一个）
+ */
+fun agoLabel(updatedAtMillis: Long?, nowMillis: Long): String {
+    val at = updatedAtMillis ?: return "更新时间未知"
+    val secs = ((nowMillis - at) / 1000L).coerceAtLeast(0L)
+    return when {
+        secs < 45 -> "刚刚更新"
+        secs < 3600 -> "${secs / 60} 分钟前更新"
+        secs < 86_400 -> "${secs / 3600} 小时前更新"
+        else -> "${secs / 86_400} 天前更新"
+    }
+}
+
 fun <T> ListState<T>.failWith(error: HzcuException): ListState<T> {
     if (error.isCancellation()) return when (this) {
         is ListState.Content -> copy(

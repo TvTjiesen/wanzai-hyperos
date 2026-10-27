@@ -13,6 +13,7 @@ import com.muyao.wanzaihyperos.data.tronclass.RollcallRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronFeedRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronHomeRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronMeRepository
+import com.muyao.wanzaihyperos.ui.design.BackRow
 import androidx.compose.runtime.collectAsState
 
 /**
@@ -37,12 +38,27 @@ private sealed interface TronSub {
     data class Homework(val courseId: Int, val courseName: String) : TronSub
 
     /**
+     * 一項作業的詳情 + 提交。
+     *
+     * ★ 帶 `homeworkId` 與 `title`：詳情倉庫要拿 id 去清單裡**核對**
+     *（這個 id 可能來自待辦，不一定等於作業 id —— 見
+     * [com.muyao.wanzaihyperos.data.tronclass.LiveHomeworkDetailRepository.resolveIn]），
+     * `title` 就是核對用的第二把鑰匙。
+     */
+    data class HomeworkDetail(
+        val courseId: Int,
+        val homeworkId: Int,
+        val courseName: String,
+        val title: String,
+    ) : TronSub
+
+    /**
      * 課程詳情。
      *
      * ★ 帶的是整個 [com.muyao.wanzaihyperos.data.tronclass.TronCourse] 而不是 id：
      * 頁首要顯示上課時間，而那個欄位**只有課程清單有**（詳情接口的
      * `classroom_schedule` 實測是 null）。把清單那一份帶進去，
-     * 頁首在詳情回來之前就能顯示完整資訊。
+     * 頁首在詳情回來之前就能顯示完整信息。
      */
     data class Course(val course: com.muyao.wanzaihyperos.data.tronclass.TronCourse) : TronSub
 
@@ -54,6 +70,7 @@ private sealed interface TronSub {
 fun TronHomeContent(
     repository: TronHomeRepository,
     homeworkRepository: HomeworkRepository,
+    homeworkDetailRepository: com.muyao.wanzaihyperos.data.tronclass.HomeworkDetailRepository,
     rollcallRepository: RollcallRepository,
     courseDetailRepository: com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository,
     scheduleRepository: com.muyao.wanzaihyperos.data.tronclass.ScheduleRepository,
@@ -134,6 +151,26 @@ fun TronHomeContent(
                 repository = homeworkRepository,
                 onBack = { sub = TronSub.None },
                 onOpenWeb = onOpenWeb,
+                onOpenHomework = { courseId, homeworkId, courseName, title ->
+                    sub = TronSub.HomeworkDetail(courseId, homeworkId, courseName, title)
+                },
+                modifier = modifier,
+            )
+        }
+
+        is TronSub.HomeworkDetail -> {
+            // 載入由「進入這一項作業」觸發；提交是寫操作，只在這一頁。
+            LaunchedEffect(s.homeworkId) {
+                if (s.courseId > 0) {
+                    runCatching {
+                        homeworkDetailRepository.load(s.courseId, s.homeworkId, s.courseName, s.title)
+                    }
+                }
+            }
+            HomeworkDetailBody(
+                repository = homeworkDetailRepository,
+                onOpenWeb = onOpenWeb,
+                header = { item { BackRow("返回", onBack = { sub = TronSub.Homework(s.courseId, s.courseName) }) } },
                 modifier = modifier,
             )
         }

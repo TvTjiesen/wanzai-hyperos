@@ -67,7 +67,7 @@ class PortalSession(store: SecureStore) : StoredSession(store), PortalCredential
     }
 
     /** 学号 / 工号。没有则 null。 */
-    fun userCode(): String? {
+    override fun userCode(): String? {
         ensureLoaded()
         return userCodeValue
     }

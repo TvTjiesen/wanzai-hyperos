@@ -237,7 +237,7 @@ class PortalApi(private val client: HzcuClient) {
             put("page", page)
             put("rows", BILL_PAGE_SIZE)
         },
-        context = "我的事務-${bucket.label}",
+        context = "我的事务-${bucket.label}",
     )
 
     // ---------------------------------------------------------------------------

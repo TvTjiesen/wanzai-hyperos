@@ -23,10 +23,14 @@ import kotlinx.coroutines.sync.withLock
  *
  * ### ★ 為什麼倉庫不自動重試簽到
  *
- * 讀取失敗重試很自然；但**簽到重試等於可能送出兩筆記錄**。
- * 所以 [answer] 只發一次，失敗就把服務端的原話回報 ——
- * 由使用者決定要不要再按一次。這與 `TronclassClient.answerRollcall`
- * 的 `maxAttempts = 1` 是同一個決定。
+ * 读取失败重试很自然；但**签到重试等于可能送出两笔记录**。
+ * 所以 [answer] 只发一次，失败就把服务端的原话回报 —— 由使用者决定要不要再按一次。
+ *
+ * 这台 client 的底座在 `net/TronHttp.kt`：`retryOnConnectionFailure(false)`
+ * （OkHttp 默认会在连接失败时重试一次，写操作不能吃那个默认）。
+ * ⚠️ 上一版这里写的是 `TronclassClient.answerRollcall` 的 `maxAttempts = 1` ——
+ *    **那东西不存在**（`maxAttempts` 在 `TronclassClient` 里 0 命中，真身在 `HzcuCasService` 的
+ *    另一条链路）。引用不存在的开关 = 给后来的人造假前提，已改成引用真存在的这一行。
  */
 interface RollcallRepository {
     val state: StateFlow<ListState<TronRollcall>>
@@ -102,4 +106,5 @@ class LiveRollcallRepository(
         kind: RollcallAnswerKind,
         code: String?,
     ): RollcallAnswerResult = client.answerRollcall(rollcallId, kind, code)
+
 }

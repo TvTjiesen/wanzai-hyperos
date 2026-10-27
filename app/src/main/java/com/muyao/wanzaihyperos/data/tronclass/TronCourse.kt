@@ -33,7 +33,7 @@ import kotlinx.serialization.json.JsonObject
  * 見同目錄的舊註釋）。那個清單有兩個毛病：
  *
  * 1. **會漏**：沒點過的課就不在清單裡，學生看不到自己選了什麼；
- * 2. **資訊少**：沒有 `credit`、`instructors`、`semester`。
+ * 2. **信息少**：沒有 `credit`、`instructors`、`semester`。
  *
  * `/api/my-courses` 是**全量**（實測 20 門，含跨學期），且多帶三樣：
  * 教師、學分、學期 —— 「我的課」該顯示的就是這些。

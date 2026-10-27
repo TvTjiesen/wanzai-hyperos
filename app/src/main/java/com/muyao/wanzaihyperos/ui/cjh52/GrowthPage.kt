@@ -36,6 +36,7 @@ import com.muyao.wanzaihyperos.data.cjh52.GrowthSnapshot
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
+import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -100,7 +101,7 @@ fun GrowthPage(
             SmallTopAppBar(
                 title = "我的成长",
 color = Color.Transparent,
-                subtitle = "來自場景管理（cjh52）",
+                subtitle = "来自场景管理（cjh52）",
                 navigationIcon = {
                     IconButton(onClick = onExit) {
                         Icon(
@@ -194,7 +195,7 @@ private fun KqaCard(kqa: Cjh52KqaScore?) {
             Spacer(Modifier.height(6.dp))
             Text(
                 // 誠實說明：我們不知道這三個代號的中文含義。
-                text = "Q / GY / K 是學校系統裡的維度代號，原樣顯示以免譯錯。",
+                text = "Q / GY / K 是学校系统里的维度代号，原样显示以免译错。",
                 style = MiuixTheme.textStyles.footnote2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
@@ -236,7 +237,7 @@ private fun CreditCard(credits: Cjh52CreditProgress?) {
             credits.compulsoryRatio?.let { ratio ->
                 Text(
                     text = "必修课完成 ${(ratio * 100).toInt()}%（${credits.compulsoryCourseNumber}/${credits.compulsoryCourseTotal}）",
-                    style = MiuixTheme.textStyles.body1,
+                    style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = Type.tabular),
                     color = colors.onSurface,
                 )
                 // 進度條：用 Box 畫（Miuix 沒有現成的 LinearProgress 帶值版本）。
@@ -338,7 +339,7 @@ private fun ActivityCard(months: List<Cjh52ActivityMonth>) {
                         )
                         Text(
                             text = "${m.count} 次",
-                            style = MiuixTheme.textStyles.body2,
+                            style = MiuixTheme.textStyles.body2.copy(fontFeatureSettings = Type.tabular),
                             color = colors.primary,
                             modifier = Modifier.width(70.dp),
                         )
@@ -367,7 +368,7 @@ private fun ActivityCard(months: List<Cjh52ActivityMonth>) {
  * 分數顯示：整數不帶小數點，有小數才保留。
  *
  * 為什麼要處理：服務端回的是 Double，`7.0` 直接顯示會很難看，
- * 而 `toInt()` 硬轉又會把 `2.44` 變成 `2`（丟資訊）。
+ * 而 `toInt()` 硬轉又會把 `2.44` 變成 `2`（丟信息）。
  */
 private fun formatScore(value: Double): String =
     if (value == value.toLong().toDouble()) value.toLong().toString()

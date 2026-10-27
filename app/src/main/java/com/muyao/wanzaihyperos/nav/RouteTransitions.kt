@@ -40,30 +40,43 @@ import top.yukonga.miuix.kmp.nav.transition.navGraphicsTransition
  * 所以进场用 `d`、离场用 `1 - d` 的方向是反的，必须按 `role` 分支。
  */
 /**
- * @param motionMs 整条深度动画的时长；**0 = 用 Miuix 自带的默认运动曲线**，
- *   这样他能在不重装的前提下 A/B「参考的 280ms」和「库默认」哪个跟底栏更配
- *   （热调键 `wz_nav_ms`，见 [com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning.navMs]）。
+ * @param motionMs 整条深度动画的时长（热调键 `wz_nav_ms`，见 [GlassTuning.navMs]）。
+ *   **`<= 0` 不再表示"用 Miuix 默认曲线"**（第 9 轮审计头条）：那条路会让"关掉动效"变成
+ *   "位移照旧、只是时长换成库的默认值" —— 用户关掉动画想省掉的正是"整页推一遍"。
+ * @param reducedMotion 减弱动效 / 系统关了动画程序时长 ⇒ **只留 alpha 淡入淡出**
+ *   （[REDUCED_FADE_MS]，标准 §6：位移与弹簧全停，换成 120–160ms 纯 alpha；**反馈要留**）。
  */
-fun wanzaiRouteTransitions(motionMs: Int): NavTransition {
-    val motion = if (motionMs <= 0) {
-        NavMotion()
-    } else {
-        NavMotion(
-            NavSettleSpec.Tween(motionMs, FastOutSlowInEasing),
-            NavSettleSpec.Tween(motionMs, FastOutSlowInEasing),
-            NavSettleSpec.Tween(motionMs, FastOutSlowInEasing),
-        )
-    }
+fun wanzaiRouteTransitions(motionMs: Int, reducedMotion: Boolean = false): NavTransition {
+    val ms = routeMotionMs(motionMs, reducedMotion)
+    // 三档（位移 / 淡入 / 淡出）用同一条 tween：Miuix 的 nav 只暴露"一条深度曲线"，
+    // 各属性的时间差靠下面那些无量纲的比例倍数表达。
+    val motion = NavMotion(
+        NavSettleSpec.Tween(ms, FastOutSlowInEasing),
+        NavSettleSpec.Tween(ms, FastOutSlowInEasing),
+        NavSettleSpec.Tween(ms, FastOutSlowInEasing),
+    )
     // 位移/淡入/淡出的**比例**按 280ms 这条时间轴算出来的（见档头），
     // 时长被热调时比例仍然自洽：它们是无量纲的进度倍数。
+    // 减弱动效时把位移与缩放整条抹掉（`slide = 0`），只留 alpha。
+    val slide = if (reducedMotion || motionMs <= 0) 0f else 1f
     return navDirectionalTransition(
         // 前进：新页从右被推进来，旧页往左被推走
-        wanzaiPageTransition(sign = 1f, motion = motion),
+        wanzaiPageTransition(sign = 1f, motion = motion, slide = slide),
         // 后退 / 预测式返回：整体镜像
-        wanzaiPageTransition(sign = -1f, motion = motion),
-        wanzaiPageTransition(sign = -1f, motion = motion),
+        wanzaiPageTransition(sign = -1f, motion = motion, slide = slide),
+        wanzaiPageTransition(sign = -1f, motion = motion, slide = slide),
     )
 }
+
+/** 减弱动效那一档的时长（标准 §6 的 120–160ms 带内）。 */
+internal const val REDUCED_FADE_MS = 140
+
+/**
+ * 路由转场到底跑多少毫秒 —— 抽出来是因为"减弱动效时不许变成库默认时长"这件事
+ * 必须能被单测钉住（`RouteTransitionsTest`），而不是靠读 KDoc。
+ */
+internal fun routeMotionMs(motionMs: Int, reducedMotion: Boolean): Int =
+    if (reducedMotion || motionMs <= 0) REDUCED_FADE_MS else motionMs
 
 /** 位移总时长 = 参考里 `tween<IntOffset>(280)`，可被热调覆盖。 */
 private const val SLIDE_MS = 280
@@ -86,7 +99,11 @@ private const val ENTER_RATE = SLIDE_MS / 200f
 /** 淡出 160ms / 总 280ms。 */
 private const val EXIT_RATE = SLIDE_MS / 160f
 
-private fun wanzaiPageTransition(sign: Float, motion: NavMotion): NavTransition =
+/**
+ * @param slide 显示位移的比例：`1` = 正常；`0` = **只留 alpha**（减弱动效那一档）。
+ *   缩放也跟着关掉 —— 标准 §6 要的是"位移与弹簧全部停掉"，缩放在这里只是一种位移。
+ */
+private fun wanzaiPageTransition(sign: Float, motion: NavMotion, slide: Float = 1f): NavTransition =
     navGraphicsTransition(
         // 与 `MiuixDefault` 实抄时取的是同一个值（字节码里 `fconst_1`），不改它
         opaqueDepth = 1f,
@@ -102,8 +119,8 @@ private fun wanzaiPageTransition(sign: Float, motion: NavMotion): NavTransition 
         // 参考的离场：slideOut 280ms + fadeOut 160ms + scaleOut 0.98
         val fade = (depth * ENTER_RATE).coerceIn(0f, 1f)
         alpha = (1f - depth * EXIT_RATE).coerceIn(0f, 1f)
-        translationX = -width * EXIT_SHIFT * depth * sign
-        val s = 1f + (EXIT_SCALE_TO - 1f) * fade
+        translationX = -width * EXIT_SHIFT * depth * sign * slide
+        val s = 1f + (EXIT_SCALE_TO - 1f) * fade * slide
         scaleX = s
         scaleY = s
     } else {
@@ -111,8 +128,8 @@ private fun wanzaiPageTransition(sign: Float, motion: NavMotion): NavTransition 
         val away = 1f - depth
         val fade = (away * ENTER_RATE).coerceIn(0f, 1f)
         alpha = fade
-        translationX = width * ENTER_SHIFT * depth * sign
-        val s = ENTER_SCALE_FROM + (1f - ENTER_SCALE_FROM) * fade
+        translationX = width * ENTER_SHIFT * depth * sign * slide
+        val s = ENTER_SCALE_FROM + (1f - ENTER_SCALE_FROM) * fade * slide
         scaleX = s
         scaleY = s
     }

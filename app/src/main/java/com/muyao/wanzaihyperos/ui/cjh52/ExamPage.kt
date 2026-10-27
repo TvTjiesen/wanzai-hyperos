@@ -29,6 +29,7 @@ import com.muyao.wanzaihyperos.data.cjh52.ExamRepository
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
+import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -61,7 +62,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * - 有資料時，只顯示**能從常見欄位名認出來**的（`name`/`title`/`examName`），
  *   認不出來就顯示「（無法顯示的考試條目）」而不是編一個假標題；
  * - 並在頁面上**明確說明**「欄位尚未核實」——
- *   與其讓使用者以為這是完整的考試資訊，不如說清楚。
+ *   與其讓使用者以為這是完整的考試信息，不如說清楚。
  *
  * 等有考試的時候再補一次取證即可（`tools/cdp-threepages.js` 重跑）。
  */
@@ -88,7 +89,7 @@ fun ExamPage(
             SmallTopAppBar(
                 title = "我的考试",
 color = Color.Transparent,
-                subtitle = "來自場景管理（cjh52）",
+                subtitle = "来自场景管理（cjh52）",
                 navigationIcon = {
                     IconButton(onClick = onExit) {
                         Icon(
@@ -127,7 +128,7 @@ color = Color.Transparent,
                 item {
                     Text(
                         text = "共 ${exams.size} 场",
-                        style = MiuixTheme.textStyles.body1,
+                        style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = Type.tabular),
                         color = MiuixTheme.colorScheme.onBackground,
                         modifier = Modifier.padding(horizontal = 4.dp),
                     )
@@ -137,8 +138,8 @@ color = Color.Transparent,
                     // ★ 誠實標註：這一頁的欄位還沒核實過。
                     //   與其讓使用者以為看到的就是全部，不如說清楚。
                     Text(
-                        text = "說明：考試條目的欄位尚未核實（取證時沒有進行中的考試），" +
-                            "目前只顯示能確認的資訊。需要完整內容請點右上「改用网页版」。",
+                        text = "说明：考试条目的栏位尚未核实（取证时没有进行中的考试），" +
+                            "目前只显示能确认的信息。需要完整内容请点右上“改用网页版”。",
                         style = MiuixTheme.textStyles.footnote2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
@@ -156,7 +157,7 @@ private fun ExamCard(exam: Cjh52Exam) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
                 // 認不出標題欄位時**不編造**，明說無法顯示。
-                text = exam.title ?: "（無法顯示的考試條目）",
+                text = exam.title ?: "（无法显示的考试条目）",
                 style = MiuixTheme.textStyles.title4,
                 fontWeight = FontWeight.SemiBold,
                 color = colors.onSurface,
@@ -167,7 +168,7 @@ private fun ExamCard(exam: Cjh52Exam) {
             Text(
                 // 把已知的鍵列出來，讓使用者（和我們）知道服務端到底給了什麼 ——
                 // 這比顯示空白有用，也是下次補取證的線索。
-                text = "服務端欄位：" + exam.raw.keys.joinToString(", "),
+                text = "服务端栏位：" + exam.raw.keys.joinToString(", "),
                 style = MiuixTheme.textStyles.footnote2,
                 color = colors.onSurfaceVariantSummary,
                 maxLines = 3,

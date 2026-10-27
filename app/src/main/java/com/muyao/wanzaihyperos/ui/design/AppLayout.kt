@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
@@ -143,14 +144,27 @@ fun AppCard(
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
+    val cardShape = RoundedCornerShape(Dims.cardCorner)
     val bordered = modifier
         .fillMaxWidth()
+        // 定稿板的卡片不是平贴的：--shadow 0 22px 52px rgba(58,50,38,.18)
+        // + 0 2px 8px rgba(58,50,38,.08)。这里取一半强度（手机尺寸更小），
+        // 暖灰投影，深色下换纯黑，否则卡片和纸面之间没有景深。
+        .shadow(
+            elevation = 7.dp,
+            shape = cardShape,
+            clip = false,
+            ambientColor = if (isDark) Color.Black.copy(alpha = 0.35f)
+            else Color(0x143A3226),
+            spotColor = if (isDark) Color.Black.copy(alpha = 0.45f)
+            else Color(0x263A3226),
+        )
         // 描邊畫在卡片**外緣**：`border` 用的是同一個圓角，
         // 所以視覺上像卡片自帶的一圈亮邊，而不是多套一個方框。
         .border(
             width = 1.dp,
             color = AppColors.cardStroke(isDark),
-            shape = RoundedCornerShape(Dims.cardCorner),
+            shape = cardShape,
         )
     when {
         // 帶長按時走 Miuix 的 clickable 重載（它有 built-in 的 press feedback，
@@ -333,7 +347,7 @@ fun HintText(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * **結果訊息**（成功 / 失敗）。
+ * **結果消息**（成功 / 失敗）。
  *
  * 為什麼單獨一個：簽到這類**寫操作**必須讓使用者清楚看到成沒成，
  * 而「綠/紅」是它的語義。讓每個頁面自己挑顏色，早晚有一頁挑錯
@@ -517,6 +531,11 @@ fun SecondaryScaffold(
                 // progress 為 0 時 [TopVeil] 內部直接 return，連合成層都不建。
                 TopVeil(
                     progress = scrollProgress,
+                    // 这一屏真正铺的底色 = `ThemedScaffold` 那支 `pageBrush` 的最上一站
+                    //（**不是**主题令牌；浅色主题 + 暗壁纸时两者不同）。
+                    backdrop = AppColors.pageTopColor(
+                        MiuixTheme.colorScheme.background.luminance() < 0.5f,
+                    ),
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
                 SmallTopAppBar(

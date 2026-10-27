@@ -48,7 +48,7 @@ data class TronCourseDetail(
     val semesterName: String,
     /** 開始日期（`start_date`，`yyyy-MM-dd`）。 */
     val startDate: String,
-    /** 大綱欄位（含沒填的 —— 標題本身是資訊）。 */
+    /** 大綱欄位（含沒填的 —— 標題本身是信息）。 */
     val outline: List<TronOutlineField>,
 ) {
     /**

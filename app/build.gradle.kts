@@ -45,6 +45,9 @@ android {
 
     buildFeatures {
         compose = true
+        // 「关于」页要显示版本号（B4-10）：BuildConfig 默认不开，
+        // 台账以前写的"渲染版本"是做不到的交付 —— 现在真开、真读。
+        buildConfig = true
     }
 
     packaging {

@@ -8,7 +8,7 @@ import com.muyao.wanzaihyperos.net.asStringOrNull
 import kotlinx.serialization.json.JsonObject
 
 /**
- * 學在城院「我的」要展示的個人資訊。
+ * 學在城院「我的」要展示的個人信息。
  *
  * ### 契約（活體探測 `GET /api/profile`）
  *

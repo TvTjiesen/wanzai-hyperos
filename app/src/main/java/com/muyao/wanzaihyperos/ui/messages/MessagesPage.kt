@@ -179,7 +179,7 @@ fun MessagesPage(
                         item {
                             StatePlaceholder(
                                 state = PageState.Empty,
-                                detail = "「$groupName」分组下没有消息（不是加载失败）",
+                                detail = "“$groupName”分组下没有消息（不是加载失败）",
                             )
                         }
                     } else {

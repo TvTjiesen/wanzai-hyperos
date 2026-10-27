@@ -68,3 +68,27 @@ fun JsonElement?.asArrayOrNull(): JsonArray? = this as? JsonArray
 
 /** 对象；不是对象时 null。 */
 fun JsonElement?.asObjectOrNull(): JsonObject? = this as? JsonObject
+
+/**
+ * 最小 JSON 字串轉義（值可能含引號/反斜線/換行）。
+ *
+ * 放在這裡而不是各處內聯：手拼 JSON 的地方（簽到包體、作業提交包體）
+ * 必須用**同一個**轉義 —— 兩處各寫一份，遲早有一份漏掉 `\r`，
+ * 那種 bug 的表現是「正文裡有換行的那份作業提交失敗」，
+ * 測試樣本偏偏通常沒有換行，所以會一路潛到真機上才炸。
+ *
+ * ⚠️ 只做**值**的轉義，不做結構。結構仍由呼叫方拼（見 `TronclassClient`）。
+ * 控制字元（< 0x20）用 `\u00XX` 兜住，避免把原始控制字元送進包體。
+ */
+fun jsonQuote(v: String): String = buildString {
+    append('"')
+    for (ch in v) when (ch) {
+        '"' -> append("\\\"")
+        '\\' -> append("\\\\")
+        '\n' -> append("\\n")
+        '\r' -> append("\\r")
+        '\t' -> append("\\t")
+        else -> if (ch < ' ') append("\\u%04x".format(ch.code)) else append(ch)
+    }
+    append('"')
+}

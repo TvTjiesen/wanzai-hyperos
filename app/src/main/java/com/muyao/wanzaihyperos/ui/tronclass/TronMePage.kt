@@ -119,12 +119,12 @@ fun TronMePage(
                         color = colors.onSurface,
                     )
                     Spacer(Modifier.height(Dims.tight))
-                    HintText("「—」表示还没取到，不是 0。")
+                    HintText("“—”表示还没取到，不是 0。")
                 }
             }
         }
 
-        // ---- 學籍資訊 ------------------------------------------------------
+        // ---- 學籍信息 ------------------------------------------------------
         item { SmallTitle(text = "学籍") }
         item {
             AppCard(modifier = Modifier.fillMaxWidth()) {

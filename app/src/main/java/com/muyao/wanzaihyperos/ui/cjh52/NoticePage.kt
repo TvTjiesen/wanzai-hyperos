@@ -31,6 +31,7 @@ import com.muyao.wanzaihyperos.data.cjh52.NoticeRepository
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
+import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -86,7 +87,7 @@ fun NoticePage(
             SmallTopAppBar(
                 title = "日常通知",
 color = Color.Transparent,
-                subtitle = "來自場景管理（cjh52）",
+                subtitle = "来自场景管理（cjh52）",
                 navigationIcon = {
                     IconButton(onClick = onExit) {
                         Icon(
@@ -126,7 +127,7 @@ color = Color.Transparent,
                     Text(
                         text = "共 ${notices.size} 条" +
                             if (pageState == PageState.Stale) "（这次没刷新成功，显示上一次的）" else "",
-                        style = MiuixTheme.textStyles.body1,
+                        style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = Type.tabular),
                         color = MiuixTheme.colorScheme.onBackground,
                         modifier = Modifier.padding(horizontal = 4.dp),
                     )

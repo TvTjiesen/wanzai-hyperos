@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自动生成：逐字抄自 v2 定稿板 wz-v2.html 的 <symbol id="i-chart">，
+     fill:none / stroke:currentColor(1.65) / round cap+join 与板 .icon 一致。
+     不要手改；要改形状就改 wz-v2.html 再重跑 tools/board_icons_to_xml.py。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <group>
+        <path android:pathData="M4 20V4M4 20h16" android:strokeWidth="1.65" android:strokeLineCap="round" android:strokeLineJoin="round" android:strokeColor="#FF000000" android:fillColor="#00000000" />
+        <path android:pathData="M7.5 16.6v-4.8M11.4 16.6V8.2M15.3 16.6v-6.8M19.2 16.6V6.4" android:strokeWidth="1.65" android:strokeLineCap="round" android:strokeLineJoin="round" android:strokeColor="#FF000000" android:fillColor="#00000000" />
+    </group>
+</vector>

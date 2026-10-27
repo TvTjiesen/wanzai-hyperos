@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -34,13 +35,24 @@ data class GlassSpec(
 ) {
     companion object {
 
-        /** 淺色定稿。 */
+        /** 浅色定稿。 */
         val LIGHT = GlassSpec(surfaceTint = Color(0xFFF4F7FF), frostBlur = 18.dp)
 
         /** 深色定稿。 */
         val DARK = GlassSpec(surfaceTint = Color(0xFFF2F5FC), frostBlur = 22.dp)
 
         fun forDark(isDark: Boolean): GlassSpec = if (isDark) DARK else LIGHT
+
+        /**
+         * 降级（不采样，走实心纸面）时垫色的不透明度。
+         *
+         * ★ 提到这里是因为**调用方也得用同一个数**：`HomeSectionPage` 那张此刻卡要按
+         *   「卡面实际铺出来的亮度」决定字色，而 SOLID 那一档画面是 [GlassSurface] 的
+         *   降级分支画的。两边各写一份 0.94/0.88，早晚会飘（飘了就是"白压白"那类只能靠
+         *   眼睛发现的 bug —— 而眼睛发现不了 0.88 与 0.94 的差）。
+         */
+        const val FALLBACK_ALPHA_LIGHT = 0.94f
+        const val FALLBACK_ALPHA_DARK = 0.88f
     }
 }
 
@@ -52,16 +64,39 @@ data class GlassSpec(
  * - [LIQUID] 液態（折射 + 色散 + 雙光源高光）
  */
 enum class BarMaterial(val label: String) {
-    SOLID("純色"),
+    SOLID("纯色"),
     FROSTED("磨砂"),
-    LIQUID("液態"),
+    LIQUID("液态"),
+}
+
+/**
+ * 把「盘里存的玻璃档位」映射成运行期真正用的 [BarMaterial]。
+ *
+ * ★ v3 清单 #12 的接线点。此前 `LocalBarMaterial` **全工程没有任何一处 provide**
+ * （唯一会 provide 的 `GlassTheme` 零调用），于是所有 `GlassSurface` 一路吃
+ * `staticCompositionLocalOf` 的默认值 LIQUID —— 设置页写着"磨砂"、屏幕上还是折射的液态。
+ *
+ * @param glassMode `UiPrefs.glassMode`：`liquid` / `frost` / `off`
+ * @param translucent `MotionPrefs.glassIsTranslucent`（系统"减弱透明度"或高对比时为 false）
+ *                    —— 它比档位优先：任何一档都要先退成实底。
+ */
+fun barMaterialFor(glassMode: String, translucent: Boolean): BarMaterial = when {
+    !translucent -> BarMaterial.SOLID
+    glassMode == "frost" -> BarMaterial.FROSTED
+    glassMode == "off" -> BarMaterial.SOLID
+    else -> BarMaterial.LIQUID
 }
 
 /** 目前生效的 [GlassSpec]。 */
-val LocalGlassSpec = staticCompositionLocalOf { GlassSpec.LIGHT }
+// ★ 独立审计（v3 #12 第 2 轮 P2#6）：这两条以前是 `staticCompositionLocalOf` ——
+//   它承载的却是**会变的用户档位**。今天能刷新，纯粹靠 provider 的作用域被 `glassMode`
+//   失效带着重建；哪天那条失效链断掉（比如有人把 provide 挪进一个 remember 里），
+//   就会变成"切了档不重算"，而 static 版本**不会给你任何警告**。
+//   换 `compositionLocalOf`：语义就是"这会变"，读它的组合在被换值时正确失效。
+val LocalGlassSpec = compositionLocalOf { GlassSpec.LIGHT }
 
 /** 目前的底欄材質。 */
-val LocalBarMaterial = staticCompositionLocalOf { BarMaterial.LIQUID }
+val LocalBarMaterial = compositionLocalOf { BarMaterial.LIQUID }
 
 /**
  * 調參用的可寫狀態（**目前沒有接線**，留給下一步的 debug 調參頁）。

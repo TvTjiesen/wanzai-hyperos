@@ -36,6 +36,7 @@ import com.muyao.wanzaihyperos.data.portal.PortalBillRepository
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
+import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import top.yukonga.miuix.kmp.basic.Card
@@ -128,7 +129,7 @@ color = Color.Transparent,
                 modifier = Modifier.padding(innerPadding),
                 // 空態也要說清「是哪個清單空」——三個 tab 的空態長得一樣，
                 // 不寫的話使用者會懷疑是不是切錯了。
-                detail = if (pageState == PageState.Empty) "「${bucket.label}」目前没有记录" else null,                onRetry = { scope.launch { runCatching { repository.refresh() } } },
+                detail = if (pageState == PageState.Empty) "“${bucket.label}”目前没有记录" else null,                onRetry = { scope.launch { runCatching { repository.refresh() } } },
             )
         } else {
             LazyColumn(
@@ -198,8 +199,8 @@ private fun ListHeader(
     val colors = MiuixTheme.colorScheme
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
         Text(
-            text = "「${bucket.label}」共 $count 条" + if (hasMore) "（还有更多）" else "",
-            style = MiuixTheme.textStyles.body1,
+            text = "“${bucket.label}”共 $count 条" + if (hasMore) "（还有更多）" else "",
+            style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = Type.tabular),
             color = colors.onBackground,
         )
         if (isStale) {

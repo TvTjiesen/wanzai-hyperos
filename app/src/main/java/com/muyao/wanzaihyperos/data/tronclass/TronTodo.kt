@@ -43,6 +43,15 @@ data class TronTodo(
     val title: String,
     /** 課程名（`course_name`）。 */
     val courseName: String,
+    /**
+     * 課程 id（`course_id`）。
+     *
+     * ★ 為什麼要補這個欄位（2026-10-19）：待辦頁現在點一條要能落到
+     * **那一門課的作業詳情**（`/api/courses/{courseId}/homework-activities` 是課程內的接口）。
+     * 沒有它就只能整頁跳去網頁版 —— 而契約裡本來就有 `course_id`，
+     * 先前只是沒收。取不到時是 0（呼叫方按「不知道」處理，**不拿 0 去發請求**）。
+     */
+    val courseId: Int,
     /** 課程代碼（`course_code`）。 */
     val courseCode: String,
     /** 類型（`type`，實測長度 4，如 `homework`）。 */
@@ -60,6 +69,19 @@ data class TronTodo(
     /** 是否已鎖定（`is_locked`）。鎖定的作業通常不能提交。 */
     val locked: Boolean,
 ) {
+    /**
+     * 這一條是不是**作業**（`type == "homework"`）。
+     *
+     * ★ 為什麼要在模型上判：待辦頁只有認出「這是作業」才敢把這一行做成
+     * 可點進詳情+提交。把它做成「所有待辦都能點」會把報名、繳費
+     * 也導到作業接口上 —— 那是拿錯 id 去發寫請求。
+     *
+     * 比對前 `trim + lowercase`：源碼給的是小寫 `"homework"`，
+     * 但這個站的欄位大小寫 historically 不一致（時間戳有帶 Z 有不帶）。
+     */
+    val isHomework: Boolean
+        get() = type.trim().lowercase() == "homework"
+
     /**
      * 截止時間的**本地**顯示文字（`yyyy-MM-dd HH:mm`）。
      *
@@ -109,10 +131,11 @@ object TronTodoParser {
                 id = id,
                 title = obj["title"].asStringOrNull().orEmpty(),
                 courseName = obj["course_name"].asStringOrNull().orEmpty(),
+                courseId = obj["course_id"].asIntOrNull() ?: 0,
                 courseCode = obj["course_code"].asStringOrNull().orEmpty(),
                 type = obj["type"].asStringOrNull().orEmpty(),
                 endTimeMillis = endMillis,
-                // 有值時把原始形態留下來顯示（免得我們解析錯了就完全看不到資訊）。
+                // 有值時把原始形態留下來顯示（免得我們解析錯了就完全看不到信息）。
                 timeText = endRaw.asStringOrNull().orEmpty(),
                 locked = obj["is_locked"].asBoolOrNull() ?: false,
             )

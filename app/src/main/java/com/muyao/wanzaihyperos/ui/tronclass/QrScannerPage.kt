@@ -94,7 +94,7 @@ fun QrScannerPage(
     ) { granted ->
         hasPermission = granted
         if (!granted) {
-            errorText = "没有相机权限，无法扫码。可以返回后用「粘贴扫码结果」的方式签到。"
+            errorText = "没有相机权限，无法扫码。可以返回后用“粘贴扫码结果”的方式签到。"
         }
     }
 
@@ -148,7 +148,7 @@ color = Color.Transparent,
                         modifier = Modifier.padding(top = 16.dp),
                     ) { Text("授予相机权限") }
                     Text(
-                        text = "也可以返回后用「粘贴扫码结果」签到，不需要相机。",
+                        text = "也可以返回后用“粘贴扫码结果”签到，不需要相机。",
                         style = MiuixTheme.textStyles.footnote2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(top = 12.dp),

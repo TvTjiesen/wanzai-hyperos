@@ -49,44 +49,79 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 图标全部 Canvas 自绘，和首页磁贴同一套画法：混用 MiuixIcons 会显得是两套系统，
  * 而且描边粗细/圆角跟我们的玻璃对不上。
  */
-enum class SettingIcon { Account, Logout, Theme, Glass, Timetable, Clock, Info, School }
+enum class SettingIcon {
+    // `Theme` 已删（B4-13 第 19 轮）：外观页的主题是三段 `Segmented`，不用图标；
+    // 设置页那三行主题撤掉后，全工程只剩这条 `when` 分支本身 ⇒ 渲染器支持一个没人要的东西。
+    Glass, Timetable, Clock, Info, School,
+
+    /** 「减弱玻璃透明度」专用：半填的对比圆。
+     *  原来它和「外观与壁纸」共用 `Glass` 同一枚图形，同一屏两行一个图标，
+     *  读起来像同一件事被写了两遍（复评 2026-10-22）。
+     */
+    Contrast,
+
+    /**
+     * 以下六枚 = v3 #8「账号与登录」六行，**一行一枚**：
+     * 六源是六套独立登录态，共用图形就等于告诉用户「这几行是一回事」。
+     * （原来的 `Account` 与 `School` 画的是同一个图形，`Account`/`Logout` 两枚
+     *  在 #8 重做「帐号」组之后没人用了，一并删掉。）
+     */
+    /** 统一身份认证 · 门户：盾牌 + 勾。 */
+    Shield,
+
+    /** 学在城院：学位帽板 + 帽穗。 */
+    Cap,
+
+    /** 教务系统：带三行字的成绩单。 */
+    Doc,
+
+    /** 场景管理 CJH52：四向刻度的徽章。 */
+    Badge,
+
+    /** 智慧公寓：房子。 */
+    House,
+
+    /** 智云课堂：一块带播放三角的屏幕（它的登录态在网页里，只能开页面）。 */
+    Screen,
+}
 
 @Composable
 fun SettingGlyph(icon: SettingIcon, tint: Color, modifier: Modifier = Modifier) {
     // 参照站那颗彩色底 + 白色线性图形：底色用饱和色，图形用白，圆角比方块小一圈
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(11.dp))
+            .clip(RoundedCornerShape(Glyph.tileCorner))
             .background(tint),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(20.dp)) {
+        Canvas(modifier = Modifier.size(Glyph.size)) {
             val s = size.minDimension
-            val stroke = s * 0.11f
+            // B4-13：線寬與圓角走令牌（`Glyph`），不在某一枚圖標裡偷偷改數
+            val stroke = s * Glyph.STROKE_RATIO
             val c = Color.White
             when (icon) {
-                SettingIcon.Account, SettingIcon.School -> {
+                SettingIcon.School -> {
                     dot(s * 0.5f, s * 0.34f, s * 0.17f, c)
                     arc(s * 0.16f, s * 0.56f, s * 0.68f, s * 0.5f, stroke, c)
                 }
 
-                SettingIcon.Logout -> {
-                    line(s * 0.42f, s * 0.5f, s * 0.86f, s * 0.5f, stroke, c)
-                    line(s * 0.66f, s * 0.3f, s * 0.86f, s * 0.5f, stroke, c)
-                    line(s * 0.66f, s * 0.7f, s * 0.86f, s * 0.5f, stroke, c)
-                    line(s * 0.2f, s * 0.16f, s * 0.2f, s * 0.84f, stroke, c)
-                }
-
-                SettingIcon.Theme -> {
-                    ring(s * 0.5f, s * 0.5f, s * 0.26f, stroke, c)
-                    // 半填充：左半亮右半暗，一眼读出"浅色/深色"
-                    drawArc(
+                // 「减弱玻璃透明度」专用：**两张叠起来的薄片**（材质/透明度的语义）。
+                // 上一版画的是半填圆，结果就是 `Theme` 那枚的镜像 —— 在设置页里
+                // 读起来像第四个主题项（复评 2026-10-22）。
+                SettingIcon.Contrast -> {
+                    drawRoundRect(
                         color = c,
-                        startAngle = 90f,
-                        sweepAngle = 180f,
-                        useCenter = true,
-                        topLeft = Offset(s * 0.24f, s * 0.24f),
-                        size = Size(s * 0.52f, s * 0.52f),
+                        topLeft = Offset(s * 0.22f, s * 0.34f),
+                        size = Size(s * 0.46f, s * 0.34f),
+                        cornerRadius = CornerRadius(s * Glyph.CORNER_RATIO, s * Glyph.CORNER_RATIO),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke),
+                    )
+                    drawRoundRect(
+                        color = c.copy(alpha = 0.55f),
+                        topLeft = Offset(s * 0.32f, s * 0.46f),
+                        size = Size(s * 0.46f, s * 0.34f),
+                        cornerRadius = CornerRadius(s * Glyph.CORNER_RATIO, s * Glyph.CORNER_RATIO),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke),
                     )
                 }
 
@@ -120,6 +155,75 @@ fun SettingGlyph(icon: SettingIcon, tint: Color, modifier: Modifier = Modifier) 
                     dot(s * 0.5f, s * 0.32f, stroke * 0.62f, c)
                     line(s * 0.5f, s * 0.46f, s * 0.5f, s * 0.7f, stroke, c)
                 }
+
+                // ---- v3 #8 六行账号源：一行一枚，形状彼此不撞 ------------------
+                SettingIcon.Shield -> {
+                    val shield = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(s * 0.5f, s * 0.12f)
+                        lineTo(s * 0.84f, s * 0.25f)
+                        lineTo(s * 0.84f, s * 0.5f)
+                        lineTo(s * 0.5f, s * 0.88f)
+                        lineTo(s * 0.16f, s * 0.5f)
+                        lineTo(s * 0.16f, s * 0.25f)
+                        close()
+                    }
+                    drawPath(shield, c, style = Stroke(width = stroke))
+                    line(s * 0.35f, s * 0.47f, s * 0.46f, s * 0.6f, stroke, c)
+                    line(s * 0.46f, s * 0.6f, s * 0.67f, s * 0.35f, stroke, c)
+                }
+
+                SettingIcon.Cap -> {
+                    val board = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(s * 0.5f, s * 0.2f)
+                        lineTo(s * 0.9f, s * 0.42f)
+                        lineTo(s * 0.5f, s * 0.64f)
+                        lineTo(s * 0.1f, s * 0.42f)
+                        close()
+                    }
+                    drawPath(board, c, style = Stroke(width = stroke))
+                    line(s * 0.74f, s * 0.5f, s * 0.74f, s * 0.76f, stroke, c)
+                    dot(s * 0.74f, s * 0.8f, stroke * 0.7f, c)
+                }
+
+                SettingIcon.Doc -> {
+                    rr(s * 0.2f, s * 0.12f, s * 0.8f, s * 0.88f, stroke, c)
+                    line(s * 0.33f, s * 0.34f, s * 0.67f, s * 0.34f, stroke, c)
+                    line(s * 0.33f, s * 0.52f, s * 0.67f, s * 0.52f, stroke, c)
+                    line(s * 0.33f, s * 0.7f, s * 0.55f, s * 0.7f, stroke, c)
+                }
+
+                SettingIcon.Badge -> {
+                    ring(s * 0.5f, s * 0.5f, s * 0.28f, stroke, c)
+                    dot(s * 0.5f, s * 0.5f, s * 0.09f, c)
+                    line(s * 0.5f, s * 0.06f, s * 0.5f, s * 0.17f, stroke, c)
+                    line(s * 0.5f, s * 0.83f, s * 0.5f, s * 0.94f, stroke, c)
+                    line(s * 0.06f, s * 0.5f, s * 0.17f, s * 0.5f, stroke, c)
+                    line(s * 0.83f, s * 0.5f, s * 0.94f, s * 0.5f, stroke, c)
+                }
+
+                SettingIcon.House -> {
+                    val roof = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(s * 0.1f, s * 0.48f)
+                        lineTo(s * 0.5f, s * 0.14f)
+                        lineTo(s * 0.9f, s * 0.48f)
+                    }
+                    drawPath(roof, c, style = Stroke(width = stroke, cap = StrokeCap.Round))
+                    rr(s * 0.22f, s * 0.46f, s * 0.78f, s * 0.88f, stroke, c)
+                    line(s * 0.5f, s * 0.88f, s * 0.5f, s * 0.64f, stroke, c)
+                }
+
+                SettingIcon.Screen -> {
+                    rr(s * 0.1f, s * 0.16f, s * 0.9f, s * 0.7f, stroke, c)
+                    val play = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(s * 0.43f, s * 0.32f)
+                        lineTo(s * 0.66f, s * 0.43f)
+                        lineTo(s * 0.43f, s * 0.54f)
+                        close()
+                    }
+                    drawPath(play, c)
+                    line(s * 0.34f, s * 0.86f, s * 0.66f, s * 0.86f, stroke, c)
+                    line(s * 0.5f, s * 0.7f, s * 0.5f, s * 0.86f, stroke, c)
+                }
             }
         }
     }
@@ -143,7 +247,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.rr(
     color = color,
     topLeft = Offset(l, t),
     size = Size(r - l, b - t),
-    cornerRadius = CornerRadius((r - l).coerceAtMost(b - t) * 0.2f),
+    cornerRadius = CornerRadius((r - l).coerceAtMost(b - t) * Glyph.INNER_RECT_CORNER_RATIO),
     style = Stroke(width = stroke),
 )
 
@@ -173,6 +277,13 @@ fun SettingRow(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    /**
+     * 有 `trailing` 时**默认不画 chevron** —— 开关和「清除」这种自带语义的尾件旁边
+     * 再塞一个 `›` 就是两个箭头抢话（`节次时间表` 那行自己画了 `▾`，也不能被顶出一个 `›`）。
+     * 但「状态 + 时间」是纯信息尾件，不表达可点，所以账号那几行显式要回 chevron：
+     * 六行里有一行不可点，看不出区别就会被当成按坏了（v3 #8 复审）。
+     */
+    trailingChevron: Boolean = false,
 ) {
     val colors = MiuixTheme.colorScheme
     Row(
@@ -182,7 +293,7 @@ fun SettingRow(
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SettingGlyph(icon = icon, tint = tint, modifier = Modifier.size(38.dp))
+        SettingGlyph(icon = icon, tint = tint, modifier = Modifier.size(Glyph.tile))
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -195,14 +306,58 @@ fun SettingRow(
                 fontSize = Type.caption,
                 color = colors.onSurfaceVariantSummary,
                 maxLines = 2,
+                // ★ 截了要看得出来（与课表那几处同规矩）：`Clip` 是**静悄悄少字**，
+                //   业主不会知道这一行还有后半句。
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
+        // 文字列与尾件之间必须留缝：`weight(1f)` 只保证文字列吃掉剩余宽度，
+        // 副标题写满时会一路顶到右侧状态字上，两句粘成一句（03:04 模拟器像素）。
+        // 只在**真有尾件**时加，否则没有尾件的行右边凭空多 10dp。
         when {
-            trailing != null -> trailing()
-            onClick != null -> Text(text = "›", fontSize = Type.title, color = colors.onSurfaceVariantSummary)
+            trailing != null -> {
+                Spacer(Modifier.width(10.dp))
+                trailing()
+                // chevron 走**固定宽度的槽**，不随有无伸缩：上一版直接 `if (有箭头) Text("›")`，
+                // 量到带箭头的五行「未登录」右边缘在 963px、不带箭头那行在 999px ——
+                // 同一列差 13.7dp，第二行明显凸出去一块（RUBRIC 必查 7 对齐漂移）。
+                //
+                // ★ 但这个槽**只给显式要它的行**（账号那六行）。把它无条件挂在
+                // `trailing != null` 上，全页 12 处带尾件的行会被一起推内 20dp：
+                // 主题的「✓」从贴边 963..999 搬到 910..946，而同组「外观与壁纸」的「›」
+                // 走下面那条分支仍在 985..997 ⇒ 同一组里 ✓ 与 › 差 19.4dp，
+                // 比它要修的 13.7dp 还大（第 3 轮复审计量出来的）。
+                if (trailingChevron) {
+                    Box(
+                        modifier = Modifier.width(ChevronSlot),
+                        // 右对齐：槽是 20dp 的占位盒，箭头墨迹要落在**其它组 › 所在的那根线上**
+                        // （居中会把账号组的 › 留在 981，而「外观与壁纸」的 › 在 997 ⇒ 6.1dp 跨组内缩）。
+                        // antd RN 的 `arrow="empty"` 也是同一手法：占同一只盒子的同一个位置，只是不画。
+                        contentAlignment = Alignment.CenterEnd,
+                    ) {
+                        if (onClick != null) {
+                            Text(text = "›", fontSize = Type.title, color = colors.onSurfaceVariantSummary)
+                        }
+                    }
+                }
+            }
+
+            onClick != null -> {
+                Spacer(Modifier.width(10.dp))
+                Text(text = "›", fontSize = Type.title, color = colors.onSurfaceVariantSummary)
+            }
         }
     }
 }
+
+/**
+ * 尾件右边那只 chevron 的槽宽；**这一组里画与不画都占这么多**，右边缘才不会两档
+ * （antd RN 的 `List.Item arrow="empty"` 是同一手法）。
+ * ★ 只有显式传 `trailingChevron = true` 的行才保留这个槽 —— 见 [SettingRow] 里那段注释。
+ * ★ 改这个宽度或改挂它的位置，必须回装机图量一遍右侧各列的 x（本文件这两轮就是靠量图才改对的：
+ *   轮 2 量出组内 13.7dp 漂移，轮 3 量出无条件挂槽把全页「✓」推内 20dp）。
+ */
+internal val ChevronSlot = 20.dp
 
 /** 分组卡：参照站那种"一个圆角容器里塞几行"。 */
 @Composable
@@ -226,12 +381,13 @@ fun SettingSectionLabel(text: String) {
         text = text,
         fontSize = Type.summary,
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(start = 6.dp, top = 10.dp, bottom = 2.dp),
+        // 左边不再多缩 6dp：全站正文列是 16dp（板 18px），组标题必须同一条基线
+        modifier = Modifier.padding(start = 0.dp, top = 10.dp, bottom = 2.dp),
     )
 }
 
 /**
- * 自绘开关（44×26）。
+ * 自绘开关（**46×28**；圆钮 22dp，见 `Glyph.knob`）。
  *
  * 不用 Miuix `Switch`：签名没在产物级核过，猜错会静默不生效；这颗自己画 20 行就够，
  * 而且颜色跟设置页那套图标一致。
@@ -259,8 +415,11 @@ fun PillSwitch(checked: Boolean, label: String, onToggle: () -> Unit) {
     ) {
         Box(
             modifier = Modifier
-                .size(22.dp)
+                // ★ 顺序不能反：先 padding 再 size，才是「把 22dp 的圆钮推到那个位置」。
+                //   反过来写（size 后 padding）是在 22dp **内部**扣掉起始留白，
+                //   滑到开态时圆钮只剩 1dp 宽 —— 真机上就是一条白竖线。
                 .padding(start = 3.dp + 18.dp * knob)
+                .size(Glyph.knob)
                 .clip(CircleShape)
                 .background(Color.White),
         )
@@ -274,12 +433,24 @@ fun PillSwitch(checked: Boolean, label: String, onToggle: () -> Unit) {
  * （`TronScheduleSlot` 档头那条纪律），编一组默认时间就是造数据 ——
  * 学生按我编的时间去上课是要迟到的。填了课表左列才显示时间，没填只显示节次号。
  *
+ * ⚠️ 第 2026-10-19 起这行说明改过两次，都以**现在的界面**为准：
+ *   课表早就没有「左列」了（五天課表板），时间是挂在**每一块课自己身上**
+ *   （`PeriodClock`）。文案再写「左列」，他找不到那一列就会以为功能坏了 ——
+ *   「对不上」这句抱怨有一半是这种文案造成的。
+ *
+ * 行数一率给到 [ROWS]：他真机的课有「第 11-12 节」，只给 8 行会**填不到那两节**，
+ * 于是那两块课永远没时间（这种"少两行"的错在界面上完全看不出来）。
+ *
  * 输入用 `BasicTextField`（foundation，签名稳定），不用 Miuix 输入组件：
  * 那个的参数字典我没核到产物级，猜错是"看着能打字其实没写进去"。
  */
+private const val ROWS = 12
+
 @Composable
 fun PeriodTimeEditor(
     rows: List<Pair<String, String>>,
+    /** 学校日历给的那一层（当占位文字显示，**不写进偏好**）。 */
+    school: List<Pair<String?, String?>> = com.muyao.wanzaihyperos.data.schedule.SchoolPeriods.table,
     onChange: (List<Pair<String, String>>) -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -290,13 +461,16 @@ fun PeriodTimeEditor(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            text = "填了课表左列才会显示时间；留空就只显示第几节。格式 08:00。",
+            text = "第几行就是第几节。灰色那格是学校日历里有的时间，课表已经在用了、不用你抄一遍；" +
+                "你填过的以你为准（会盖住学校那份）。留空且学校也没有 ⇒ 这块只显示第几节，不编时间。",
             fontSize = Type.caption,
             color = colors.onSurfaceVariantSummary,
         )
-        val count = if (rows.isEmpty()) 8 else rows.size
+        val count = maxOf(rows.size, ROWS)
         (1..count).forEach { i ->
             val cur = rows.getOrNull(i - 1) ?: ("" to "")
+            val schoolStart = school.getOrNull(i - 1)?.first
+            val schoolEnd = school.getOrNull(i - 1)?.second
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "$i",
@@ -304,11 +478,19 @@ fun PeriodTimeEditor(
                     color = colors.onSurfaceVariantSummary,
                     modifier = Modifier.width(20.dp),
                 )
-                TimeField(value = cur.first, hint = "上课") { v -> onChange(setRow(rows, i, v, cur.second)) }
+                TimeField(
+                    value = cur.first,
+                    hint = schoolStart ?: "上课",
+                    schoolHint = schoolStart != null,
+                ) { v -> onChange(setRow(rows, i, v, cur.second)) }
                 Spacer(Modifier.width(6.dp))
                 Text(text = "–", fontSize = Type.summary, color = colors.onSurfaceVariantSummary)
                 Spacer(Modifier.width(6.dp))
-                TimeField(value = cur.second, hint = "下课") { v -> onChange(setRow(rows, i, cur.first, v)) }
+                TimeField(
+                    value = cur.second,
+                    hint = schoolEnd ?: "下课",
+                    schoolHint = schoolEnd != null,
+                ) { v -> onChange(setRow(rows, i, cur.first, v)) }
             }
         }
     }
@@ -322,7 +504,13 @@ private fun setRow(rows: List<Pair<String, String>>, index: Int, start: String, 
 }
 
 @Composable
-private fun TimeField(value: String, hint: String, onValueChange: (String) -> Unit) {
+private fun TimeField(
+    value: String,
+    hint: String,
+    /** true = 这个占位是**学校日历给的真值**（不是「上课/下课」这种提示词），画得更淡一点。 */
+    schoolHint: Boolean = false,
+    onValueChange: (String) -> Unit,
+) {
     val colors = MiuixTheme.colorScheme
     var focused by remember { mutableStateOf(false) }
     BasicTextField(
@@ -352,7 +540,12 @@ private fun TimeField(value: String, hint: String, onValueChange: (String) -> Un
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
                 if (value.isEmpty()) {
-                    Text(text = hint, fontSize = Type.summary, color = colors.onSurfaceVariantSummary)
+                    Text(
+                        text = hint,
+                        fontSize = Type.summary,
+                        color = if (schoolHint) colors.onSurfaceVariantSummary.copy(alpha = 0.45f)
+                                else colors.onSurfaceVariantSummary,
+                    )
                 }
                 inner()
             }

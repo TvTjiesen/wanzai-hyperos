@@ -65,7 +65,7 @@ suspend fun Cjh52Client.currentUser(): Cjh52UserContext {
         data[key].asObjectOrNull()?.get(sub).asStringOrNull().orEmpty()
     val userSid = field("user", "sid")
     if (userSid.isEmpty()) {
-        throw com.muyao.wanzaihyperos.net.HzcuException.Parse("CJH52 沒有回傳 user.sid")
+        throw com.muyao.wanzaihyperos.net.HzcuException.Parse("CJH52 没有回传 user.sid")
     }
     return Cjh52UserContext(
         userSid = userSid,
@@ -102,7 +102,7 @@ class LiveNoticeRepository(
             _state.value = _state.value.startRefresh()
             val result = runCatching {
                 val me = client.currentUser()
-                // ★ `scope` 的四個值從用戶資訊推出來（真機實測的請求形態就是這樣）。
+                // ★ `scope` 的四個值從用戶信息推出來（真機實測的請求形態就是這樣）。
                 //   硬編碼院系/年級會讓換了專業的人看不到通知。
                 val body = buildJsonObject {
                     put("scope", buildJsonObject {
@@ -232,7 +232,7 @@ class LiveGrowthRepository(
                 val me = client.currentUser()
                 val userId = me.userSid.toIntOrNull()
                     ?: throw com.muyao.wanzaihyperos.net.HzcuException.Parse(
-                        "CJH52 的 user.sid 不是數字，成長頁接口無法使用",
+                        "CJH52 的 user.sid 不是数字，成长页接口无法使用",
                     )
 
                 // 四個子請求各自 runCatching：**一個掛不拖累其它**。
@@ -273,7 +273,7 @@ class LiveGrowthRepository(
                 // 「全掛」才算失敗：四個都拿不到東西時，回報錯誤比顯示一片空白誠實。
                 if (kqa == null && physique.isEmpty() && credits == null && months.isEmpty()) {
                     throw com.muyao.wanzaihyperos.net.HzcuException.Parse(
-                        "成長頁的四個接口都沒有回傳資料",
+                        "成长页的四个接口都没有回传资料",
                     )
                 }
 
@@ -300,4 +300,4 @@ class LiveGrowthRepository(
  */
 internal fun Throwable.asCjh52Failure(): com.muyao.wanzaihyperos.net.HzcuException =
     if (this is com.muyao.wanzaihyperos.net.HzcuException) this
-    else com.muyao.wanzaihyperos.net.HzcuException.Parse("CJH52 資料解析失敗", cause = this)
+    else com.muyao.wanzaihyperos.net.HzcuException.Parse("CJH52 资料解析失败", cause = this)

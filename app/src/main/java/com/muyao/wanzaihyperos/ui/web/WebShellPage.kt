@@ -32,6 +32,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.Type
 import androidx.compose.ui.viewinterop.AndroidView
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
@@ -101,6 +103,19 @@ fun WebShellPage(
     var currentUrl by remember { mutableStateOf(url) }
 
     var webView by remember { mutableStateOf<WebView?>(null) }
+
+    /**
+     * 「这个学校网页**还没在本机登录过**」—— B4-05（业主 2026-10-23 选的口径：**一句实话**）。
+     *
+     * 为什么不是"帮他自动登录"：设置页那一列的"已登录"说的是 **App 存的凭据**（六源，一卡通不在其中），
+     * 而一卡通/图书馆这类是**学校 CAS 在 WebView 里的独立会话**，两套东西。
+     * 把 App 的会话说注入进去试过（B4/B5 真机对照）：一卡通确实免登了，
+     * 但**图书馆立刻变 500**（厂商 `existIp` 端点），而且清掉注入的 cookie 也回不来
+     * —— WebView 自己拿到了 `.ca.hzcu.edu.cn` 的真会话，作用域不同删不掉。
+     * 规律是「WebView 里只要有有效 CAS 会话，图书馆就坏」⇒ 不注入（详见档头注释与 `docs/B5-WALKTHROUGH.md`）。
+     * 所以这里只做一件事：**探一下有没有 cookie，没有就照实说一句**，绝不重复索要账密。
+     */
+    var needsWebLogin by remember { mutableStateOf<String?>(null) }
 
     // 系统返回：优先让 WebView 退一步，退无可退才退出本页。
     BackHandler(enabled = canGoBack) {
@@ -193,6 +208,20 @@ color = Color.Transparent,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+                // ★ B4-05：这句是**实话**，不是代登录。他点了「一卡通」看到登录页时，
+                //   至少知道「App 里显示已登录」和「这个网页要学校登录」是两件事，
+                //   而且登过一次之后这台手机就记住了（WebView cookie 跨会话持久化）。
+                needsWebLogin?.let { hint ->
+                    Text(
+                        text = hint,
+                        fontSize = Type.caption,
+                        color = colors.onSurfaceVariantSummary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(colors.surfaceContainer.copy(alpha = 0.6f))
+                            .padding(horizontal = Dims.screenH, vertical = 8.dp),
+                    )
+                }
             }
         },
     ) { innerPadding ->
@@ -230,6 +259,16 @@ color = Color.Transparent,
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
+                                // B4-05：只在**学校 CAS 那几个域**上提示，别的网页（通知/公告/办事）
+                                // 不需要登录，提示只会变噪音。判定看的是**真实落地**的那一页 ——
+                                // 一卡通最终落在 CAS 的 ca.hzcu.edu.cn，只看 etcard/libres 会让
+                                // 这句实话一次都不出现（真机 2026-10-24 实测，判据见 WebLoginHint。
+                                val jar = android.webkit.CookieManager.getInstance()
+                                needsWebLogin = WebLoginHint.decide(
+                                    url = url.orEmpty(),
+                                    siteCookies = if (url == null) null else jar.getCookie(url),
+                                    casCookies = jar.getCookie(WebLoginHint.CAS_PROBE_URL),
+                                )
                                 canGoBack = view?.canGoBack() == true
                                 if (url != null) currentUrl = url
                                 progress = 100f
@@ -375,3 +414,4 @@ private fun describeError(code: Int): String = when (code) {
     WebViewClient.ERROR_FILE_NOT_FOUND -> "页面不存在"
     else -> "加载失败"
 }
+

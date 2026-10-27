@@ -94,7 +94,7 @@ class LiveTronFeedRepository(
 // 「我的」
 // ---------------------------------------------------------------------------
 
-/** 「我的」頁的一包資料：個人資訊 + 統計。 */
+/** 「我的」頁的一包資料：個人信息 + 統計。 */
 data class TronMe(
     val profile: TronProfile,
     val stats: TronMyStats,
@@ -133,7 +133,7 @@ class LiveTronMeRepository(
             _state.value = _state.value.startRefresh()
 
             val result = runCatching {
-                // 個人資訊是**必須**的（沒有它整頁沒意義）。
+                // 個人信息是**必須**的（沒有它整頁沒意義）。
                 val profile = client.profile()
                     ?: throw HzcuException.Parse("没有取到个人资料")
 

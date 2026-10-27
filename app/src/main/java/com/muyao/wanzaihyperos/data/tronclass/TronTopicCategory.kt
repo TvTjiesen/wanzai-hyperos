@@ -65,7 +65,7 @@ data class TronTopicCategory(
      * 狀態講法。
      *
      * ⚠️ 不顯示「進行中／已結束」以外的推測 ——
-     * 這個端點沒有「我發過帖沒有」的資訊（那在逐條 topic 裡），
+     * 這個端點沒有「我發過帖沒有」的信息（那在逐條 topic 裡），
      * 所以**不顯示「已參與」這種話**。
      */
     val statusLabel: String get() = if (closed) "已结束" else "进行中"

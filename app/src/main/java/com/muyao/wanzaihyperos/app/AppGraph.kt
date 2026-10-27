@@ -74,17 +74,33 @@ class AppGraph private constructor(
     val cjh52: Cjh52Client,
     /** 學在城院原生接口層（B6 待辦的第二個來源）。 */
     val tronclass: TronclassClient,
+    /**
+     * 只讀接口的本地緩存（設定頁要拿它顯示「佔了多少 + 一鍵清除」）。
+     *
+     * ★ 為什麼要把這個物件暴露出來：裡面存的是他本人的課表/賬單/成績。
+     *   悄悄往他手機裡寫一堆個人數據、又不給看得見的大小和清除入口，
+     *   這件事本身就不該做（业主 2026-10-20 同意加緩存，但這一條是我自己加的條件）。
+     */
+    val httpCache: com.muyao.wanzaihyperos.net.ResponseCache,
     /** 學在城院原生首頁（我的課 + 待交作業）。 */
     val tronHome: com.muyao.wanzaihyperos.data.tronclass.TronHomeRepository,
     /** 學在城院簽到（看 + 簽）。 */
     val rollcall: com.muyao.wanzaihyperos.data.tronclass.RollcallRepository,
-    /** 學在城院某門課的作業（只讀）。 */
+    /** 學在城院某門課的作業（只看清單；點一行进 [homeworkDetail]）。 */
     val homework: com.muyao.wanzaihyperos.data.tronclass.HomeworkRepository,
+    /**
+     * 學在城院**一項作業的詳情 + 提交**（2026-10-19）。
+     *
+     * 单独一个仓库而不是塞进 [homework]：提交是写操作，
+     * 它的闸门（不知道要求就不发）必须绑在**这一项**的状态上，
+     * 而不是「上一次看的是哪门课」的全局清单状态上。
+     */
+    val homeworkDetail: com.muyao.wanzaihyperos.data.tronclass.HomeworkDetailRepository,
     /** 學在城院「課程動態」（公告 + 待辦 + 我的課的合成視圖）。 */
     val tronFeed: com.muyao.wanzaihyperos.data.tronclass.TronFeedRepository,
     /** 學在城院「我的」（個人資料 + 概覽）。 */
     val tronMe: com.muyao.wanzaihyperos.data.tronclass.TronMeRepository,
-    /** 學在城院某門課的**詳情**（資訊 / 成績 / 出勤 / 大綱 / 作業）。 */
+    /** 學在城院某門課的**詳情**（信息 / 成績 / 出勤 / 大綱 / 作業）。 */
     val courseDetail: com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository,
     /** 學在城院**課表**（把各門課的上課時間字串攤成一週的格子）。 */
     val schedule: com.muyao.wanzaihyperos.data.tronclass.ScheduleRepository,
@@ -113,6 +129,14 @@ class AppGraph private constructor(
     val jwEngine: com.muyao.wanzaihyperos.data.jw.JwEngine,
     /** B18：教務系統倉庫（兩段登入 + 取資料）。 */
     val jw: com.muyao.wanzaihyperos.data.jw.JwRepository,
+    /**
+     * 教務系統的**課表**（排課的权威来源）。
+     *
+     * 單獨一個倉庫而不是塞進 [jw]：`jw` 的狀態是「一個功能一份原始回應」，
+     * 而課表要**兩條取數路徑回退**（JSON → 讀渲染好的表格）並產出可直接渲染的
+     * 槽位清單。混進去會讓那個 when 分支長出第二套流程。
+     */
+    val jwTimetable: com.muyao.wanzaihyperos.data.jw.JwTimetableRepository,
     /** B19：智雲課堂引擎（沿用既有統一身份認證會話，用不可見 WebView 取數）。 */
     val zyEngine: com.muyao.wanzaihyperos.data.zy.ZyEngine,
     /** B19：智雲課堂倉庫（週課表 + 回放）。 */
@@ -122,7 +146,7 @@ class AppGraph private constructor(
     /**
      * 网络取数的**生命周期归属**：应用级，不是页面级。
      *
-     * ★ 本轮真机根因（訊息／新聞「取不到」＋待办「正在整理…」永远转圈）：
+     * ★ 本轮真机根因（消息／新聞「取不到」＋待办「正在整理…」永远转圈）：
      *   页面以前在自己的 `LaunchedEffect(Unit)` 里直接 `runCatching { repo.refresh() }`，
      *   于是请求**寄生在页面的组合生命周期上** —— 切个 tab、左右滑一下，组合离开，
      *   协程被取消，OkHttp/Compose 抛 `LeftCompositionCancellationException`；
@@ -148,8 +172,25 @@ class AppGraph private constructor(
      * 那种才难查。
      */
     fun fetch(block: suspend () -> Unit) {
-        ioScope.launch { runCatching { block() } }
+        // 在途计数：小球靠它说「正在处理」（引擎 30 思考中）。没有这条计数就只能靠猜，
+        // 而猜出来的「正在忙」是假的 —— 一次取数都没有的时候它也转。
+        _inFlight.value = _inFlight.value + 1
+        ioScope.launch {
+            try {
+                runCatching { block() }
+            } finally {
+                _inFlight.value = (_inFlight.value - 1).coerceAtLeast(0)
+            }
+        }
     }
+
+    private val _inFlight = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    /**
+     * 当前有几笔取数在路上。页面用 `graph.inFlight.collectAsState()` 读，
+     * 所以「开始取数 / 取完了」会自己触发重组，不需要页面轮询。
+     */
+    val inFlight: kotlinx.coroutines.flow.StateFlow<Int> = _inFlight
 
 
     /** 启动时该落在哪一页：已经登录就直奔主壳，否则先登录。 */
@@ -218,14 +259,34 @@ class AppGraph private constructor(
             val cjh52 = Cjh52Client(client, tokenProvider = { cjh52Session.token() })
             val tronSession = TronclassSession(store)
             val casService = HzcuCasService.create(client = client, session = portalSession)
+            // ★ 门户 token 失效时的**免密续期**接上（业主选的「先 A」：只重放已存 CAS cookie，
+            //   不把密码落到磁盘）。挂在 client 上 = 消息/新聞/待办/应用列表一次全好。
+            client.renewSession = { casService.renewWithExistingSession() != null }
+            // 验收探针：`adb shell settings put global wz_expire_probe 1` 后**第一次**门户调用
+            // 会被当成失效，从而真的走一遍"免密续期 → 重试一次"。
+            // ⚠️ 只在内存里自锁（App 不能写 Settings.Global，清了也没意义）：
+            //    一个进程只演一次，避免"永远失效"这种假象把结论带偏。
+            var probeFired = false
+            client.debugForceExpire = {
+                val armed = runCatching {
+                    android.provider.Settings.Global.getInt(
+                        appContext.contentResolver, "wz_expire_probe", 0,
+                    ) == 1
+                }.getOrDefault(false)
+                if (armed && !probeFired) {
+                    probeFired = true
+                    android.util.Log.i("WanzaiRenew", "探针生效：本次门户调用按失效处理")
+                    true
+                } else {
+                    false
+                }
+            }
             // 學在城院的原生接口層（B6 待辦看板的第二個來源）。
             // 用**裸 OkHttp**：門戶那個 client 會塞 ACCESS_TOKEN，拿去打
             // courses 域會出亂子（實測過）。限流仍走全域那一份閘門。
-            val tronHttp = okhttp3.OkHttpClient.Builder()
-                .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-                .retryOnConnectionFailure(false)
-                .build()
+            // ★ 配置抽到 `net/TronHttp.kt`：单测必须用**同一支**（否则生产改坏了测试也绿）。
+            val tronHttp = com.muyao.wanzaihyperos.net.tronHttpClient()
+            val httpCache = com.muyao.wanzaihyperos.net.ResponseCache(appContext.filesDir)
             val tron = TronclassClient(
                 http = tronHttp,
                 accountProvider = { portalSession.userCode() },
@@ -252,7 +313,26 @@ class AppGraph private constructor(
                     }
                 },
             )
-            // B6 的待辦看板要複用同一個門戶事務倉庫（它帶單飛與快取），
+            // 只讀接口走本地緩存（5 分鐘）：他抱怨的「每次點進去都要重新載入」
+            // 多數就是這幾支重複請求疊出來的。下拉刷新會繞開它（見 bypassCacheOnce）。
+            tron.cache = httpCache
+            // 調試版才裝這個鉤子：把「服務端到底回了什麼」落盤。
+            //
+            // ★ 為什麼要它（业主 2026-10-20：「签到功能根本就没生效…更何况你根本没判断准」）：
+            //   他反饋「判斷不準」時，我要看的不是**我的解析器輸出了什麼**，
+            //   而是**服務端實際回了什麼**。之前我從沒有 `/api/radar/rollcalls` 的真實回應樣本，
+            //   等於閉著寫解析器。取回辦法（不需要 root）：
+            //   `adb -s <串號> shell run-as com.muyao.wanzaihyperos cat files/tron_raw_rollcalls.txt`
+            //   —— 他自己在 App 裡打開簽到頁就會寫，我不碰他的屏幕。
+            if ((appContext.applicationInfo.flags and
+                    android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            ) {
+                tron.debugDump = { name, content ->
+                    runCatching {
+                        java.io.File(appContext.filesDir, "tron_raw_$name.txt").writeText(content)
+                    }
+                }
+            }
             // 所以提出區域變數讓兩處指向同一實例。
             val billsRepo = LivePortalBillRepository(api)
             // B18：教務系統的兩個長命物件。**必須在這裡建一次**（見下面命名實參的註釋）。
@@ -270,13 +350,15 @@ class AppGraph private constructor(
                 api = api,
                 cjh52 = cjh52,
                 tronclass = tron,
+                httpCache = httpCache,
                 tronHome = com.muyao.wanzaihyperos.data.tronclass.LiveTronHomeRepository(tron),
                 // 簽到需要「我的 student_id」來判斷簽了沒 —— 由倉庫自己向
                 // `/api/profile` 取（帶快取），不在此處傳變數：
-                // 那個 id 是**介面來源**的資訊，讓 AppGraph 記住它等於把
+                // 那個 id 是**介面來源**的信息，讓 AppGraph 記住它等於把
                 // 「怎麼取得」洩漏到組裝層。
                 rollcall = com.muyao.wanzaihyperos.data.tronclass.LiveRollcallRepository(tron),
                 homework = com.muyao.wanzaihyperos.data.tronclass.LiveHomeworkRepository(tron),
+                homeworkDetail = com.muyao.wanzaihyperos.data.tronclass.LiveHomeworkDetailRepository(tron),
                 tronFeed = com.muyao.wanzaihyperos.data.tronclass.LiveTronFeedRepository(tron),
                 tronMe = com.muyao.wanzaihyperos.data.tronclass.LiveTronMeRepository(tron),
                 courseDetail = com.muyao.wanzaihyperos.data.tronclass.LiveCourseDetailRepository(tron),
@@ -306,6 +388,12 @@ class AppGraph private constructor(
                 jwSession = jwSessionInstance,
                 jwEngine = jwEngineInstance,
                 jw = com.muyao.wanzaihyperos.data.jw.LiveJwRepository(jwEngineInstance, jwSessionInstance),
+                jwTimetable = com.muyao.wanzaihyperos.data.jw.LiveJwTimetableRepository(
+                    jwEngineInstance, jwSessionInstance,
+                    // 調試版會把教务那张表的原文落盘（业主「课表和时间对不上」→
+                    // 我要照学校给的真实字节写解析器，不是猜）。release 里不生效。
+                    appContext = appContext,
+                ),
                 zyEngine = zyEngineInstance,
                 zy = com.muyao.wanzaihyperos.data.zy.LiveZyRepository(zyEngineInstance),
             )

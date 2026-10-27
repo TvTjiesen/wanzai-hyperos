@@ -26,9 +26,7 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ContactsCircle
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import com.muyao.wanzaihyperos.ui.AppThemeMode
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.common.DemoBanner
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
@@ -46,8 +44,6 @@ import com.muyao.wanzaihyperos.ui.common.PageState
 fun MinePage(
     loggedIn: Boolean,
     account: String,
-    themeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit,
     onRelogin: () -> Unit,
     onLogout: () -> Unit,
     contentPadding: PaddingValues,
@@ -172,36 +168,10 @@ fun MinePage(
         }
 
         // ---- 外观 -----------------------------------------------------------------
-        item { SmallTitle(text = "外观") }
-        item {
-            AppCard(modifier = Modifier.padding(horizontal = 12.dp)) {
-                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                    AppThemeMode.entries.forEach { mode ->
-                        // 用 RadioButtonPreference 而不是手搓「RadioButton + Text」：
-                        // 前者整行可点，后者只有那个小圆点能点（真机走查时点「深色」
-                        // 文字没反应就是这个原因）。
-                        RadioButtonPreference(
-                            title = mode.label,
-                            summary = if (mode == AppThemeMode.System) {
-                                "跟随手机系统的深色/浅色设置"
-                            } else {
-                                null
-                            },
-                            selected = themeMode == mode,
-                            onClick = { onThemeModeChange(mode) },
-                        )
-                    }
-                }
-            }
-        }
-        item {
-            Text(
-                text = "主题由根节点唯一持有；页面内不再嵌套主题，避免双重留白与顶栏重叠。",
-                style = MiuixTheme.textStyles.footnote2,
-                color = colors.onSurfaceVariantSummary,
-                modifier = Modifier.padding(horizontal = 28.dp, vertical = 6.dp),
-            )
-        }
+        // ⚠️ 主题三档**不在这里**（B4-14 ④）：唯一入口是外观页的「主题」分段控件。
+        // 这一页是死页（`grep -rn "MinePage(" app/src` 除本文件外 0 命中），留着
+        // `AppThemeMode.entries.forEach` 会让「只有一个入口」这句话对读者不成立，
+        // 而且一旦被接回去就复活成第二个入口 ⇒ 整段摘掉，连形参一起。
 
         // ---- 关于 -----------------------------------------------------------------
         item { SmallTitle(text = "关于") }

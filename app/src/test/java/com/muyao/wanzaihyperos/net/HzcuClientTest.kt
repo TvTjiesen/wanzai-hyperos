@@ -34,6 +34,7 @@ class HzcuClientTest {
         var savedToken: String? = null
         var cleared: Boolean = false
         override fun accessToken(): String? = token
+        override fun userCode(): String? = "fake-user"
         override fun portalCookiesJson(): String? = cookiesJson
         override fun savePortalCookies(json: String) {
             savedCookies = json
@@ -126,6 +127,67 @@ class HzcuClientTest {
 
         assertTrue("实际是 $error", error is HzcuException.LoginExpired)
         assertEquals("认证失败重试只会把账号打锁", 1, server.requestCount)
+    }
+
+    // ---------------------------------------------------------------------------
+    // ★ 免密续期（业主 2026-10-19 选的「先 A」：只重放已存 CAS cookie，不落密码）
+    // ---------------------------------------------------------------------------
+
+    @Test
+    fun `失效后免密续期成功则重试一次并拿到数据`() = runTest {
+        server.enqueue(401, """{"code":401,"message":"token 不能为空","success":false}""")
+        server.enqueue(200, """{"code":200,"success":true,"message":"ok","data":{"a":1}}""")
+        val c = client()
+        var renewCalls = 0
+        c.renewContext = kotlinx.coroutines.Dispatchers.Unconfined
+        c.renewLog = { }
+        c.renewSession = { renewCalls++; true }
+
+        val response = c.portalPost("/api/x")
+
+        assertTrue("续期后应该拿到数据", response.success)
+        assertEquals("只续一次", 1, renewCalls)
+        assertEquals("一次失效 + 一次重试", 2, server.requestCount)
+    }
+
+    @Test
+    fun `cookie 也过期时照实抛出且不无限重试`() = runTest {
+        server.enqueue(401, """{"code":401,"message":"token 不能为空","success":false}""")
+        val c = client()
+        var renewCalls = 0
+        c.renewContext = kotlinx.coroutines.Dispatchers.Unconfined
+        c.renewLog = { }
+        c.renewSession = { renewCalls++; false }   // 重放落空 = cookie 死了
+
+        val error = runCatching { c.portalPost("/api/x") }.exceptionOrNull()
+
+        assertTrue("实际是 $error", error is HzcuException.LoginExpired)
+        assertEquals(1, renewCalls)
+        assertEquals("续不上就不该再打第二次，撞 QPS 红线", 1, server.requestCount)
+    }
+
+    @Test
+    fun `没注入续期钩子时行为与改动前一致`() = runTest {
+        server.enqueue(401, """{"code":401,"message":"token 不能为空","success":false}""")
+
+        val error = runCatching { client().portalPost("/api/x") }.exceptionOrNull()
+
+        assertTrue(error is HzcuException.LoginExpired)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun `续期只针对带 token 的调用，公开接口不触发`() = runTest {
+        server.enqueue(401, """{"code":401,"message":"nope","success":false}""")
+        val c = client()
+        var renewCalls = 0
+        c.renewContext = kotlinx.coroutines.Dispatchers.Unconfined
+        c.renewLog = { }
+        c.renewSession = { renewCalls++; true }
+
+        runCatching { c.portalPost("/api/x", attachToken = false) }
+
+        assertEquals("不带凭据的调用失败与登录态无关，不该去重放会话", 0, renewCalls)
     }
 
     @Test
@@ -305,12 +367,12 @@ class HzcuClientTest {
 
     @Test
     fun `错误信息与摘要里不出现凭据或业务正文`() = runTest {
-        repeat(3) { server.enqueue(500, """{"message":"李同学的密文","token":"$token"}""") }
+        repeat(3) { server.enqueue(500, """{"message":"某某某的密文","token":"$token"}""") }
 
         val error = runCatching { client().portalPost("/api/x") }.exceptionOrNull()!!
 
         val text = error.toString() + (error as HzcuException).details
         assertFalse("错误信息泄漏了 token", text.contains(token))
-        assertFalse("响应摘要复制了业务正文", text.contains("李同学"))
+        assertFalse("响应摘要复制了业务正文", text.contains("某某某"))
     }
 }

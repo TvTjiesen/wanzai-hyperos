@@ -291,7 +291,7 @@ class HzcuCasService private constructor(
             // 错误框为空/取不到：只有强判据词能定罪。
             for (marker in STRONG_FAILURE_MARKERS) {
                 if (body.contains(marker)) {
-                    return "统一身份认证未通过（页面提示含「$marker」）"
+                    return "统一身份认证未通过（页面提示含“$marker”）"
                 }
             }
             return null
@@ -490,6 +490,110 @@ class HzcuCasService private constructor(
             probeName = probeName,
             chain = chain,
         )
+    }
+
+    /**
+     * **用已存的 CAS 会话换一个新 ACCESS_TOKEN，不带密码**（业主 2026-10-19 选的「先 A」）。
+     *
+     * ## 为什么需要它
+     *
+     * 门户 token 一过期，原来**没有任何**恢复路径：`PortalCredentials` 不存密码，
+     * 全项目也搜不到重登入口，于是所有门户功能（消息/新聞/待办/应用列表）红到底，
+     * 只能等使用者自己重敲密码。
+     *
+     * ## 为什么这样做是安全的
+     *
+     * 浏览器登录过一次之后隔天再开"直接进去了"，靠的就是 CAS 的 TGT cookie。
+     * 本项目已经把那次登录拿到的 cookie 存进 `SecureStore`
+     * （[HzcuClient.persistCookieJar]，且 `finish()` 的注释写明「token 与 cookie 绑定」），
+     * 所以**不需要把密码落在磁盘上**也能重放这条跳转链。
+     *
+     * ## 三条实现纪律
+     *
+     * 1. **绝不清 cookie**（和 [login] 最大的区别 —— login 开头就 `cookieJar.clear()`，
+     *    复用它会亲手把要重放的东西删掉）。
+     * 2. **换不到就回 null，不抛异常**。"cookie 也过期了"是**预期结果**，
+     *    不是异常；调用方据此才决定要不要让使用者重登。
+     *    原来 [login] 末尾抛的 `TokenSourceUnverified` 在这里不适用。
+     * 3. **不提交任何表单、不碰密码字段**。整条链只有 GET 跟跳。
+     *
+     * @return 新的 ACCESS_TOKEN；重放失败（cookie 死了 / 需要重新输密码）返回 null。
+     */
+    /** 同 [HzcuClient.renewLog]：JVM 单测里 `android.util.Log` 是 not mocked。 */
+    private fun renewLog(line: String) {
+        runCatching { android.util.Log.i("WanzaiRenew", line) }
+    }
+
+    suspend fun renewWithExistingSession(
+        service: String = HzcuEndpoints.PORTAL_BASE_URL,
+    ): String? {
+        val chain = mutableListOf<HzcuHopDiagnosis>()
+        val serviceHost = HzcuEndpoints.hostOf(service)
+        val portalHosts = buildSet {
+            add(HzcuEndpoints.PORTAL_HOST.lowercase())
+            if (!serviceHost.isNullOrEmpty()) add(serviceHost)
+        }
+
+        var currentUri = pageUriBuilder(service)
+        var current = try {
+            client.send(HzcuRequest.url(currentUri), context = "CAS 会话重放 第 1 跳")
+        } catch (error: HzcuException) {
+            // 网络层失败 ≠ 会话失效：这里一律当"续不上"处理，让调用方保留原有错误。
+            renewLog("重放首跳失败（${error.javaClass.simpleName}）")
+            return null
+        }
+        chain += diagnose(1, "GET", current, currentUri)
+
+        for (hop in 2..maxHops) {
+            runProbes(current, currentUri, portalHosts)?.let { hit ->
+                return acceptRenewedToken(hit.token, chain, hit.probeName)
+            }
+            if (!current.isRedirect) break
+            val location = current.location?.trim()
+            if (location.isNullOrEmpty()) break
+            val nextUri = resolveLocation(currentUri, location)
+
+            // Location 上可能就挂着 token（和 login 同样的省请求策略）
+            probeInput(
+                HzcuProbeInput(
+                    host = HzcuEndpoints.hostOf(nextUri) ?: "",
+                    query = parseQuery(nextUri),
+                    body = "",
+                    statusCode = current.statusCode,
+                    isPortalHost = portalHosts.contains(HzcuEndpoints.hostOf(nextUri)?.lowercase() ?: ""),
+                ),
+            )?.let { hit ->
+                return acceptRenewedToken(hit.token, chain, hit.probeName)
+            }
+
+            current = try {
+                client.send(HzcuRequest.url(nextUri), context = "CAS 会话重放 第 $hop 跳")
+            } catch (error: HzcuException) {
+                renewLog("第 $hop 跳失败（${error.javaClass.simpleName}）")
+                return null
+            }
+            currentUri = nextUri
+            chain += diagnose(hop, "GET", current, nextUri)
+        }
+
+        runProbes(current, currentUri, portalHosts)?.let { hit ->
+            return acceptRenewedToken(hit.token, chain, hit.probeName)
+        }
+        // 走到底没探到 token ⇒ cookie 已经不能免密换票。回 null，**不假装成功**。
+        renewLog("重放落空（跳数=${chain.size}），需要使用者重新登录一次")
+        return null
+    }
+
+    /** 重放成功的唯一出口：落 token + 落 cookie，并保留原有账号显示。 */
+    private suspend fun acceptRenewedToken(
+        token: String,
+        chain: List<HzcuHopDiagnosis>,
+        probeName: String,
+    ): String {
+        client.persistCookieJar()
+        session.saveAccessToken(token, session.userCode())
+        renewLog("免密续期成功 探针=$probeName 跳数=${chain.size}")
+        return token
     }
 
     /** 退出登录：清 ACCESS_TOKEN 与会话 cookie。 */

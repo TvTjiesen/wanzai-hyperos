@@ -131,12 +131,21 @@ internal class DampedDragAnimation(
         }
     }
 
-    fun animateToValue(value: Float) {
+    /**
+     * @param canMove 减弱动效（`MotionFlags.canMove`）时传 false ⇒ **即时落位**：
+     *   位移整条停掉，但状态照样变（标准 §6「减弱动效 ≠ 零反馈」）。
+     *   第 9 轮审计：底栏是唯一漏了这道闸的地方（外壳的 enter/exit 早就判了）。
+     */
+    fun animateToValue(value: Float, canMove: Boolean = true) {
         animationScope.launch {
             mutatorMutex.mutate {
                 press()
                 val targetValue = value.coerceIn(valueRange)
-                launch { valueAnimation.animateTo(targetValue, valueAnimationSpec) }
+                if (canMove) {
+                    launch { valueAnimation.animateTo(targetValue, valueAnimationSpec) }
+                } else {
+                    launch { valueAnimation.snapTo(targetValue) }
+                }
                 if (velocity != 0f) {
                     launch { velocityAnimation.animateTo(0f, velocityAnimationSpec) }
                 }

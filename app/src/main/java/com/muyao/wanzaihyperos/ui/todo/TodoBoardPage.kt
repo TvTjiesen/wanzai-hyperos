@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.todo
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -33,6 +34,7 @@ import com.muyao.wanzaihyperos.data.todo.TodoRepository
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
+import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -72,6 +74,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun TodoBoardPage(
     repository: TodoRepository,
     onExit: () -> Unit,
+    /**
+     * 點一條**作業**待辦 → 進那一項作業的詳情（可提交）。
+     *
+     * ⚠️ 只有 `item.actionable` 為真的才會有回調（學在城院裡 `type == homework` 的）。
+     * 上報的審批、通知、報名那些**不該可點** —— 點它們會拿錯 id 去發寫請求，
+     * 或落到一個根本不是作業的詳情頁。判據在 [com.muyao.wanzaihyperos.data.todo.TodoItem.actionable]。
+     */
+    onOpenHomework: (TodoItem) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -128,18 +138,18 @@ color = Color.Transparent,
                     Text(
                         text = board.knownTotal?.let { "共 $it 条待办" }
                             ?: "部分来源未取到，总数未知",
-                        style = MiuixTheme.textStyles.body1,
+                        style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = Type.tabular),
                         color = MiuixTheme.colorScheme.onBackground,
                         modifier = Modifier.padding(horizontal = 4.dp),
                     )
                 }
                 items(board.groups, key = { it.source.name }) { group ->
-                    SourceSection(group)
+                    SourceSection(group, onOpenHomework)
                 }
                 item {
                     Text(
-                        text = "分组展示是因为两边的「办」法不同（作业要交、审批要批）。" +
-                            "某个来源没取到时显示「—」而不是 0 —— 我们还不知道，不等于没有。",
+                        text = "分组展示是因为两边的“办”法不同（作业要交、审批要批）。" +
+                            "某个来源没取到时显示“—”而不是 0 —— 我们还不知道，不等于没有。",
                         style = MiuixTheme.textStyles.footnote2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
@@ -151,7 +161,7 @@ color = Color.Transparent,
 }
 
 @Composable
-private fun SourceSection(group: TodoGroup) {
+private fun SourceSection(group: TodoGroup, onOpenHomework: (TodoItem) -> Unit) {
     val colors = MiuixTheme.colorScheme
     AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -198,24 +208,57 @@ private fun SourceSection(group: TodoGroup) {
 
                 else -> {
                     Spacer(Modifier.height(8.dp))
-                    group.items.forEach { item -> TodoRow(item) }
+                    group.items.forEach { item -> TodoRow(item, onOpenHomework) }
                 }
             }
         }
     }
 }
 
+/**
+ * 一條待辦。
+ *
+ * **能不能點**只由 [TodoItem.actionable] 決定（轉換處設，見 `TronTodo.toTodoItem`）：
+ * 只有學在城院裡 `type == homework` 的那幾條會亮。
+ * 可點的那一條會多一個「去交 ›」的尾巴 —— 不靠顏色單獨表達可用性
+ * （色盲和强光下都看不出「这行能点」）。
+ */
 @Composable
-private fun TodoRow(item: TodoItem) {
+private fun TodoRow(item: TodoItem, onOpen: (TodoItem) -> Unit) {
     val colors = MiuixTheme.colorScheme
-    Column(modifier = Modifier.padding(vertical = 6.dp)) {
-        Text(
-            text = item.title.ifBlank { "（无标题）" },
-            style = MiuixTheme.textStyles.body1,
-            color = colors.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+    val openable = item.actionable && item.courseId > 0
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp)
+            .then(
+                if (openable) {
+                    Modifier.clickable(onClickLabel = "打开这项作业") { onOpen(item) }
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = item.title.ifBlank { "（无标题）" },
+                style = MiuixTheme.textStyles.body1,
+                color = colors.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (openable) {
+                Text(
+                    text = "去交 ›",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = colors.primary,
+                )
+            }
+        }
         val meta = buildList {
             if (item.subtitle.isNotBlank()) add(item.subtitle)
             if (item.timeText.isNotBlank()) add(item.timeText)

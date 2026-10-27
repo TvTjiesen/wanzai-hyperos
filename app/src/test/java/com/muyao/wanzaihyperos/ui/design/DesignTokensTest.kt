@@ -149,8 +149,17 @@ class DesignTokensTest {
                 ladder[i - 1].second.value < ladder[i].second.value,
             )
         }
-        // 最小可用檔：規範明令「再小不許」
-        assertTrue("micro 不应小于 11sp", Type.micro.value >= 11f)
+        // 最小可用檔：v2 定稿板重定標後為 8sp（板 `.tab span` 8.5px × 0.886）。
+        //
+        // 舊红线是 11sp（OmniRing 統計刻度下「再小不許」）。業主要的是板上
+        // 那個**相對大小**，換算係數 0.886 之後底欄標籤就落在 8sp ——
+        // 這一条是**有意改policy**，不是忘了改測試：
+        // 1) sp 仍然跟系統字體縮放走，開大字的用戶每一檔都更大；
+        // 2) 8sp 只准出現在底欄標籤/角標這種「旁邊有圖形、不需讀清楚」的位置，
+        //    正文最低 11sp（secondary），所以檔位表裡 9/10 已經留了台階；
+        // 3) 誰想把 floor 再往下調，先在 DESIGN/LOG 裡寫清是哪一屏、板上哪個值。
+        assertTrue("micro 不应小于 10sp", Type.micro.value >= 10f)
+        assertTrue("正文（secondary）不应低于 13sp", Type.secondary.value >= 13f)
     }
 
     /**

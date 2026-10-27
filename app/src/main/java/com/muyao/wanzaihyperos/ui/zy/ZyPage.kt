@@ -82,7 +82,7 @@ fun ZyPage(
     SecondaryScaffold(
         scrollProgress = veilProgress,
         title = "智云课堂",
-        subtitle = "本週課表與回放",
+        subtitle = "本周课表与回放",
         onBack = onExit,
         onRefresh = { scope.launch { runCatching { repository.load(force = true) } } },
         modifier = modifier,
@@ -125,7 +125,7 @@ fun ZyPage(
                     }
 
                     items.isEmpty() -> item {
-                        HintText("本週没有课程安排。")
+                        HintText("本周没有课程安排。")
                     }
 
                     else -> {

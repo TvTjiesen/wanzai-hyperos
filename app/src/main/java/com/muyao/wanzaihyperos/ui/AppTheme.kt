@@ -6,11 +6,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.font.FontWeight
+import com.muyao.wanzaihyperos.ui.design.MiSans
 import androidx.compose.ui.graphics.Color
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.theme.darkColorScheme
+import top.yukonga.miuix.kmp.theme.lightColorScheme
 
 /** 主题模式的三个选项。[mode] 直接对应 Miuix 的 [ColorSchemeMode]。 */
 enum class AppThemeMode(val label: String, val mode: ColorSchemeMode) {
@@ -48,7 +51,7 @@ class AppUiState {
      *   要落盘应该单开一张卡统一做（顺带把主题选择也落盘），不要在这一页先加第一个
      *   SharedPreferences，否则会出现「一半偏好记得、一半不记得」这种更难解释的状态。
      */
-    var timetableGrid by mutableStateOf(true)
+    var timetableGrid by mutableStateOf(false)
 }
 
 /** 记住一个 [AppUiState]。 */
@@ -87,10 +90,87 @@ fun WanzaiTheme(
     val controller = remember(themeMode) {
         ThemeController(
             colorSchemeMode = themeMode.mode,
+            // 定稿板（wz-v2.html）的真实色值：暖米底 + 墨绿强调 + 暖灰字。
+            // 不是「差不多」——色相从蓝改成绿、底从冷蓝紫改成 #F4F0E8，
+            // 这两条一改，整页的观感才和板子站到同一边。
+            lightColors = lightColorScheme(
+                primary = Color(0xFF2E6B64),
+                onPrimary = Color(0xFFFFFFFF),
+                primaryContainer = Color(0xFFDCEAE6),
+                onPrimaryContainer = Color(0xFF163A35),
+                secondaryContainer = Color(0xFFDCEAE6),
+                onSecondaryContainer = Color(0xFF1A3A35),
+                background = com.muyao.wanzaihyperos.ui.design.AppColors.pageBackgroundLight,
+                onBackground = Color(0xFF1A1917),
+                surface = Color(0xFFFBFCFE),
+                onSurface = Color(0xFF1A1917),
+                surfaceContainer = com.muyao.wanzaihyperos.ui.design.AppColors.surfaceContainerLight,
+                onSurfaceContainer = Color(0xFF1A1917),
+                onSurfaceVariantSummary = Color(0xFF666B71),  // 与 Tone.quiet 同一枚：冷白纸面后 #696E74 对最暗档只剩 4.49:1
+                dividerLine = Color(0xFFE2E7EC),
+                outline = Color(0xFFD3DAE1),
+                error = Color(0xFFB65E3D),
+            ),
             darkColors = darkColorScheme(
-                surfaceContainer = Color(0xFF282828),
+                primary = Color(0xFF83C9BC),
+                onPrimary = Color(0xFF101213),
+                primaryContainer = Color(0xFF23413C),
+                onPrimaryContainer = Color(0xFFBFE9E1),
+                secondaryContainer = Color(0xFF23413C),
+                onSecondaryContainer = Color(0xFFBFE9E1),
+                background = com.muyao.wanzaihyperos.ui.design.AppColors.pageBackgroundDark,
+                onBackground = Color(0xFFF2EFE7),
+                surface = Color(0xFF171A1B),
+                onSurface = Color(0xFFF2EFE7),
+                surfaceContainer = com.muyao.wanzaihyperos.ui.design.AppColors.surfaceContainerDark,
+                onSurfaceContainer = Color(0xFFF2EFE7),
+                onSurfaceVariantSummary = Color(0xFFA3A9AF),
+                dividerLine = Color(0xFF2A2D2E),
+                outline = Color(0xFF3A3D3E),
+                error = Color(0xFFE09270),
             ),
         )
     }
-    MiuixTheme(controller = controller, content = content)
+    MiuixTheme(controller = controller) {
+        // 全 App 统一 MiSans：只换字族，字号/字重仍由各页显式给。
+        // 用同一套 colors 再包一层，只覆盖 TextStyles（Miuix 的 Text 只认主题里的样式）。
+        val base = MiuixTheme.textStyles
+        val styles = base.copy(
+            main = base.main.copy(fontFamily = MiSans),
+            paragraph = base.paragraph.copy(fontFamily = MiSans),
+            body1 = base.body1.copy(fontFamily = MiSans),
+            body2 = base.body2.copy(fontFamily = MiSans),
+            button = base.button.copy(fontFamily = MiSans),
+            footnote1 = base.footnote1.copy(fontFamily = MiSans),
+            footnote2 = base.footnote2.copy(fontFamily = MiSans),
+            headline1 = base.headline1.copy(fontFamily = MiSans),
+            headline2 = base.headline2.copy(fontFamily = MiSans),
+            subtitle = base.subtitle.copy(fontFamily = MiSans),
+            title1 = base.title1.copy(fontFamily = MiSans),
+            title2 = base.title2.copy(fontFamily = MiSans),
+            title3 = base.title3.copy(fontFamily = MiSans),
+            title4 = base.title4.copy(fontFamily = MiSans),
+        )
+        MiuixTheme(
+            colors = MiuixTheme.colorScheme,
+            textStyles = styles,
+            content = {
+                // ★ v3 #12：玻璃三档**必须在这里推到全 App**。
+                // 此前 `LocalBarMaterial` 没有任何一处 provide（唯一会 provide 的
+                // `GlassTheme` 零调用），于是每一面 `GlassSurface` 都吃默认值 LIQUID ——
+                // 设置页显示"磨砂"、屏幕上却还是带折射的液态，正是业主点名不许有的那种假开关。
+                // 读两条状态：`UiPrefs.glassMode`（mutableStateOf，读了就会重组）
+                // 与 `motion.glassIsTranslucent`（减弱透明度/高对比 ⇒ 一律先退实底）。
+                val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
+                androidx.compose.runtime.CompositionLocalProvider(
+                    com.muyao.wanzaihyperos.ui.design.glass.LocalBarMaterial provides
+                        com.muyao.wanzaihyperos.ui.design.glass.barMaterialFor(
+                            glassMode = com.muyao.wanzaihyperos.data.UiPrefs.glassMode,
+                            translucent = motion.glassIsTranslucent,
+                        ),
+                    content = content,
+                )
+            },
+        )
+    }
 }

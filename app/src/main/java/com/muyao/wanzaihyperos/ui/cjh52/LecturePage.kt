@@ -40,7 +40,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *（`lecture_service/register_lecture` 等），本專案一貫不做寫操作
  *（§B4 充值、§B5 續借、§B8 §4 寫操作清單）。所以這一頁做到
  *「看清楚有什麼講座、還有沒有名額、我簽到了沒」為止 ——
- * 那正是學生挑講座要的資訊，報名則由頁面底部的網頁版入口去做。
+ * 那正是學生挑講座要的信息，報名則由頁面底部的網頁版入口去做。
  *
  * ### ★ 名額與已報名分開顯示
  *
@@ -80,7 +80,7 @@ fun LecturePage(
     SecondaryScaffold(
         scrollProgress = veilProgress,
         title = "爱讲座",
-        subtitle = "來自場景管理（cjh52）",
+        subtitle = "来自场景管理（cjh52）",
         onBack = onBack,
         onRefresh = { scope.launch { runCatching { repository.refresh() } } },
         modifier = modifier,

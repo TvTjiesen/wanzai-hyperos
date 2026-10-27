@@ -2,7 +2,13 @@ package com.muyao.wanzaihyperos.ui.design.liquid
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.graphics.Color
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
@@ -57,9 +63,47 @@ val LocalGlassRecorderOff = compositionLocalOf { false }
  * 换成 uiautomator 里"同一行文字的 y 差"之后两版都是 ~1489px，说明那个图像指标根本不可信）。
  * 坐标这个量 Miuix 只在 internal 面上给，所以反射拿它的方法名（带 Kotlin 修饰后缀）。
  */
-fun backdropIsLive(backdrop: Any?): Boolean = backdropHasCoordinates(backdrop as? LayerBackdrop)
+fun backdropIsLive(backdrop: Any?): Boolean = backdropHasCoordinates(backdrop)
 
-private fun backdropHasCoordinates(backdrop: LayerBackdrop?): Boolean {
+/**
+ * 「这一份采样层**刚刚才换上来**」⇒ 头几帧还不许拿它画玻璃。
+ *
+ * ## 为什么坐标闸门不够（业主 2026-10-20：「一点进去就看到了个雷霆大黑色搜索框」）
+ *
+ * `backdropIsLive` 只证明**登记过坐标**。而 `LayerBackdrop` 的 RenderNode 在**第一次被绘制之前**
+ * 是一张没有内容的缓冲 —— Miuix 拿它去模糊/折射不会退回"没效果"，而是把**不透明黑**铺出来。
+ * 顶栏那条纱整条都踩在这个窗口上（它只铺 0.18~0.45 的浅色，压不住黑），所以"进去那一瞬间"
+ * 是黑带，不是白饼。
+ *
+ * ## 为什么用"换引用后空两帧"而不是"记录有没有画过"
+ *
+ * 想在绘制阶段写一个状态位告诉组合期"我画过了"——**绘制期写 snapshot 状态会自激重绘**，
+ * 轻则掉帧重则卡死。而这里要的其实只是躲开"新层还没画第一帧"这个窗口：
+ * 每一页的采样层是自己 `remember` 出来的，**换页/重建 = 换一个实例**，
+ * 引用一变就空两帧，正好盖住那个窗口；层一旦开始画，后面每帧都在画，不会再回到空缓冲。
+ */
+@Composable
+fun rememberSampleSettled(backdrop: Any?): Boolean {
+    var settled by remember(backdrop) { mutableStateOf(false) }
+    LaunchedEffect(backdrop) {
+        settled = false
+        // 两帧：第一帧给新层做布局，第二帧它必然已经画过一遍了。
+        withFrameNanos { }
+        withFrameNanos { }
+        settled = true
+    }
+    return settled
+}
+
+/**
+ * 「这一份采样层登记过坐标」—— 对**任何** Backdrop 都判得动。
+ *
+ * ★ 独立审计（v3 #12 第 1 轮）之后补的兼容：这里以前写的是 `backdrop as? LayerBackdrop`，
+ *   于是 `CombinedBackdrop`（底栏那颗滑块与搜索盘采的就是它，两层）一律判 false，
+ *   拿它当闸门的调用点会**全部退成实心底** —— 那就是"修一个空缓冲画黑，顺手把玻璃全打死"。
+ *   改反射取 `getLayerCoordinates`（本来就已经在反射了），两类层都判得到。
+ */
+private fun backdropHasCoordinates(backdrop: Any?): Boolean {
     if (backdrop == null) return false
     return runCatching {
         val m = backdrop.javaClass.methods.firstOrNull { it.name.startsWith("getLayerCoordinates") }

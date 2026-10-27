@@ -19,6 +19,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.ui.design.AppCard
@@ -38,12 +39,18 @@ import com.muyao.wanzaihyperos.ui.design.InfoItem
 import com.muyao.wanzaihyperos.ui.design.KeyValueRow
 import com.muyao.wanzaihyperos.ui.design.ResultBanner
 import com.muyao.wanzaihyperos.ui.design.infoItems
+import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -145,9 +152,12 @@ fun TronHomeBody(
 /**
  * 簽到板塊的內容。
  *
- * ⚠️ 這裡刻意**保留**「結果訊息」在頂部顯示（[ResultBanner]）——
- * 簽到是寫操作，成沒成必須一眼看到。詳見 `docs/B10` 記的那個 bug：
- * 訊息曾經只寫在列表分支裡，空態時看不到。
+ * 現在只是 [RollcallBody] 的一層皮：**外殼在這裡塞「返回」條目**，
+ * 其餘全部走同一份實作（首頁那顆磁貼進的 [RollcallStationPage] 用的也是它）。
+ *
+ * ⚠️ 為什麼堅持一份實作（而不是外殼裡留一份、獨立頁再寫一份）：
+ * 本專案裡「一個能力兩條入口、其中一條忘了修」出現過至少三次
+ *（顶栏纱、待办时间差 8 小时、作业说明的 HTML）。
  */
 @Composable
 fun RollcallContent(
@@ -156,188 +166,27 @@ fun RollcallContent(
     onOpenWeb: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val scope = rememberCoroutineScope()
-    val state by repository.state.collectAsState()
-    val pageState = state.toPageState()
-    val items = (state as? ListState.Content)?.items.orEmpty()
-
-    var answerMessage by remember { mutableStateOf<String?>(null) }
-    var answerOk by remember { mutableStateOf(false) }
-    var submitting by remember { mutableStateOf<Int?>(null) }
-    var scanningFor by remember { mutableStateOf<Int?>(null) }
-
-    if (scanningFor != null) {
-        val targetId = scanningFor!!
-        QrScannerPage(
-            onExit = { scanningFor = null },
-            onScanned = { raw ->
-                scanningFor = null
-                val payload = com.muyao.wanzaihyperos.data.tronclass.QrPayloadParser.extract(raw)
-                if (payload == null) {
-                    answerOk = false
-                    answerMessage = "这不是签到二维码（内容里没有签到信息）"
-                } else {
-                    submitting = targetId
-                    scope.launch {
-                        val result = runCatching {
-                            repository.answer(targetId, RollcallAnswerKind.QR, payload)
-                        }.getOrElse { e ->
-                            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult(
-                                ok = false, httpStatus = 0,
-                                message = "提交失败：${e.javaClass.simpleName}",
-                            )
-                        }
-                        answerOk = result.ok
-                        answerMessage = if (result.ok) "扫码签到成功" else result.message
-                        submitting = null
-                        if (result.ok) runCatching { repository.refresh() }
-                    }
-                }
-            },
-        )
-        return
-    }
-
-    LaunchedEffect(Unit) {
-        if (state is ListState.FirstLoad) repository.refresh()
-    }
-
-    AppList(modifier = modifier) {
-        item { BackRow("返回", onBack) }
-
-        answerMessage?.let { msg ->
-            item { ResultBanner(message = msg, ok = answerOk) }
-        }
-
-        if (items.isEmpty()) {
-            item {
-                HintText(
-                    if (pageState == PageState.Empty) "目前没有进行中的签到"
-                    else "签到没有取到，请稍后重试。",
-                )
-            }
-            item { ActionRow(title = "改用网页版", action = "打开", onClick = onOpenWeb) }
-            return@AppList
-        }
-
-        infoItems(items, key = { it.id }) { r ->
-            RollcallItem(
-                rollcall = r,
-                submitting = submitting == r.id,
-                onScan = { scanningFor = r.id },
-                onSubmit = { kind, code ->
-                    submitting = r.id
-                    scope.launch {
-                        val result = runCatching { repository.answer(r.id, kind, code) }
-                            .getOrElse { e ->
-                                com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult(
-                                    ok = false, httpStatus = 0,
-                                    message = "提交失败：${e.javaClass.simpleName}",
-                                )
-                            }
-                        answerOk = result.ok
-                        answerMessage = if (result.ok) "签到成功" else result.message
-                        submitting = null
-                        if (result.ok) runCatching { repository.refresh() }
-                    }
-                },
-            )
-        }
-
-        item {
-            HintText(
-                "说明：签到是否成功由学校服务器判定（位置、IP、二维码时效都在那边校验）。" +
-                    "失败原因会原样显示服务端的话，便于判断该怎么做。",
-            )
-        }
-    }
+    RollcallBody(
+        repository = repository,
+        onOpenWeb = onOpenWeb,
+        modifier = modifier,
+        header = { item { BackRow("返回", onBack) } },
+    )
 }
 
-@Composable
-private fun RollcallItem(
-    rollcall: com.muyao.wanzaihyperos.data.tronclass.TronRollcall,
-    submitting: Boolean,
-    onScan: () -> Unit,
-    onSubmit: (RollcallAnswerKind, String?) -> Unit,
-) {
-    val colors = MiuixTheme.colorScheme
-    var input by remember(rollcall.id) { mutableStateOf("") }
-
-    AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(Dims.cardPadding)) {
-            InfoItem(
-                title = rollcall.title.ifBlank { "签到" },
-                subtitle = listOfNotNull(
-                    rollcall.sourceLabel,
-                    rollcall.rollcallTime.takeIf { it.isNotBlank() },
-                    if (!rollcall.isOpen) "已结束" else null,
-                ).joinToString("　"),
-                trailing = rollcall.myStatusLabel,
-                trailingColor = if (rollcall.myStatus == "on_call") colors.primary else colors.error,
-            )
-
-            // 只有「進行中 + 我還沒簽」才給動作 —— 避免重複提交（那是寫操作）。
-            if (!rollcall.isOpen || rollcall.myStatus == "on_call") return@Column
-
-            Spacer(Modifier.height(Dims.loose))
-            when {
-                rollcall.source.contains("number", true) -> {
-                    TextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        label = "老师报的数字",
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(Dims.sectionGap))
-                    Button(
-                        onClick = { onSubmit(RollcallAnswerKind.NUMBER, input) },
-                        enabled = input.isNotBlank() && !submitting,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (submitting) "提交中…" else "签到") }
-                }
-
-                rollcall.source.contains("self", true) -> {
-                    Button(
-                        onClick = { onSubmit(RollcallAnswerKind.SELF_REGISTRATION, null) },
-                        enabled = !submitting,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (submitting) "提交中…" else "自助签到") }
-                }
-
-                rollcall.source.contains("qr", true) || rollcall.source.contains("roomis", true) -> {
-                    Button(
-                        onClick = onScan,
-                        enabled = !submitting,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("打开相机扫码") }
-                    Spacer(Modifier.height(Dims.loose))
-                    TextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        label = "或粘贴扫码结果",
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(Dims.sectionGap))
-                    Button(
-                        onClick = { onSubmit(RollcallAnswerKind.QR, input) },
-                        enabled = input.isNotBlank() && !submitting,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (submitting) "提交中…" else "提交粘贴的内容") }
-                }
-            }
-        }
-    }
-}
-
-/** 作業板塊的內容（只讀）。 */
+/**
+ * 作業板塊的內容（某門課的清單；點一行進詳情與提交）。
+ *
+ * 這裡只做「看清單 + 送進詳情」；**提交在 [HomeworkDetailContent]**，
+ * 因為提交是寫操作，必須是「看清楚要求之後再按」的那一頁，
+ * 不能在清單上順手按到。
+ */
 @Composable
 fun HomeworkContent(
     repository: HomeworkRepository,
     onBack: () -> Unit,
     onOpenWeb: () -> Unit,
+    onOpenHomework: (courseId: Int, homeworkId: Int, courseName: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by repository.state.collectAsState()
@@ -373,7 +222,7 @@ fun HomeworkContent(
                 title = hw.title.ifBlank { "（无标题）" },
                 subtitle = listOfNotNull(
                     "截止 ${hw.deadlineLocal}",
-                    hw.submitTimes?.let { "可交 $it 次" },
+                    hw.submitLimitLabel,
                     hw.scorePercentage.toDoubleOrNull()?.takeIf { it > 0.0 }
                         ?.let { "占比 ${hw.scorePercentage}%" },
                     hw.homeworkType.takeIf { it.isNotBlank() },
@@ -391,13 +240,67 @@ fun HomeworkContent(
                     MiuixTheme.colorScheme.error
                 },
                 body = hw.plainDescription.takeIf { it.isNotBlank() },
-                bodyMaxLines = 6,
+                bodyMaxLines = 4,
+                // ★ 點一行進詳情（业主 2026-10-19：「我要在待办里实现查看作业详情并且提交作业」）。
+                onClick = {
+                    onOpenHomework(repository.currentCourseId, hw.id, courseName, hw.title)
+                },
             )
         }
 
         item {
-            HintText("要交作业？提交是写操作（会记成绩），这里只做只读查看。")
+            HintText(
+                "点一行能看完整要求并直接交（正文提交）。" +
+                    "需要传文件的作业还在用网页版 —— 那条上传链我们没验证过，不敢拿成绩试。",
+            )
         }
-        item { ActionRow(title = "去网页版提交", action = "打开", onClick = onOpenWeb) }
+        item { ActionRow(title = "网页版（交文件）", action = "打开", onClick = onOpenWeb) }
+    }
+}
+
+/**
+ * 某門課作業清單的**独立页**（顶栏 + [HomeworkContent]）。
+ *
+ * 存在的理由：`Route.Homework` 是一条真实的路由（首页/搜索都可能落到它），
+ * 而路由页需要自己的顶栏。外殼裡那個二級頁仍然走 [HomeworkContent]
+ * —— 一份实作，两个容器（同 [RollcallStationPage] 的做法）。
+ */
+@Composable
+fun HomeworkListPage(
+    repository: HomeworkRepository,
+    courseName: String,
+    onExit: () -> Unit,
+    onOpenWeb: () -> Unit,
+    onOpenHomework: (courseId: Int, homeworkId: Int, courseName: String, title: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ThemedScaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            SmallTopAppBar(
+                title = "作业",
+                color = Color.Transparent,
+                subtitle = courseName.ifBlank { "学在城院" },
+                navigationIcon = {
+                    IconButton(onClick = onExit) {
+                        Icon(
+                            imageVector = MiuixIcons.ChevronBackward,
+                            contentDescription = "返回",
+                            modifier = Modifier.size(Dims.iconNav),
+                        )
+                    }
+                },
+            )
+        },
+    ) { innerPadding ->
+        HomeworkContent(
+            repository = repository,
+            onBack = onExit,
+            onOpenWeb = onOpenWeb,
+            onOpenHomework = onOpenHomework,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding()),
+        )
     }
 }

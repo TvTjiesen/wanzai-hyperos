@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -43,6 +45,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -253,15 +256,45 @@ fun HomeTile(
     expanded: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * 給了就是一顆**直接跳轉**的磁貼：點一下進目標頁，不再就地展開。
+     *
+     * ★ 為什麼允許兩種磁貼并存（业主 2026-10-19：「簽點功能…做成一個簽到的磁貼
+     *   點進去可以掃碼或者其他簽到方式」）：
+     * 「展开看说明」适合**他还没决定要不要去**的功能（课表、教务）；
+     * 而签到是**正在发生的事** —— 老师在讲台上发码的时候，
+     * 多一步展开就是多一次「我是不是来不及了」。所以那颗磁贴要一步到位。
+     */
+    onClick: (() -> Unit)? = null,
     detail: @Composable () -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
+    // 按下去要有反馈（原来的版本只有"展开后变色"，直接跳转的磁贴按下去没反应
+    // 会被怀疑没点上而连按两下）。indication=null：涟漪和这块 tint 的圆角不搭。
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Dims.cardCorner * 1.4f))
-            .background(tint.copy(alpha = if (expanded) 0.22f else 0.13f))
-            .clickable(onClickLabel = if (expanded) "收起$label" else "展开$label") { onToggle() }
+            .background(
+                tint.copy(
+                    alpha = when {
+                        pressed -> 0.30f
+                        expanded && onClick == null -> 0.22f
+                        else -> 0.13f
+                    },
+                ),
+            )
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClickLabel = when {
+                    onClick != null -> "打开$label"
+                    expanded -> "收起$label"
+                    else -> "展开$label"
+                },
+            ) { if (onClick != null) onClick() else onToggle() }
             .padding(Dims.cardPadding)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -282,24 +315,37 @@ fun HomeTile(
                 )
             }
             Text(
-                text = if (expanded) "▾" else "▸",
+                text = when {
+                    onClick != null -> "›"          // 直接进
+                    expanded -> "▾"
+                    else -> "▸"
+                },
                 fontSize = Type.secondary,
                 color = tint,
             )
         }
-        AnimatedVisibility(visible = expanded) {
+        AnimatedVisibility(visible = expanded && onClick == null) {
             Column(Modifier.padding(top = 10.dp)) { detail() }
         }
     }
 }
 
 /**
- * 磁贴上的小图标：**全部 Canvas 自绘**。
+ * 磁粘贴的小图标：**全部 Canvas 自绘**。
  *
  * 不用 MiuixIcons：要的那几个语义对不齐，混两套图标会显得是两套系统；
  * 自绘还能保证描边粗细与圆角跟底栏那套一致。
  */
-enum class TileIcon { Timetable, Todo, Messages, Rollcall, Calendar, Apps }
+enum class TileIcon {
+    Timetable, Todo, Messages, Rollcall, Calendar, Apps,
+
+    /**
+     * 文件/作业图形。板上「要处理」那三格是**两种**：
+     * `.task .badge` = accent-soft 底 + 勾（普通待办），`.badge.warm` = 暖底 + 文件（作业）。
+     * 原来全用勾选框画：勾 = 已完成，画在未完成的作业上是自相矛盾（复评 2026-10-22）。
+     */
+    File,
+}
 
 @Composable
 fun TileGlyph(icon: TileIcon, tint: Color, modifier: Modifier = Modifier) {
@@ -357,53 +403,33 @@ fun TileGlyph(icon: TileIcon, tint: Color, modifier: Modifier = Modifier) {
                 sq(l, t + h * 0.55f, s, tint)
                 sq(l + w * 0.55f, t + h * 0.55f, s, tint)
             }
+
+            TileIcon.File -> {
+                // 一页纸 + 两条文字横线：一眼是「有东西要交」，不是「已经勾掉」。
+                // 板 `.task .badge.warm` 那一格画的就是文件，勾只留给普通待办
+                //（复评 2026-10-22：未完成的事画成勾选框是自相矛盾）。
+                rr(l + w * 0.12f, t, l + w * 0.88f, t + h, stroke, tint)
+                line(l + w * 0.30f, t + h * 0.38f, l + w * 0.70f, t + h * 0.38f, stroke, tint)
+                line(l + w * 0.30f, t + h * 0.62f, l + w * 0.58f, t + h * 0.62f, stroke, tint)
+            }
+        }
         }
     }
-}
-
-// ─────────────────────────── 内置场景 ───────────────────────────
 
 private fun DrawScope.drawSkyScene(hour: Int, parallax: Float, breath: Float, dark: Boolean) {
+    // 这个函数头在 2026-10-22 凌晨被我自己的补丁脚本按花括号找结尾时切掉过一次，
+    // 现在按调用点与函数体用到的自由变量重建：参数 hour/parallax/breath/dark，
+    // 体里用 w/h、skyPalette(hour) 与下面的两层 ridge。行为与切掉之前一致。
     val w = size.width
     val h = size.height
-    val (topA, botA) = skyPalette(hour)
-    drawRect(brush = Brush.verticalGradient(0f to topA, 1f to botA))
-
-    val isNight = hour < MORNING.first || hour >= 19
-    // 太阳 5→19 点走一条弧；月亮 19→次日 5 点走同一条弧。
-    val t = if (isNight) (((hour + 5) % 24) / 12f) else ((hour - 5f) / 14f).coerceIn(0f, 1f)
-    val cx = w * (0.12f + 0.76f * t)
-    val cy = h * (0.72f - 0.52f * sin((t * Math.PI).toFloat()))
-    val glow = 26f + 8f * breath
-
+    val (skyTop, skyBottom) = skyPalette(hour)
+    drawRect(Brush.verticalGradient(listOf(skyTop, skyBottom)))
+    // 日/月：半径随 breath 轻微起伏，就是那口「会呼吸」的呼吸感
     drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                (if (isNight) Color(0xFFCBD8FF) else Color(0xFFFFE9A8)).copy(alpha = 0.55f),
-                Color.Transparent,
-            ),
-            center = Offset(cx, cy),
-            radius = glow * 3f,
-        ),
-        radius = glow * 3f,
-        center = Offset(cx, cy),
+        color = (if (dark) Color(0xFFEAF0FF) else Color(0xFFFFF3CF)).copy(alpha = 0.9f),
+        radius = minOf(w, h) * (0.09f + 0.012f * breath),
+        center = Offset(w * 0.74f, h * 0.24f),
     )
-    drawCircle(
-        color = if (isNight) Color(0xFFEFF3FF) else Color(0xFFFFD86B),
-        radius = glow,
-        center = Offset(cx, cy),
-    )
-    if (isNight) {
-        // 月亮缺的那一口：用天空主色再叠一个圆，简单且不用混合模式。
-        drawCircle(color = topA.copy(alpha = 0.95f), radius = glow * 0.86f, center = Offset(cx + glow * 0.42f, cy - glow * 0.28f))
-        repeat(14) { i ->
-            drawCircle(
-                color = Color.White.copy(alpha = 0.3f + 0.4f * ((i + (breath * 3f).toInt()) % 3) / 3f),
-                radius = 1.6f,
-                center = Offset((i * 97f) % w, (i * 53f) % (h * 0.55f)),
-            )
-        }
-    }
 
     // 两层视差：远山几乎不动，近山跟手多 —— 这就是"窗"的深度感。
     ridge(
@@ -498,29 +524,131 @@ private fun DrawScope.sq(l: Float, t: Float, s: Float, color: Color) =
  */
 fun loadWallpaperFrom(context: Context, uri: Uri): ImageBitmap? {
     val dst = wallpaperFile(context)
+    // ★ 先写临时文件、解码成功后才原子替换。
+    //   上一版直接覆盖 `home_wallpaper.img` 再解码：只要这张图读不出来，
+    //   旧壁纸已经被毁掉，而外觀頁还在说「原来的壁纸没有动」—— 假安慰比报错更坏。
+    val tmp = File(dst.parentFile, dst.name + ".tmp")
     val copied = runCatching {
         context.contentResolver.openInputStream(uri)?.use { input ->
-            dst.outputStream().use { input.copyTo(it) }
+            tmp.outputStream().use { input.copyTo(it) }
         } != null
     }.getOrDefault(false)
     if (!copied) {
-        runCatching { dst.delete() }
+        runCatching { tmp.delete() }
         return null
     }
-    return decodeWallpaper(dst)
+    val img = decodeWallpaper(tmp)
+    if (img == null) {
+        runCatching { tmp.delete() }
+        return null
+    }
+    // 同目录下的 rename 是原子的：要么还是旧图，要么已经是完整的新图。
+    val moved = runCatching {
+        java.nio.file.Files.move(
+            tmp.toPath(),
+            dst.toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+        )
+        true
+    }.getOrDefault(false)
+    if (!moved) {
+        runCatching { tmp.delete() }
+        return null
+    }
+    return img
 }
 
-fun decodeWallpaper(file: File): ImageBitmap? = runCatching {
+fun decodeWallpaper(
+    file: File,
+    /**
+     * 解码上限（px）。壁纸只铺一屏，没必要把 48MP 原图整张读进内存：
+     * 8000×6000 的 ARGB_8888 是 192MB，真机上会直接把进程撑爆。
+     */
+    maxWidth: Int = 1440,
+    maxHeight: Int = 3200,
+): ImageBitmap? = runCatching {
     if (!file.exists()) return null
     // 用 BitmapFactory 而不是 ImageDecoder：后者可能给出 HARDWARE 配置的 bitmap，
     // 那种不能 `asImageBitmap()`（Compose 要能读像素的软件位图）。
     // 壁纸是静态图，软件位图在这里没有任何代价。
-    val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath) ?: return null
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+    val w = bounds.outWidth
+    val h = bounds.outHeight
+    if (w <= 0 || h <= 0) return null
+    // inSampleSize 只能是 2 的幂；用「缩一半仍不小于上限」的最大倍数，
+    // 保证不会为了省内存把图缩到比屏幕还糊。
+    //
+    // ★★★ 这里原来是 `&&` —— **一个字符的雷，业主选一张手机原图就可能撞 OOM**。
+    //   `&&` 要求**两边都还超上限**才继续缩，而常见 4:3 照片高永远到不了 3200：
+    //     4032×3024 → 2016>=1440 ✓ 但 1512>=3200 ✗ ⇒ `inSampleSize = 1`
+    //     ⇒ 4032×3024×4B = **48,771,072 B ≈ 46.5 MiB**（还只是软件位图，两份 decodeFile 更是翻倍）
+    //     8000×6000 同样卡住 ⇒ **183 MiB** —— 正是上面那句注释自己写的"会把进程撑爆"那一档。
+    //   改 `||`（**任一边**还超上限就继续缩）之后，4032×3024 落到 sample=2 ⇒ 2016×1512 ≈ 12.2 MiB。
+    //   ⚠️ 别以为会到 1008×756：循环的语义是「**再缩一半就不小于上限才继续**」，
+    //   1008 < maxWidth(1440) ⇒ 停在 2。台账那条"sample=4 / 3.1MiB"是它的算错，
+    //   真正要紧的量级差是 **46.5MiB → 12.2MiB（8000×6000 那档 183MiB → 45.6MiB）**，
+    //   而这条测试钉的就是"不许回到 46.5MiB 那一档"。
+    //   ⚠️ 外层是 `runCatching`，OOM 会被吞成 null、界面上一个字都不说 ⇒
+    //   `getOrNull()` 那条路必须配一句实话上屏（见 `AppearancePage` 的 `note` 与 `wallpaperLoadFailed`）。
+    //   落带由 `HomeSkyTest` 钉住（4032×3024 / 8000×6000 两组输入 + `slack >= 0`），不留给录屏。
+    var sample = 1
+    while (w / (sample * 2) >= maxWidth || h / (sample * 2) >= maxHeight) sample *= 2
+    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+    val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts) ?: return null
     bmp.asImageBitmap()
 }.getOrNull()
 
 fun deleteWallpaper(context: Context) {
     runCatching { wallpaperFile(context).delete() }
+}
+
+/**
+ * 壁纸的**实地亮度**（两枚，量出来的，不是猜的）—— [topBand] 是卡所在那一段、[overall] 是整张。
+ *
+ * ## ★ 为什么必须量（第 8 轮审计必修 7 + 我自己在模拟器上量到的那个 0.000）
+ *
+ * 「此刻」卡在相册档下的底色曾经用 `{黑, 白}` 两端兜"照片亮度未知"。那在字色判据放宽到
+ * 三档（主/次/警示）之后会把垫色一路抬到 ≈0.9 ⇒ **液态与磨砂在卡上逐像素相同（MAD 0.000）**，
+ * #12 在相册档又变回假开关；深色主题那边同样（审计复算 0.48→0.68，与磨砂只差 0.04）。
+ * 而这张图**本来就在手上**（`decodeWallpaper` 刚解出来），采一遍就知道它有多亮 ——
+ * "未知"只是我们没看，不是拿不到。工程红线是"没有来源就说不知道"，
+ * 我们有来源（这张位图）就该去看。
+ *
+ * 采样按网格跳点（最多 24×24 次取像素），只在解码那一次算。
+ */
+data class WallpaperStats(val topBand: Color, val overall: Color)
+
+fun wallpaperStats(img: ImageBitmap): WallpaperStats {
+    val px = img.toPixelMap()
+    val stepX = maxOf(1, img.width / 24)
+    val stepY = maxOf(1, img.height / 24)
+    var tr = 0.0; var tg = 0.0; var tb = 0.0; var tn = 0
+    var ar = 0.0; var ag = 0.0; var ab = 0.0; var an = 0
+    var y = 0
+    while (y < img.height) {
+        var x = 0
+        while (x < img.width) {
+            val c = px[x, y]
+            ar += c.red; ag += c.green; ab += c.blue; an++
+            // 卡压在画面上部（顶栏 + 大标题之下、约 15%~45% 高度那一段）
+            if (y.toFloat() / img.height in 0.15f..0.45f) {
+                tr += c.red; tg += c.green; tb += c.blue; tn++
+            }
+            x += stepX
+        }
+        y += stepY
+    }
+    fun avg(r: Double, g: Double, b: Double, n: Int) =
+        if (n == 0) Color(0.5f, 0.5f, 0.5f) else Color(
+            (r / n).toFloat().coerceIn(0f, 1f),
+            (g / n).toFloat().coerceIn(0f, 1f),
+            (b / n).toFloat().coerceIn(0f, 1f),
+        )
+    return WallpaperStats(
+        topBand = avg(tr, tg, tb, tn),
+        overall = avg(ar, ag, ab, an),
+    )
 }
 
 fun wallpaperFile(context: Context): File = File(context.filesDir, WALLPAPER_FILE)

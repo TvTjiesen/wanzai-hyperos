@@ -2,6 +2,7 @@ package com.muyao.wanzaihyperos.ui.login
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +24,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -98,6 +100,13 @@ fun LoginPage(
     Column(
         modifier = modifier
             .fillMaxSize()
+            // ★ 这一页是根路由之一，背后没有主壳那层 `pageBrush` ⇒ 不铺底色就是**窗口白**，
+            //   于是"主题选深色"在登录页看不出来（B4-14 复验时实测 RGB 250,250,250）。
+            .background(
+                com.muyao.wanzaihyperos.ui.design.AppColors.pageBrush(
+                    colors.background.luminance() < 0.5f,
+                ),
+            )
             .imePadding()
             .verticalScroll(rememberScrollState()),
     ) {

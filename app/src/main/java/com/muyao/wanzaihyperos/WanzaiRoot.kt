@@ -45,7 +45,6 @@ import com.muyao.wanzaihyperos.session.SessionState
 import com.muyao.wanzaihyperos.ui.AppThemeMode
 import com.muyao.wanzaihyperos.ui.AppUiState
 import com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning
-import com.muyao.wanzaihyperos.ui.MainShell
 import com.muyao.wanzaihyperos.ui.WanzaiTheme
 import com.muyao.wanzaihyperos.ui.busyness.BusynessPage
 import com.muyao.wanzaihyperos.ui.courses.CoursesPage
@@ -153,10 +152,17 @@ fun WanzaiApp(
      */
     incomingZhgyLink: String? = null,
     onIncomingZhgyLinkConsumed: () -> Unit = {},
+    /** 调试包专用：`am start --ei debug_section N` 直接落到某板块（见 `MainActivity`）。 */
+    debugSection: DebugSection? = null,
 ) {
     val uiState = remember { AppUiState() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // 键是整次投递（含序号）而不是那个 Int：同值重放要能再落一次（#42）。
+    LaunchedEffect(debugSection) {
+        debugSection?.let { uiState.selectedTab = it.section }
+    }
 
     // ── 路由动效的热调通道（和底栏那套读的是同一个 `GlassTuning`）──────
     //
@@ -169,8 +175,29 @@ fun WanzaiApp(
         val closeable = GlassTuning.startObserving(context) { navTuning++ }
         onDispose { closeable.close() }
     }
-    val routeTransition = remember(navTuning) {
-        wanzaiRouteTransitions(GlassTuning.navMs.roundToInt())
+    // ── 无障碍三条：动画时长缩放 / 高对比文字 / 我们自己的"减弱透明度"──────
+    //
+    // ★ 为什么必须在这里读（业主 2026-10-20 批准的清单第 2 条）：
+    //   **Compose 不会自动尊重系统的"动画时长缩放"**。开发者选项拉到 0，
+    //   系统动画全没了，我们的弹簧和位移照跑 —— 用户明确说了"别动"，界面还在动。
+    //   通道形状照 `GlassTuning`（同一件事两套监听迟早一套是死的）。
+    DisposableEffect(Unit) {
+        com.muyao.wanzaihyperos.ui.design.MotionPrefs.refresh(context)
+        val close = com.muyao.wanzaihyperos.ui.design.MotionPrefs.startObserving(context)
+        onDispose { close() }
+    }
+    // 消费端一律走 `rememberMotion()`：它读 `MotionPrefs.version`，所以系统里一改就重组，
+    // 不需要再往下传一个 CompositionLocal（同一件事留一条路）。
+    val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
+    val routeTransition = remember(navTuning, motion.animationsEnabled) {
+        // ★ 第 9 轮审计头条：**别再传 0**。传 0 走的是 `NavMotion()`（Miuix 自带默认曲线），
+        //   于是"关掉动效"= 位移照旧、时长还换成了库默认值 —— 用户想省掉的正是"整页推一遍"。
+        //   现在减弱动效那一档传 `reducedMotion = true` ⇒ 140ms **纯 alpha** 淡入淡出
+        //   （标准 §6：减弱动效 ≠ 零反馈；位移与弹簧全停，淡入淡出要留）。
+        wanzaiRouteTransitions(
+            motionMs = GlassTuning.navMs.roundToInt(),
+            reducedMotion = !motion.animationsEnabled,
+        )
     }
 
     var graph by remember { mutableStateOf<AppGraph?>(null) }
@@ -195,6 +222,16 @@ fun WanzaiApp(
                 it.name == com.muyao.wanzaihyperos.data.UiPrefs.themeModeName
             } ?: AppThemeMode.System
             uiState.timetableGrid = com.muyao.wanzaihyperos.data.UiPrefs.timetableGrid
+            // 减弱透明度是我们自己存的那一条（Android 没有系统级开关），所以要把盘里的值
+            // 推给运行期那份；推漏的后果是"设置里开了、重启又没了" —— 这类我们栽过。
+            com.muyao.wanzaihyperos.ui.design.MotionPrefs.setReduceTransparency(
+                com.muyao.wanzaihyperos.data.UiPrefs.reduceTransparency,
+            )
+            // 「磨砂」那条也一样：盘里存的是 glassMode，运行期要推给 MotionPrefs，
+            // 否则重启后设置页显示磨砂、屏幕上却还是带折射的液态。
+            com.muyao.wanzaihyperos.ui.design.MotionPrefs.setRefractsGlass(
+                com.muyao.wanzaihyperos.data.UiPrefs.glassMode == "liquid",
+            )
             if (app.portalSession.state == SessionState.LoggedIn) {
                 uiState.loggedIn = true
                 uiState.displayAccount = app.displayAccount()
@@ -284,7 +321,7 @@ fun WanzaiApp(
 
                 is AppOpenPlan.CampusOnly -> Toast.makeText(
                     context,
-                    "「${target.name}」仅校园网内可打开。注意：一般超时不一定都是校园网的问题。",
+                    "“${target.name}”仅校园网内可打开。注意：一般超时不一定都是校园网的问题。",
                     Toast.LENGTH_LONG,
                 ).show()
 
@@ -514,11 +551,20 @@ fun WanzaiApp(
                     onOpenJw = { backStack.add(Route.Jw) },
                     onOpenTimetable = { uiState.selectedTab = 1 },
                     onOpenMessages = { uiState.selectedTab = 2 },
-                    onOpenNews = { backStack.add(Route.Cjh52Feature("NOTICE")) },
                     onOpenTodos = { backStack.add(Route.TodoBoard) },
+                    onOpenAbout = { backStack.add(Route.About) },
+                    onOpenAccounts = { backStack.add(Route.AccountSources) },
+                    // 返回栈深度：设置页账号聚合行按它重算（B4-06 第 1 处真缺陷）
+                    navDepth = backStack.size,
+                    // 首頁「簽到」磁貼：兩步到掃碼（业主 2026-10-19）。
+                    onOpenRollcall = { backStack.add(Route.Rollcall()) },
                     onOpenSettings = { uiState.selectedTab = 4 },
-                    // 「設定 → 去重新登入」真的回到登入頁（不清憑據，只是再走一次認證）。
+                    // 登入頁出口。v3 #8 之後只剩一處走它：「賬號」組的門戶那一行
+                    // （舊的「去重新登錄」按鈕已並進去）。學在城院那一行只用文字指回這裡、
+                    // 本身不可點 —— 它沒有自己的登入口，跳過去也是門戶登入頁。
                     onOpenLogin = { backStack.add(Route.Login) },
+                    // 设置页「帐号」那一组：智慧公寓只能他自己粘入口链接（App 取不到码）。
+                    onOpenZhgy = { backStack.add(Route.Zhgy) },
                 )
             }
 
@@ -527,6 +573,28 @@ fun WanzaiApp(
                     graph = app,
                     onBack = { backStack.removeLastOrNull() },
                     onOpenApp = openApp,
+                )
+            }
+
+            // B4-06：账号二级页（设置首页只留一行聚合入口）。
+            entry<Route.AccountSources> {
+                com.muyao.wanzaihyperos.ui.main.pages.AccountsPage(
+                    graph = app,
+                    uiState = uiState,
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenLogin = { backStack.add(Route.Login) },
+                    onOpenJw = { backStack.add(Route.Jw) },
+                    onOpenZhgy = { backStack.add(Route.Zhgy) },
+                    onOpenApps = { uiState.selectedTab = 3; backStack.removeLastOrNull() },
+                    // 回到这一页时要重新取六源快照（见 AccountsPage 的 refreshKey 注释）
+                    refreshKey = backStack.size,
+                )
+            }
+
+            // B4-10：关于 + 开源许可（外链与依赖清单都是真的，见 `AboutLinks` / `Credits`）。
+            entry<Route.About> {
+                com.muyao.wanzaihyperos.ui.about.AboutPage(
+                    onBack = { backStack.removeLastOrNull() },
                 )
             }
 
@@ -580,7 +648,7 @@ fun WanzaiApp(
                                         tempCode = tempCode,
                                         nowMillis = System.currentTimeMillis(),
                                     )
-                                    backStack.add(Route.Web(CJH52_COURSE_APP_ID, "我的課程", url))
+                                    backStack.add(Route.Web(CJH52_COURSE_APP_ID, "我的课程", url))
                                 }
                             }
                         },
@@ -696,6 +764,20 @@ fun WanzaiApp(
                 TodoBoardPage(
                     repository = app.todoBoard,
                     onExit = { backStack.removeLastOrNull() },
+                    // ★ 作業那一類待辦點下去 → 詳情 + 提交
+                    //（业主 2026-10-19：「我要在待办里实现查看作业详情并且提交作业」）。
+                    // `key` 是 `/api/todos` 的 id（**不保證等於作業 id**），
+                    // 所以詳情倉庫還會拿課名+標題再核對一次；核對不上就**不提交**。
+                    onOpenHomework = { item ->
+                        backStack.add(
+                            Route.HomeworkDetail(
+                                courseId = item.courseId,
+                                homeworkId = item.key.toIntOrNull() ?: 0,
+                                courseName = item.subtitle,
+                                title = item.title,
+                            ),
+                        )
+                    },
                 )
             }
 
@@ -711,9 +793,66 @@ fun WanzaiApp(
                     feedRepository = app.tronFeed,
                     meRepository = app.tronMe,
                     homeworkRepository = app.homework,
+                    homeworkDetailRepository = app.homeworkDetail,
                     rollcallRepository = app.rollcall,
                     courseDetailRepository = app.courseDetail,
                     scheduleRepository = app.schedule,
+                    onExit = { backStack.removeLastOrNull() },
+                    onOpenWeb = { openTronWeb(route.tileUrl) },
+                )
+            }
+
+            // ★ 首頁那顆「簽到」磁貼的第二條入口（业主 2026-10-19）。
+            //
+            // 為什麼讓它**獨立成一路由**而不是「先進學在城院外殼再點進去」：
+            // 上課時老师的码就在屏幕上，他要的是「点开签到 → 扫码」两步，
+            // 不是「点开应用 → 找标签 → 找签到」四步。
+            // 内容仍是同一份 `RollcallBody`（不会两处行为不一致）。
+            entry<Route.Rollcall> { route ->
+                com.muyao.wanzaihyperos.ui.tronclass.RollcallStationPage(
+                    repository = app.rollcall,
+                    onExit = { backStack.removeLastOrNull() },
+                    onOpenWeb = { openTronWeb(route.tileUrl) },
+                )
+            }
+
+            // 某門課的作業清單（獨立入口；外殼裡那個二級頁用的是同一份 HomeworkContent）。
+            entry<Route.Homework> { route ->
+                LaunchedEffect(route.courseId) {
+                    // 取數交給 `graph.fetch`（應用級作用域）：組合被拆掉時不該把
+                    // 在飞的请求一起带走（T54/T56 那条根因）。
+                    if (route.courseId > 0) {
+                        app.fetch { app.homework.load(route.courseId, route.courseName) }
+                    }
+                }
+                com.muyao.wanzaihyperos.ui.tronclass.HomeworkListPage(
+                    repository = app.homework,
+                    courseName = route.courseName,
+                    onExit = { backStack.removeLastOrNull() },
+                    onOpenWeb = { openTronWeb(route.tileUrl) },
+                    onOpenHomework = { courseId, homeworkId, courseName, title ->
+                        backStack.add(Route.HomeworkDetail(courseId, homeworkId, courseName, title))
+                    },
+                )
+            }
+
+            // ★ 一項作業的詳情 + 提交（业主 2026-10-19：「实现查看作业详情并且提交作业」）。
+            entry<Route.HomeworkDetail> { route ->
+                LaunchedEffect(route.homeworkId) {
+                    if (route.courseId > 0) {
+                        app.fetch {
+                            app.homeworkDetail.load(
+                                route.courseId, route.homeworkId, route.courseName, route.title,
+                            )
+                        }
+                    }
+                }
+                com.muyao.wanzaihyperos.ui.tronclass.HomeworkDetailPage(
+                    repository = app.homeworkDetail,
+                    courseId = route.courseId,
+                    homeworkId = route.homeworkId,
+                    courseName = route.courseName,
+                    title = route.title,
                     onExit = { backStack.removeLastOrNull() },
                     onOpenWeb = { openTronWeb(route.tileUrl) },
                 )

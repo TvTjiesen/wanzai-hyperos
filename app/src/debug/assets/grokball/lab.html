@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>AI 小球实验室</title>
+<script>
+window.__err = [];
+window.addEventListener("error", function (e) {
+  window.__err.push((e.message || "error") + " @" + (e.filename || "") + ":" + (e.lineno || 0));
+});
+window.addEventListener("unhandledrejection", function (e) {
+  window.__err.push("promise: " + ((e.reason && e.reason.message) || e.reason));
+});
+window.addEventListener("DOMContentLoaded", function () {
+  var d = document.createElement("div");
+  d.id = "errBox";
+  d.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99;background:#B65E3D;color:#fff;font-size:11px;padding:6px 8px;white-space:pre-wrap;max-height:45%;overflow:auto;display:none";
+  document.body.appendChild(d);
+  setInterval(function () {
+    d.style.display = window.__err.length ? "block" : "none";
+    d.textContent = window.__err.join("\n");
+  }, 400);
+});
+</script>
+<style>
+:root{--paper:#F4F0E8;--card:#FBF8F1;--ink:#1A1917;--ink2:#736E64;--mint:#2E6B64;--ochre:#B65E3D;--line:#E1DBD0;--stage:#14110E;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:-apple-system,"PingFang SC","Noto Sans CJK SC",sans-serif;font-size:13px;}
+body{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);}
+header{position:sticky;top:0;z-index:9;background:var(--paper);border-bottom:1px solid var(--line);padding:10px 14px 9px;}
+h1{margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em;}
+.sub{font-size:11px;color:var(--ink2);margin-top:2px;line-height:1.45;}
+.topWrap{position:sticky;top:0;z-index:9;background:var(--paper);border-bottom:1px solid var(--line);}
+.stage{display:flex;justify-content:center;padding:8px 12px 0;}
+.stageBox{border-radius:16px;background:var(--stage);padding:9px 10px;display:flex;justify-content:center;}
+#ball{width:104px;height:104px;}
+.readout{font-size:11px;color:var(--ink2);text-align:center;line-height:1.5;padding:6px 16px 2px;font-variant-numeric:tabular-nums;}
+.readout b{color:var(--ink);font-weight:600;}
+nav{display:flex;gap:6px;padding:7px 12px 8px;background:var(--paper);overflow-x:auto;}
+nav button{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:9px;padding:6px 12px;font-size:12px;font-weight:600;}
+nav button.on{background:var(--mint);border-color:var(--mint);color:#fff;}
+section{display:none;padding:12px 12px 6px;}
+section.on{display:block;}
+h2{font-size:12px;color:var(--ink2);margin:16px 2px 6px;font-weight:600;}
+h2:first-child{margin-top:2px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px;}
+.face{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:6px 4px 5px;display:flex;flex-direction:column;align-items:center;gap:3px;}
+.face.on{border-color:var(--mint);box-shadow:0 0 0 2px rgba(46,107,100,.16);}
+.thumb{width:46px;height:46px;}
+.face span{font-size:10px;color:var(--ink2);text-align:center;line-height:1.25;}
+.face.on span{color:var(--mint);font-weight:700;}
+.row{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:9px 11px;margin-bottom:7px;}
+.rowTitle{font-size:12px;font-weight:600;}
+.rowSub{font-size:10.5px;color:var(--ink2);margin-top:2px;line-height:1.45;}
+.btns{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;}
+button.act{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 11px;font-size:12px;color:var(--ink);font-weight:600;}
+button.act.primary{background:var(--mint);border-color:var(--mint);color:#fff;}
+button.act.warn{color:var(--ochre);border-color:rgba(182,94,61,.45);}
+.ctl{display:flex;align-items:center;gap:9px;margin:8px 0;}
+.ctl label{flex:0 0 78px;font-size:11.5px;color:var(--ink2);}
+.ctl input[type=range]{flex:1 1 auto;min-width:0;}
+.ctl .val{flex:0 0 54px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums;color:var(--ink);}
+pre{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px;font-size:10px;line-height:1.5;overflow:auto;max-height:320px;margin:6px 0 0;}
+#log{font-size:10.5px;color:var(--ink2);background:#fff;border:1px solid var(--line);border-radius:10px;padding:7px 9px;margin:10px 12px 24px;max-height:110px;overflow:auto;line-height:1.5;}
+.pw{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;}
+.sw{flex:0 0 auto;width:44px;height:26px;border-radius:13px;background:#DAD4C8;position:relative;transition:background .16s;}
+.sw.on{background:var(--mint);}
+.sw i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:10px;background:#fff;transition:left .16s;box-shadow:0 1px 3px rgba(0,0,0,.2);}
+.sw.on i{left:21px;}
+input[type=color]{width:44px;height:28px;border:1px solid var(--line);border-radius:7px;background:#fff;padding:2px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>AI 小球实验室</h1>
+  <div class="sub">完整引擎 · 32 个表情 · 6 种动画类型 · 全部姿态参数 · 仅测试版</div>
+</header>
+<div class="topWrap">
+<div class="stage"><div class="stageBox"><div id="ball"></div></div></div>
+<div class="readout" id="readout"></div>
+<nav id="tabs">
+  <button data-tab="face" class="on">表情</button>
+  <button data-tab="anim">动画</button>
+  <button data-tab="param">参数</button>
+  <button data-tab="act">动作</button>
+  <button data-tab="raw">原始定义</button>
+</nav>
+</div>
+<section data-tab="face" class="on">
+  <div id="faceGrid"></div>
+</section>
+<section data-tab="anim">
+  <h2>当前表情的动画（可逐条单独播放）</h2>
+  <div id="animList"></div>
+  <div class="row"><div class="pw"><div><div class="rowTitle">停用全部动画</div><div class="rowSub">只留基础姿态 + 眼环 + 眨眼，看底子</div></div><div class="sw" id="swNoAnim"><i></i></div></div></div>
+</section>
+<section data-tab="param">
+  <div class="row"><div class="pw"><div><div class="rowTitle">覆盖参数</div><div class="rowSub">关掉 = 引擎原始配置，一个字不改</div></div><div class="sw" id="swOv"><i></i></div></div></div>
+  <div id="paramBody"></div>
+</section>
+<section data-tab="act">
+  <div id="actBody"></div>
+</section>
+<section data-tab="raw">
+  <h2>当前生效的那份配置</h2>
+  <pre id="rawBox"></pre>
+  <h2>导出全部表情配置</h2>
+  <button class="act" id="btnExport">生成 JSON</button>
+  <pre id="expBox"></pre>
+</section>
+<div id="log"></div>
+<script src="grok-ball.js"></script>
+<script src="lab.js"></script>
+</body>
+</html>

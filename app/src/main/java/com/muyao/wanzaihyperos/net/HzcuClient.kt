@@ -34,7 +34,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * 就算不小心建了两个 client，它们也共用同一个全局闸门，
  * QPS≤1 这条红线不会因为多一个 client 而失效。
  *
- * ### 两个必须保持的传输层设定
+ * ### 两个必须保持的传输层设置
  * - **关掉自动跳转**（`followRedirects(false)`）：CAS 链路要逐跳读 `Location`
  *   （ticket 就在里面），交给 OkHttp 自动跟会丢掉中间响应，也没法在某一跳上做判断。
  * - **关掉 `retryOnConnectionFailure`**：连接级重试绕不过我们自己的闸门，
@@ -200,7 +200,96 @@ class HzcuClient private constructor(
         require(fields == null || jsonBody == null) {
             "fields 与 jsonBody 只能给一个：同一请求不可能既是 form 又是 JSON"
         }
+        // ★ **失效 → 免密续期 → 只重试一次**。
+        //
+        // 为什么挂在这里而不是各个仓库：`portalPost` 是门户功能唯一该用的方法（见上面注释），
+        // 挂在这个口 = 消息/新聞/待办/应用列表**一次全好**；挂在仓库层就是二十个现场，
+        // 漏一个就还是「有的页面会自己恢复、有的一直红」。
+        //
+        // 为什么只重试一次：续期本身也要打学校服务器。失败后继续循环 = 拿一个坏会话
+        // 反复敲门，撞 QPS 红线（本项目对 QPS 是有闸门的）。
+        var renewed = false
+        while (true) {
+            val outcome = runCatching {
+                portalPostOnce(path, fields, jsonBody, context, attachToken, maxAttempts)
+            }
+            val error = outcome.exceptionOrNull() ?: return outcome.getOrThrow()
+            val renewer = renewSession
+            if (!attachToken || error !is HzcuException.LoginExpired || renewed || renewer == null) {
+                throw error
+            }
+            renewed = true
+            renewLog("检测到门户失效（$context），尝试免密续期")
+            // ⚠️ 续期失败**必须留下原因**：原来这里 `runCatching{}.getOrDefault(false)`
+            //   会把异常整个吞掉，表现就是"探针明明触发了，日志里一个字都没有"，
+            //   等于把最难查的一种失败（静默不续）留给自己。
+            val ok = try {
+                // ★ **NonCancellable**：续期经常是在"页面已经离开组合、协程正在被取消"的时候
+                //   被触发的（真机实测就是这样：探针第一次触发就抛
+                //   `LeftCompositionCancellationException`）。不加这层，续期一进去就被取消，
+                //   和它要修的那个 bug 是同一个 —— 换 token 这件事不该看某一帧有没有人看页面。
+                kotlinx.coroutines.withContext(renewContext) { renewer() }
+            } catch (error: Throwable) {
+                renewLog("免密续期抛异常（${error.javaClass.simpleName}: ${error.message?.take(160)}）")
+                false
+            }
+            renewLog(if (ok) "续期成功，重试一次" else "续期未成功，按原样抛出")
+            if (!ok) throw error
+        }
+    }
+
+    /**
+     * 门户 token 失效时的**免密续期**钩子，由组合根（`AppGraph`）注入
+     * `HzcuCasService.renewWithExistingSession`。
+     *
+     * 做成可注入而不是让 client 直接依赖 CAS 服务：CAS 服务本身要用这个 client，
+     * 互相持有就是构造期循环依赖（这个坑在别的模块踩过）。
+     * 没注入时行为退回改动前 —— 失效就直接抛，不会更糟。
+     */
+    var renewSession: (suspend () -> Boolean)? = null
+
+    /**
+     * 跑续期用的上下文。默认 `NonCancellable + IO`：续期经常在"页面已离开组合、
+     * 协程正在被取消"的时候才触发（真机实测），不加 NonCancellable 就会被自己要修的
+     * 那个 bug 取消掉。做成可注入是因为单测用 `runTest`，撞真实线程会不稳定。
+     */
+    var renewContext: kotlin.coroutines.CoroutineContext =
+        kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO
+
+    /**
+     * 诊断出口。**数据/网络层不能直接调 `android.util.Log`** —— JVM 单测里它是
+     * "not mocked"，会直接把测试打炸（这一条本项目早有纪律，是我上一轮加日志时破的）。
+     * 默认打 logcat；单测注入收集器，顺便还能断言日志内容。
+     */
+    var renewLog: (String) -> Unit = { line -> android.util.Log.i("WanzaiRenew", line) }
+
+    /**
+     * 调试探针：**假装这次调用的 token 已失效**，用来在真机上验证「免密续期」这条新路径
+     * 到底走不走得通（不这么做就得等学校真的让 token 过期，无法验收）。
+     *
+     * 由组合根注入（读 `Settings.Global`），**默认 null = 完全不影响生产路径**。
+     * 返回 true 表示"这一次要假装失效"，实现方负责保证它**只生效一次**，
+     * 否则会变成"永远续不上"的死循环假象。
+     */
+    var debugForceExpire: (() -> Boolean)? = null
+
+    private suspend fun portalPostOnce(
+        path: String,
+        fields: Map<String, String>?,
+        jsonBody: JsonObject?,
+        context: String,
+        attachToken: Boolean,
+        maxAttempts: Int?,
+    ): HzcuResponse {
         val token = if (attachToken) credentials.accessToken() else null
+        // 探针放在取 token 之前：它要模拟的是「带着一个已经失效的 token 去打，服务端回 401」，
+        // 而这条路径的下游（renewSession → 重试一次）和真实失效完全同一条。
+        if (attachToken && runCatching { debugForceExpire?.invoke() == true }.getOrDefault(false)) {
+            throw HzcuException.LoginExpired(
+                "调试：模拟门户 token 失效",
+                details = "接口：$path（探针 wz_expire_probe）",
+            )
+        }
         if (attachToken && token.isNullOrEmpty()) {
             throw HzcuException.LoginExpired(
                 "还没登录城院门户",

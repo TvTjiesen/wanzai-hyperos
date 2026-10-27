@@ -75,8 +75,8 @@ object GlassLiveness {
      * @param readBack 之後讀回來的值（null = 完全讀不到）
      */
     fun judge(written: Long, readBack: Long?): Verdict = when {
-        readBack == null -> Verdict.Dead("哨兵讀不回來（這一層沒被繪製）")
-        readBack != written -> Verdict.Dead("哨兵被別人改掉（written=$written, read=$readBack）")
+        readBack == null -> Verdict.Dead("哨兵读不回来（这一层没被绘制）")
+        readBack != written -> Verdict.Dead("哨兵被别人改掉（written=$written, read=$readBack）")
         else -> Verdict.Alive
     }
 
@@ -98,7 +98,7 @@ object GlassLiveness {
      */
     fun verdictOf(contentWidthPx: Float, contentHeightPx: Float): Verdict =
         if (contentWidthPx > 0f && contentHeightPx > 0f) Verdict.Alive
-        else Verdict.Dead("採樣層這一幀尺寸為 ${contentWidthPx}×${contentHeightPx}（根本沒畫）")
+        else Verdict.Dead("采样层这一帧尺寸为 ${contentWidthPx}×${contentHeightPx}（根本没画）")
 
     /**
      * **降級描述**：玻璃不可用時，界面該用什麼。

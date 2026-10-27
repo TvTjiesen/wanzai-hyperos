@@ -1,10 +1,20 @@
 .gradle/
 .gradle-home/
+.kotlin/
 build/
 local.properties
 *.iml
 .idea/
-_probe/
+_probe*/
+
+# ---- 取证产物（第 22 轮⑤：以前只在 README 里"声明"不进库，这里真的拦住）----
+# ⚠️ 不能写成全局 `*.png`：`app/src/main/res/**/drawable*.png` 是要打进 APK 的真资源。
+#    只忽略 verify/ 下的截图与日志，以及 Python 编译产物。
+verify/**/*.png
+verify/**/*.jpg
+verify/**/*.log
+__pycache__/
+*.pyc
 
 # ---- 凭据（红线：绝不入 git）---------------------------------------------
 # 联调用的账号密码只放这里，写完立刻在 .gitignore 里（本条目）。
@@ -15,3 +25,19 @@ _probe/
 build/ref-apk/
 build/jadx/
 build/jadx.zip
+
+# ---- 2026-10-25 补：一条 git add -A 会把 1.9 GB 取证产物塞进库（实测）---------
+# verify/b4-15/real/logcat_startup.txt 946.4 MB、logcat_gesture.txt 945.7 MB、
+# logcat_all.txt 17.4 MB；verify/*/*.mp4 共 31 个 / 60.9 MB；verify/*/*.bin 26 个。
+# 这些是"能重跑出来"的原始流，不是判据本身 —— 判据是 .py/.sh/.json/.md 与结论。
+# 提交前必跑： bash tools/wz.sh gitcheck（列出仍会被 add 进的大文件）
+verify/**/*.txt
+verify/**/*.mp4
+verify/**/*.bin
+verify/**/*.aar
+verify/**/*.apk
+verify/**/*.raw
+
+# JVM 崩溃现场（本机 16 GB 曾被 Gradle+Kotlin 守护进程打满留下过 hs_err/replay）
+hs_err_pid*.log
+replay_pid*.log

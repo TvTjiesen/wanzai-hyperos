@@ -19,7 +19,7 @@ import kotlinx.coroutines.sync.withLock
  * ### 為什麼把兩者合成一包
  *
  * 作業清單（`homework-activities`）不含「我交了沒」，
- * 那資訊在另一支（`homework/submission-status`）。
+ * 那信息在另一支（`homework/submission-status`）。
  * 但**分開顯示沒有意義** —— 學生看的是「這份作業、截止什麼時候、**我交了沒**」。
  * 兩個各自獨立的 `ListState` 只會讓界面出現「清單有了、狀態還在轉圈」的中間態。
  *
@@ -38,6 +38,18 @@ interface HomeworkRepository {
     val state: StateFlow<ListState<ClassHomework>>
     /** 目前看的是哪門課（用於界面標題）。 */
     val courseName: StateFlow<String>
+
+    /**
+     * 目前看的是哪門課的 **id**（0 = 還沒 load 過）。
+     *
+     * ★ 為什麼要暴露它（2026-10-19）：清單上每一行現在可以點進「作業詳情」，
+     * 而詳情/提交都需要 course id（`/api/courses/{id}/homework-activities`
+     * 與狀態那支都是課程內的接口）。让界面自己记一份等於把同一個事實
+     * 放在兩個地方 —— 換課時只要有一處忘了改，就會把 A 課的作業 id
+     * 拿到 B 課去提交。倉庫已經記了，界面就問它要。
+     */
+    val currentCourseId: Int
+
     suspend fun load(courseId: Int, courseName: String)
     suspend fun refresh()
 }
@@ -57,10 +69,12 @@ class LiveHomeworkRepository(
     private val inFlight = Mutex()
 
     @Volatile
-    private var currentCourseId: Int? = null
+    private var courseIdValue: Int = 0
+
+    override val currentCourseId: Int get() = courseIdValue
 
     override suspend fun load(courseId: Int, courseName: String) {
-        currentCourseId = courseId
+        courseIdValue = courseId
         _courseName.value = courseName
         // 換課就**清空重載**：留著上一門課的作業比空白更糟
         //（使用者會以為這門課有那些作業）。
@@ -69,7 +83,8 @@ class LiveHomeworkRepository(
     }
 
     override suspend fun refresh() {
-        val courseId = currentCourseId ?: return
+        val courseId = courseIdValue
+        if (courseId <= 0) return
         inFlight.withLock {
             val token = guard.begin()
             _state.value = _state.value.startRefresh()

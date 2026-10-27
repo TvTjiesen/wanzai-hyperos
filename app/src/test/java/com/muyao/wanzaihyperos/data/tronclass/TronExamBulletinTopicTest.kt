@@ -318,6 +318,9 @@ class TronHomeworkHtmlTest {
             description = html,
             submitTimes = null,
             scorePercentage = "10.0",
+            unlimitedSubmits = true,
+            submitByGroup = false,
+            allowRetract = false,
         )
         val text = hw.plainDescription
         assertFalse("作業說明不該留下標籤：$text", text.contains("<"))
@@ -334,6 +337,7 @@ class TronHomeworkHtmlTest {
             id = 1, title = "t", deadline = "", endTime = "", closed = false, inProgress = true,
             homeworkType = "file_upload", description = "交一份 PDF", submitTimes = 1,
             scorePercentage = "0.0",
+            unlimitedSubmits = false, submitByGroup = false, allowRetract = false,
         )
         assertEquals("交一份 PDF", hw.plainDescription)
     }

@@ -99,9 +99,9 @@ class RedactionTest {
     @Test
     fun `响应摘要不复制正文`() {
         val summary = Redaction.responseSummary(
-            """{"code":200,"success":true,"data":{"name":"李同学","sid":"2021001"}}""",
+            """{"code":200,"success":true,"data":{"name":"某某某","sid":"2021001"}}""",
         )
-        assertFalse(summary.contains("李同学"))
+        assertFalse(summary.contains("某某某"))
         assertFalse(summary.contains("2021001"))
         // 顶层是 code / success / data 三个键。
         assertTrue(summary.contains("字段数=3"))

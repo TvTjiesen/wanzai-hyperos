@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自动生成：逐字抄自 v2 定稿板 wz-v2.html 的 <symbol id="i-bus">，
+     fill:none / stroke:currentColor(1.65) / round cap+join 与板 .icon 一致。
+     不要手改；要改形状就改 wz-v2.html 再重跑 tools/board_icons_to_xml.py。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <group>
+        <path android:pathData="M7,4 L17,4 A3,3 0 0 1 20,7 L20,13.6 A3,3 0 0 1 17,16.6 L7,16.6 A3,3 0 0 1 4,13.6 L4,7 A3,3 0 0 1 7,4 Z" android:strokeWidth="1.65" android:strokeLineCap="round" android:strokeLineJoin="round" android:strokeColor="#FF000000" android:fillColor="#00000000" />
+        <path android:pathData="M4 10.2h16M7.2 20v-2.4M16.8 20v-2.4" android:strokeWidth="1.65" android:strokeLineCap="round" android:strokeLineJoin="round" android:strokeColor="#FF000000" android:fillColor="#00000000" />
+        <path android:pathData="M8.3,14 A0.9,0.9 0 1 1 6.5,14 A0.9,0.9 0 1 1 8.3,14 Z" android:strokeWidth="1.65" android:strokeLineCap="round" android:strokeLineJoin="round" android:strokeColor="#FF000000" android:fillColor="#FF000000" />
+        <path android:pathData="M17.5,14 A0.9,0.9 0 1 1 15.7,14 A0.9,0.9 0 1 1 17.5,14 Z" android:strokeWidth="1.65" android:strokeLineCap="round" android:strokeLineJoin="round" android:strokeColor="#FF000000" android:fillColor="#FF000000" />
+    </group>
+</vector>

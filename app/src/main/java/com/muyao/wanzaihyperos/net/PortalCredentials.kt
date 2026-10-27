@@ -19,6 +19,15 @@ interface PortalCredentials {
     fun accessToken(): String?
 
     /**
+     * 学号 / 工号（给「我的」页回显、以及**免密续期时把账号一起带回去**用）。没有则 null。
+     *
+     * 为什么放进这个接口：`HzcuCasService` 只认 [PortalCredentials]，
+     * 续期成功时要保留原账号；不放进接口就只能向下转型成 `PortalSession`，
+     * 那等于把"凭据读取"这层抽象捅了个洞。
+     */
+    fun userCode(): String?
+
+    /**
      * 门户会话 Cookie 的 JSON（host → {name: value}）。
      *
      * ★ 必须与 token 一起发（2026-10-09 真机抓包定位）：

@@ -2,12 +2,13 @@ package com.muyao.wanzaihyperos.ui.design.liquid
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,22 +23,21 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.muyao.wanzaihyperos.ui.design.AppColors
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -49,6 +49,7 @@ import top.yukonga.miuix.kmp.blur.highlight.Highlight
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.icon.extended.Refresh
+import com.muyao.wanzaihyperos.ui.design.rememberMotion
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -59,7 +60,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *     下边缘还是一刀切（用户原话"雷霆大模糊"）。
  *  2. 第二版改成 4 段不同半径的矩形直接摞起来 —— 段与段之间是硬切，看得见分界线。
  * 现在这版：
- *  - 顶栏中间**不放任何东西**（标题胶囊按用户要求删掉，页面名由大标题负责）；
+ *  - 顶栏中间在**折叠后**接住页面名（小标题），展开时完全透明 ——
+ *    大标题还在原位时不出现第二份标题（业主否掉过“双标题”）；
  *  - 背后是三段**互相重叠、各自带软边**的渐变纱，软边由 AGSL 竖向 alpha 窗口实现
  *    （见 ui/liquid/VeilWindow.kt），叠加后模糊强度连续变化，没有任何一条横线；
  *  - 出现曲线有死区：大标题刚起步时完全不糊，过了分界点才 smoothstep 渐进出现。
@@ -67,6 +69,24 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 class PageChrome {
     /** 0 = 大标题还在原位（顶栏不出现），1 = 完全折叠 */
     var progress by mutableFloatStateOf(0f)
+
+    /**
+     * 「**当前这一页的列表正在滚**」—— 第 9 轮审计必修 4（全工程原本 `scroll` 命中 0 次）。
+     *
+     * 标准 §4：「静止时停更（内容没变就别重采样），**滚动时降采样**」。这块界面上的玻璃
+     * （顶栏纱 / 底栏 / 搜索钮）都是**每帧各采一次全屏**，而列表滚动时背景每帧都在变 —— 正是最贵的时候。
+     *
+     * ⚠️ kyant 的 backdrop **没有暴露"降采样倍率"**（javap 核过它的 effects API：只有
+     *   `blur` / `lens` / `vibrancy` / 高光），所以这里的"降采样"取的是**能拿到的那个把手**：
+     *   滚动期间把最贵的一步（`lens` 折射，逐像素 SDF）**整条关掉 + 模糊减半**，停手后下一帧恢复。
+     *   别把它写成"渲染到半分辨率" —— 那是另一件事。
+     */
+    var scrolling by mutableStateOf(false)
+
+    /** 页面把列表的滚动状态报进来（入口只有这一个）。 */
+    fun onScroll(scrolling: Boolean) {
+        this.scrolling = scrolling
+    }
 }
 
 val LocalPageChrome = staticCompositionLocalOf { PageChrome() }
@@ -165,10 +185,43 @@ fun GlassSurface(
      * 别再拿一个"糊不出来就变黑"的路径赌。
      */
     liveBlur: Boolean = true,
+    /**
+     * 非 null 時用這一份高光覆蓋默認那條細描邊。
+     *
+     * ★ 為什麼要這個口子（业主 2026-10-20：「你这个液态玻璃没有玻璃的感觉，
+     *   我要你照抄底栏玻璃的代码」）：底欄那颗滑块的高光是 `BloomStroke`
+     *   （兩個光源 + innerBlur），而這裡默認用的是一条普通描边 ——
+     *   「玻璃感」差的就是那一口。所以不是再調 alpha，是把底欄那份高光拿過來。
+     */
+    specular: Highlight? = null,
     content: @Composable BoxScope.() -> Unit = {},
 ) {
     val surface = MiuixTheme.colorScheme.surface
-    val dark = isSystemInDarkTheme()
+    // 底栏容器铺的是 `surfaceContainer.copy(alpha = 0.4f)`（LiquidGlassNavigationBar 的
+    // containerColor）。这里以前铺 `surface`：差的那一点色调就是"两块玻璃不像同一套"的来源之一。
+    val container = MiuixTheme.colorScheme.surfaceContainer
+    // ★ 工单第 19 轮：读**应用内主题**（`isInDarkTheme()`，同包不用 import），不是系统深浅色。
+    //   这是每一屏都看得见的顶栏纱；上一轮自报「5 个调用点全跟」实为 4/5，漏的就是这一处。
+    val dark = isInDarkTheme()
+    val motion = rememberMotion()
+    // ★ 第 9 轮审计必修 4：这块纱要在**滚动期降采样**。这个值必须在**组合期**读出来 ——
+    //   `effects` 那个 lambda 不是 @Composable 上下文（在里面读 CompositionLocal 编译不过）。
+    val scrolling = LocalPageChrome.current.scrolling
+    // ★ 用户说了"别透明"（设置里的减弱透明度 / 系统高对比文字）⇒ **连采样都不做**，
+    //   直接一块近实底 + 描边。这既是无障碍，也是黑块那类事故的最终兜底：
+    //   不采层，就没有"采到空层画黑"这条路。
+    if (!motion.glassIsTranslucent) {
+        Box(
+            modifier = modifier
+                .background(
+                    if (dark) container.copy(alpha = 0.97f) else container.copy(alpha = 0.94f),
+                    shape,
+                )
+                .border(1.dp, if (dark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.10f), shape),
+            content = content,
+        )
+        return
+    }
     val highlight = if (dark) Highlight.GlassStrokeMiddleDark else Highlight.GlassStrokeMiddleLight
     // 玻璃底下必须先垫一层不透光的浅色底：Miuix 的 vibrancy/lens 在"采样层是空的"
     // 时候不会退回纯色，而是把透明黑直接混出来 —— 真机连拍量到那颗按钮从 750 掉到 442
@@ -178,31 +231,48 @@ fun GlassSurface(
         modifier = modifier
             .background(surface.copy(alpha = baseAlpha), shape)
             .then(
-            if (liveBlur && backdrop != null && backdropIsLive(backdrop)) {
+            if (liveBlur && backdrop != null && backdropIsLive(backdrop) && rememberSampleSettled(backdrop)) {
                 Modifier.drawBackdrop(
                     backdrop = backdrop,
                     shape = { shape },
                     effects = {
-                        vibrancy()
-                        blur(blurDp.toPx(), blurDp.toPx())
+                        // ★ 独立审计（v3 #12 第 2 轮 P1#4）：**磨砂档以前在 `liquid/` 这一栈里
+                        //   只关 lens、不动 blur 与 tint**，而顶栏这层纱连 lens 都没关 ⇒
+                        //   液态/磨砂画出来一模一样（真机量的 0.000 就是这么来的）。
+                        //   现在统一吃 `glass/BarOptics.kt:263` 那条唯一的材质语义：
+                        //   **磨砂 = 糊加重(×2.25) + 不折射 + 不做色彩振动**，由 `motion.refractsGlass` 决定。
+                        val frosted = !motion.refractsGlass
+                        // ★ 第 9 轮审计必修 4：**滚动期降采样**（标准 §4「滚动时降采样、静止时停更」）。
+                        //   这一层纱是**每帧一次全屏采样**，而列表滚动时背景每帧都在变 —— 正是最贵的时候。
+                        //   kyant 没暴露降采样倍率，所以这里的把手是：滚动期**不折射 + 模糊减半**，
+                        //   停手后下一帧恢复（松手那一刻的观感与滚动中不同是刻意的：
+                        //   滚动时人眼在追内容，糊度差一档看不出来；静止时才需要那层厚度）。
+                        if (!frosted && !scrolling) vibrancy()
+                        val veilBlur = (if (frosted) blurDp * 2.25f else blurDp) * (if (scrolling) 0.5f else 1f)
+                        blur(veilBlur.toPx(), veilBlur.toPx())
                         // depthEffect/chromaticAberration 只在热调打开时才用：空采样帧上
                         // 这两个会画出不透明黑（就是那颗钮之前"变黑"的来路）
-                        if (GlassTuning.depthLens >= 1f) {
+                        if (frosted || scrolling) {
+                            // 磨砂：一道折射棱都不给；滚动中同理（这一条就是"降采样"的落点）
+                        } else if (GlassTuning.depthLens >= 1f) {
                             lens(
                                 refractionHeight = refractionDp.toPx(),
-                                refractionAmount = refractionDp.toPx() * 0.7f,
+                                refractionAmount = refractionDp.toPx(),
                                 depthEffect = true,
                                 chromaticAberration = 0.35f,
                             )
                         } else {
+                            // 折射量 = 折射高度，**和底栏同一个配比**（底栏：
+                            // lens(refractionHeight = lensDp, refractionAmount = lensDp)）。
+                            // 这里以前乘 0.7：折射带被削薄，盘里就只剩"糊"，没有"凸起来的一块"。
                             lens(
                                 refractionHeight = refractionDp.toPx(),
-                                refractionAmount = refractionDp.toPx() * 0.7f,
+                                refractionAmount = refractionDp.toPx(),
                             )
                         }
                     },
-                    highlight = { highlight },
-                    onDrawSurface = { drawRect(surface.copy(alpha = tintAlpha)) },
+                    highlight = { specular ?: highlight },
+                    onDrawSurface = { drawRect(container.copy(alpha = tintAlpha)) },
                 )
             } else {
                 Modifier.background(surface.copy(alpha = 0.72f), shape)
@@ -215,9 +285,10 @@ fun GlassSurface(
 /**
  * 折叠顶栏。
  *
- * @param title 目前不显示在顶栏（标题胶囊已删）。保留参数是因为调用方按页算它最方便，
- *              以后要加回来不用再改一遍路由
- * @param actions 右上角槽位（重启作用域那颗玻璃钮）
+ * @param title 折叠后显示在栏身中央的小标题（展开时 alpha=0，不和大标题同时出现）
+ * @param backdrop 仅为调用点兼容保留；当前顶栏不采样（见带子上的 2026-10-21 注释）
+ * @param veilBlurDp 同上，当前未使用
+ * @param actions 右上角槽位（搜索钮）
  */
 @Composable
 fun IosTopBar(
@@ -226,6 +297,12 @@ fun IosTopBar(
     canGoBack: Boolean,
     onBack: () -> Unit,
     backdrop: Backdrop?,
+    /**
+     * **这一屏顶栏后面真正铺出来的底色**（不是主题令牌）。必填、无默认值 ——
+     * 浅色主题 × 夜航/暗度压到底时，天空已经是暗的，而主题令牌还是浅的 ⇒ 纱会"白压黑"。
+     * 取法：首页传天空最上面那一站（`skyLookOf(...).colorAt(0f)`），其它页传 `AppColors.pageTopColor(...)`。
+     */
+    backdropColor: Color,
     modifier: Modifier = Modifier,
     forceHidden: Boolean = false,
     veilBlurDp: Float = GlassTuning.VEIL_DEFAULT_DP,
@@ -238,47 +315,37 @@ fun IosTopBar(
     // 死区 + smoothstep：大标题刚起步时完全不糊
     // 沉浸态（表冠放大居中）时顶栏纱必须完全消失，否则会和居中大表冠打架
     val veilAlpha = if (forceHidden) 0f else veilAlphaOf(progress)
+    // 与 `AppColors.veilColorFor` **同一套阈值与配色**（不另建一个 0.5）
+    val veilBase = AppColors.veilColorFor(backdropColor)
+    val motion = rememberMotion()
+    // 减弱透明度 / 高对比：同一套渐变，但顶部更实。
+    val solidBand = !motion.glassIsTranslucent
 
     Box(modifier = modifier.fillMaxWidth().height(bandHeight)) {
-        if (backdrop != null && veilAlpha > 0.001f) {
-            // 渐变靠"离屏层 + DstIn 竖向渐变"擦出来，不再用 AGSL 软窗口：
-            // 真机截图证明 alphaWindow 在这台机器上没生效（带的下边缘仍是一条硬直线），
-            // 而这条硬线正是用户说的"分界线明显"。DstIn 是纯 Compose 能力，不挑渲染器。
+        // ★ 2026-10-21 真机定案：顶栏这条带子**不再采样模糊**。
+        //   证据（课表/消息/应用/设置四页滚动截图）：30dp blur + 0.18~0.45 同色底
+        //   压不住从下面滚过去的正文 —— 状态栏图标、居中小标题、列表文字三层叠着，
+        //   谁都读不出来；带子本身还是每帧一次全屏采样的玻璃。
+        //   顶栏是"内容从底下滚过去"的平面，不是展示材质的玻璃（底栏那颗滑块才是）。
+        //   所以改成纯渐变遮罩：顶部近实底保证图标/标题对比度，向下收到透明，
+        //   没有硬下沿；不碰采样层，也就不存在"空采样画黑"那条路。
+        //   结束色用 `surface.copy(alpha = 0f)` 而不是 `Color.Transparent`：
+        //   否则 sRGB 插值会在底部擦出一条发灰的暗边。
+        if (veilAlpha > 0.001f) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = veilAlpha
-                        compositingStrategy = CompositingStrategy.Offscreen
-                    }
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                0f to Color.Black,
-                                0.42f to Color.Black.copy(alpha = 0.62f),
-                                0.78f to Color.Black.copy(alpha = 0.16f),
-                                1f to Color.Transparent,
-                            ),
-                            blendMode = BlendMode.DstIn,
-                        )
-                    },
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .drawBackdrop(
-                            backdrop = backdrop,
-                            shape = { RectangleShape },
-                            // 18dp 太弱：滚上去的分组标题在纱后面还认得出字，就是他说的"糊成一块灰"。
-                            // 提到 30dp，再铺一层随折叠进度加深的同色底，让它读起来是材质而不是脏影。
-                            // 底色压在 0.45 以下：万一某一帧没采到内容，最多是一条淡带，
-                            // 不会退回上次那块挡字的"雷霆大白块"。
-                            effects = { blur(veilBlurDp.dp.toPx(), veilBlurDp.dp.toPx()) },
-                            onDrawSurface = { drawRect(surface.copy(alpha = 0.18f + 0.27f * progress)) },
+                    .alpha(veilAlpha)
+                    .background(
+                        Brush.verticalGradient(
+                            // 只换**基色**（按这一屏实际底色挑），alpha 阶梯一个不动
+                            0f to veilBase.copy(alpha = if (solidBand) 0.98f else 0.96f),
+                            0.62f to veilBase.copy(alpha = if (solidBand) 0.98f else 0.90f),
+                            0.80f to veilBase.copy(alpha = if (solidBand) 0.90f else 0.52f),
+                            1f to veilBase.copy(alpha = 0f),
                         ),
-                )
-            }
+                    ),
+            )
         }
 
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -300,24 +367,64 @@ fun IosTopBar(
                 } else {
                     Box(Modifier.height(IosBarHeight).width(48.dp))
                 }
-                // 中间不放标题胶囊（用户要求）：大标题本身就是页面名
-                Box(Modifier.weight(1f))
+                // 折叠后的小标题：透明度跟顶栏纱走同一条曲线。
+                // **不新增玻璃面**，只用 already 有的那条纱当底；展开时 alpha=0，
+                // 所以不会和大标题同时出现（双标题是上一版被否掉的原因）。
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (title.isNotEmpty()) {
+                        Text(
+                            text = title,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MiuixTheme.colorScheme.onBackground,
+                            modifier = Modifier.alpha(veilAlpha),
+                        )
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, content = actions)
             }
         }
     }
 }
 
-/** 大标题：列表的第 0 项，跟着内容滚，滚上去之后顶栏才渐进出现 */
+/**
+ * 大标题：列表的第 0 项，跟着内容滚，滚上去之后顶栏才渐进出现。
+ *
+ * [leading] 是标题左边那一格 —— 现在只放 AI 小球（业主 2026-10-25「小球不要单独一个图层，
+ * 要与其他内容同层、并且可以变化位置」）。它跟着这一行一起滚，滚出屏幕就跟着走，
+ * 这正是「在内容层里」而不是「钉在顶栏上的一枚徽章」的区别。
+ */
 @Composable
-fun LargeTitle(text: String, topInset: Dp) {
-    Text(
-        text = text,
-        fontSize = 32.sp,
-        fontWeight = FontWeight.Bold,
-        color = MiuixTheme.colorScheme.onBackground,
+fun LargeTitle(text: String, topInset: Dp, leading: (@Composable () -> Unit)? = null) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 20.dp, top = topInset, bottom = 8.dp),
-    )
+            // 左右不再自己缩 8dp：这一页的正文列已经是 `Dims.screenH`(16dp)，
+            // 标题再缩一次就和正文不在一条竖线上（板上两者都是 18px）。
+            .padding(start = 0.dp, end = 8.dp, top = topInset, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(LargeTitleLeadingGap))
+        }
+        Text(
+            text = text,
+            // 板 `.topbar h2{font-size:27px;font-weight:740;letter-spacing:-.02em}`
+            // × 0.886 ⇒ **24sp**（`Type.displayTitle`）。原来 32sp 比板大 31%，
+            // 把「大标题 : 正文」的字阶比从 1.8:1 拉到 2.5:1，五屏一起受影响。
+            fontSize = com.muyao.wanzaihyperos.ui.design.Type.displayTitle,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.02).em,
+            lineHeight = 28.sp,
+            color = MiuixTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f),
+        )
+    }
 }
+
+/** 大标题左边那颗小球与标题字之间的间隙（球自己还有 3dp 命中区外扩，视觉上是 6dp 多一点）。 */
+private val LargeTitleLeadingGap = 10.dp

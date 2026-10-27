@@ -2,6 +2,7 @@ package com.muyao.wanzaihyperos.ui.design
 
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 /**
  * 全 App 的**色彩策略**。
@@ -48,6 +49,37 @@ object AppColors {
 
     /** 玻璃表面提亮色（深色模式用）。 */
     val glassSurfaceDark = Color.White.copy(alpha = GLASS_SURFACE_ALPHA_DARK)
+
+    /**
+     * 主題的紙面色（`AppTheme` 裡 `surfaceContainer` 用的就是這兩枚，**同一個定義**）。
+     *
+     * ★ 為什麼提到這裡：`HomeSectionPage` 那張此刻卡要算「墊色壓在天空上真正鋪出來的顏色」
+     *   來決定字色，而它拿的必須是**畫面上那個** surfaceContainer。以前測試裡自己寫了
+     *   `0xFFF4F7FF / 0xFF1C1F20` 兩枚"近似值"（第 7 轮审计判死：近似值扫出来的 4.5:1
+     *   不是真机上那个数）⇒ 现在主题与测试读同一份，谁改色卡面判据跟着变。
+     */
+    val surfaceContainerLight = Color(0xFFFBFCFE)
+    val surfaceContainerDark = Color(0xFF222526)
+
+    /**
+     * 主題的頁面底色（`AppTheme` 的 `background` 用它，同一個定義）。
+     *
+     * ★ 卡面字色的解算必須拿到它：天空只畫到 200dp，而「此刻」卡有八成高度壓在
+     *   **已經淡成紙色的那一段**上（第 7 輪審計判死那條"取帶內最亮檔"的原因就在這）。
+     */
+    /**
+     * 亮色页面底色（B4-03，业主 2026-10-23「背景太黄 ⇒ 改白一点」）。
+     *
+     * 旧的 `#F4F0E8` 黄度 `R−B = 12`；B4-03 改成 `#F8F6F1`（`7`）；
+     * 2026-10-25 业主「整个应用的色调我还是感觉有点黄，可以再白一点」⇒ `#F8F7F4`（`4`）；
+     * 2026-10-27 业主「背景太黄了，帮我改一种色调」⇒ `#F4F6F8`（`R−B = −4`）。
+     * 那一步是**换色相**不是继续抬白：黄度到 0 以后再降没意义，而这枚冷白
+     * 亮度反而从 93.0% 升到 94.4%，不算压灰。判据仍是同一条。
+     * 同 ROI 改前/改后实测见 `verify/b4-03/`。
+     * ⚠️ 相册那条路径的收尾正是渐到这一枚色（`fadeTo`）⇒ 这条同时是相册档变白的根。
+     */
+    val pageBackgroundLight = Color(0xFFF4F6F8)
+    val pageBackgroundDark = Color(0xFF101213)
 
     /** 玻璃表面提亮色（淺色模式用）。 */
     val glassSurfaceLight = Color.White.copy(alpha = GLASS_SURFACE_ALPHA_LIGHT)
@@ -154,14 +186,24 @@ object AppColors {
      *
      * @param isDark 深色用更深的紗（亮紗在深色下會發灰）
      */
-    fun veilColor(isDark: Boolean): Color =
-        if (isDark) {
-            // 深色：用頁面背景的暗端，稍微加深一點
+    fun veilColorFor(backdrop: Color): Color =
+        if (backdrop.luminance() < 0.5f) {
+            // 深底：用頁面背景的暗端，稍微加深一點
             Color(0xFF0C1526).copy(alpha = 0.92f)
         } else {
-            // 淺色：用頁面背景的亮端
+            // 淺底：用頁面背景的亮端
             Color(0xFFEAF3FF).copy(alpha = 0.92f)
         }
+
+    /**
+     * 頁面底色那支漸層**最上面那一站** —— 也就是頂欄後面真正鋪出來的顏色。
+     *
+     * ⚠️ 這與 `MiuixTheme.colorScheme.background` 不是同一個東西：後者是**主題令牌**，
+     * 前面那支是**這一屏的像素真相**（例如淺色主題 + 暗度壓到底的壁紙）。
+     * 顶栏纱按它挑深浅，才不会出现「页面已经暗了、纱仍是亮的」。
+     */
+    fun pageTopColor(isDark: Boolean): Color =
+        if (isDark) darkBgStops.first() else lightBgStops.first()
 
     // -----------------------------------------------------------------------
     // 背景層次
@@ -180,10 +222,11 @@ object AppColors {
      *
      * 三檔、相鄰差 3~6% 明度 —— 差距太大會有明顯條帶，太小看不出層次。
      */
-    private val lightBgStops = listOf(
-        Color(0xFFEAF3FF), // 晨霧藍
-        Color(0xFFDDE8FB),
-        Color(0xFFEDE4F7), // 淡紫
+    internal val lightBgStops = listOf(
+        // B4-03 抬白：黄度 R−B 11/12/16 → 5/7/7；2026-10-25 业主「色调还是有点黄，可以再白一点」→ 3/4/6。
+        Color(0xFFF8FAFC), // 冷白顶端（R−B 3 → −4）：2026-10-27 业主「背景太黄，换一种色调」
+        Color(0xFFF4F6F8), // 页面纸色（= pageBackgroundLight，R−B 4 → −4）
+        Color(0xFFECF0F4), // 右下压一点冷灰（R−B 6 → −8）
     )
 
     /**
@@ -193,9 +236,9 @@ object AppColors {
      * 純黑在 OLED 上有「塗抹感」（滑動時黑色區域會拖影）。
      */
     private val darkBgStops = listOf(
-        Color(0xFF0A1324), // 深夜藍
-        Color(0xFF0E1B34),
-        Color(0xFF161436), // 靛紫
+        Color(0xFF101213), // 板子 body.dark --phone
+        Color(0xFF131617),
+        Color(0xFF171A1B), // --phone-2
     )
 
     /**

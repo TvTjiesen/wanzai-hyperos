@@ -127,7 +127,7 @@ object HzcuEndpoints {
      * `X-SESSION-ID` 回填 localStorage.global → **完整登录态**。
      *
      * 实测（2026-10-10 20:21，真机 WebView）：
-     * 落地 `https://mobile.hzcu.edu.cn/home` ——「晚上好！李同学同学」+
+     * 落地 `https://mobile.hzcu.edu.cn/home` ——「晚上好！某某某同学」+
      * 扫码/签到 + 真实课程列表。
      */
     const val TRONCLASS_MOBILE_IDENTITY_TOKEN_PATH = "/login-by-identity-token"
@@ -174,7 +174,7 @@ object HzcuEndpoints {
      * 日常通知（讀者視角）。
      *
      * 實測請求：`{scope: {school, college[], grade[], specialty[], role}, pageSize, pageNum}`
-     * —— `scope` 的幾個值**從 `get_user_by_token` 的用戶資訊推出來**，不是硬編碼。
+     * —— `scope` 的幾個值**從 `get_user_by_token` 的用戶信息推出來**，不是硬編碼。
      */
     const val CJH52_NOTICE_READER_PATH =
         "/dapi/v2/courier/notice_service/find_all_for_reader"
@@ -208,7 +208,7 @@ object HzcuEndpoints {
     const val CJH52_ACTIVITY_MONTHS_PATH =
         "/dapi/v2/model/kqa_statistical_service/get_events_by_user_id_and_years_group_by_month"
 
-    /** 用戶資訊（成長頁要拿 userSid）。body `{userSid}`。 */
+    /** 用戶信息（成長頁要拿 userSid）。body `{userSid}`。 */
     const val CJH52_USER_INFO_PATH =
         "/dapi/v2/school_manager/user_service/get_user_info_by_id"
 

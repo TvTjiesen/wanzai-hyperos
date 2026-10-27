@@ -16,6 +16,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
@@ -27,6 +28,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,12 +37,16 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.abs
 import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.ui.AppUiState
 import com.muyao.wanzaihyperos.ui.design.AppColors
+import com.muyao.wanzaihyperos.ui.home.colorAt
+import com.muyao.wanzaihyperos.ui.design.Motion
 import com.muyao.wanzaihyperos.ui.design.glass.GlassTheme
+import com.muyao.wanzaihyperos.ui.design.glass.LocalBarMaterial
 import com.muyao.wanzaihyperos.ui.design.liquid.GlassNavBar
 import com.muyao.wanzaihyperos.ui.design.liquid.GlassNavItem
 import com.muyao.wanzaihyperos.ui.design.liquid.GlassSearchButton
@@ -53,7 +59,10 @@ import com.muyao.wanzaihyperos.ui.design.liquid.LocalPageChrome
 import com.muyao.wanzaihyperos.ui.design.liquid.PageChrome
 import com.muyao.wanzaihyperos.ui.design.liquid.rememberPageBackdrop
 import com.muyao.wanzaihyperos.ui.design.liquid.backdropIsLive
+import com.muyao.wanzaihyperos.ui.main.pages.AppearancePage
 import com.muyao.wanzaihyperos.ui.main.pages.AppsSectionPage
+import com.muyao.wanzaihyperos.data.UiPrefs
+import com.muyao.wanzaihyperos.ui.main.pages.AppsTidyButton
 import com.muyao.wanzaihyperos.ui.main.pages.HomeSectionPage
 import com.muyao.wanzaihyperos.ui.main.pages.NotifySectionPage
 import com.muyao.wanzaihyperos.ui.main.pages.SettingsSectionPage
@@ -61,6 +70,7 @@ import com.muyao.wanzaihyperos.ui.main.pages.TimetableSectionPage
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import kotlinx.coroutines.launch
 
 /**
  * 主殼：**结构照抄参考（变焦环 MainActivity）**。
@@ -112,11 +122,20 @@ fun WanzaiMainShell(
     onOpenJw: () -> Unit,
     onOpenTimetable: () -> Unit,
     onOpenMessages: () -> Unit,
-    onOpenNews: () -> Unit,
     onOpenTodos: () -> Unit,
     onOpenSettings: () -> Unit,
+    /** 首頁「簽到」磁貼：直接進簽到頁（掃碼/數字/自助）。 */
+    onOpenRollcall: () -> Unit = {},
     /** 「設定 → 去重新登入」：真的把使用者送回登入頁。 */
     onOpenLogin: () -> Unit = {},
+    /** 设置页「智慧公寓」那一行：跳到它自己的闸门页（只能他自己粘贴入口链接）。 */
+    onOpenZhgy: () -> Unit = {},
+    /** 设置页「关于」那一行：关于 + 开源许可页（B4-10）。 */
+    onOpenAbout: () -> Unit = {},
+    /** B4-06：设置页「账号」二级页。 */
+    onOpenAccounts: () -> Unit = {},
+    /** 返回栈深度：设置页的账号聚合行要按它重算（见 `SettingsSectionPage.refreshKey`）。 */
+    navDepth: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val maxIdx = MainSection.entries.size - 1
@@ -125,8 +144,33 @@ fun WanzaiMainShell(
     /** 切页方向：+1 右、-1 左、0 = 不滑（只淡入 + 微缩放）。参考的 transitionSpec 读它。 */
     var navDir by remember { mutableIntStateOf(0) }
 
-    /** 水平拖动期间给内容的位移（像素）。松手立刻归零，换页动画由 AnimatedContent 接手。 */
-    var swipePx by remember { mutableFloatStateOf(0f) }
+    /** 底栏落位的轻触反馈（点位只有这一个；滚动/悬停一律不给）。 */
+    val navHaptics = com.muyao.wanzaihyperos.ui.design.rememberHaptics()
+
+    /**
+     * 水平拖动期间给内容的位移（像素）。
+     *
+     * ★ B4-08（2026-10-23，逐帧录屏实测）：以前松手那句是 `swipePx = 0f` ——
+     *   内容在**一帧之内弹回原位**，之后才播换页的淡入淡出（59.3fps 的录屏里，
+     *   "回到原位"发生在一帧里，前后各有一小段静止）⇒ 读起来就是"拖过去→啪一下弹回→再换页"
+     *   的双段运动，正是他说的「不丝滑」。
+     *   现在改成**动画收口**：要换页就顺着拖动方向再走一小段（与 `AnimatedContent` 同向），
+     *   换完之后再归零；不换页就弹回 0（带一点临界阻尼，不是瞬移）。
+     */
+    val swipePx = remember { androidx.compose.animation.core.Animatable(0f) }
+    val swipeScope = rememberCoroutineScope()
+    // 每次新的拖动 +1：延迟收口的那支协程发现代数变了就放弃，
+    // 否则"上一次松手的 280ms 后回收"会跟"这一次的拖动"抢同一个 Animatable。
+    var swipeGen by remember { mutableIntStateOf(0) }
+
+    /**
+     * 「外觀」子頁：殼內全屏覆蓋層，**不是新路由**。
+     *
+     * 它只改這台手機怎麼顯示，不屬於任何板塊；蓋住底欄是刻意的
+     * （否則他會以為還在板塊裡、卻點不動）。
+     */
+    var showAppearance by remember { mutableStateOf(false) }
+    val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
 
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
     val context = LocalContext.current
@@ -151,12 +195,27 @@ fun WanzaiMainShell(
     /** 悬浮胶囊要不要真的采页面内容（`hzr_glass_btn_live`）。默认关，理由见 GlassTuning 注释。 */
     val btnLive = remember(tuningVersion) { GlassTuning.btnLive >= 0.5f }
 
-    // 顶栏折叠进度（页面往里写；目前页面还没接，先恒 0）
+    // 顶栏折叠进度（页面经 `rememberPageChromePilot()` 往里写）
     val chrome = remember { PageChrome() }
 
-    val barItems = remember { MainSection.entries.map { GlassNavItem(it.label, it.icon) } }
+    // ★ 換板塊時把折疊度歸零。
+    //
+    // 為什麼必須有這一行：progress 是**頁面**寫的，而「首頁」這一塊刻意不接
+    // 大標題（它的頂部是他要的「大日期 + 每日一句」，再壓一行「首頁」就是雙標題）。
+    // 沒人寫，上一頁留下的值就會**跟過來** —— 從設定滾到底再點首頁，
+    // 頂欄那條紗會一直掛著，看起來像首頁壞了。
+    LaunchedEffect(section) { chrome.progress = 0f }
 
-    GlassTheme {
+    val barItems = remember { MainSection.entries.map { GlassNavItem(it.label, it.iconRes) } }
+
+    // ★★★ 独立审计（v3 #12 第 2 轮 P0#1）：这层 `GlassTheme {}` **不传 material**，
+    //   而它内部把 `LocalBarMaterial` 交出去时用的是 `material ?: BarMaterial.LIQUID`
+    //   （`glass/GlassSurface.kt:255` 那一次 give）⇒ 内层胜出，把外壳以内（顶栏纱 / 四个板块 / 「此刻」卡 / 底栏）
+    //   **全部覆写回常量 LIQUID** —— 我上一轮在 `AppTheme.kt` 接的那道线净效果 = 0。
+    //   台账还纠正了我写在清单里的**错根因**：真实来路不是「`GlassTheme()` 全工程零调用」
+    //   （`git show HEAD` 里它一直在调），而是「被 provide 成常量 LIQUID」。机理写错下一轮还会照错的修。
+    //   现在显式把外层那份传进来（`AppTheme.kt` 里按 `UiPrefs.glassMode` 算好的那一份）。
+    GlassTheme(material = LocalBarMaterial.current) {
         // 在场页面的采样层；底栏读它的 value（不是直接持有，避免两页抢一份）。
         val activeBackdrop = remember { mutableStateOf<LayerBackdrop?>(null) }
 
@@ -170,28 +229,30 @@ fun WanzaiMainShell(
             CompositionLocalProvider(
                 LocalPageChrome provides chrome,
                 LocalLargeTitle provides MainSection.entries[section].label,
-                LocalPageActive provides true,
                 LocalNavBarVisible provides true,
             ) {
                 AnimatedContent(
                     targetState = section,
                 transitionSpec = {
-                    val fade = tween<Float>(200, easing = FastOutSlowInEasing)
-                    val slide = tween<IntOffset>(280, easing = FastOutSlowInEasing)
+                    // v2（審計 §2#2）：切板塊是「幾十次/天」檔，砍到 170ms + 6dp，
+                    // **去掉縮放層** —— 縮放沒有目的，只會增加存在感。
+                    // `it / 60` 在 1080px 寬的機器上約 18px ≈ 6dp。
+                    val enter = tween<Float>(170, easing = FastOutSlowInEasing)
+                    val exit = tween<Float>(140, easing = FastOutSlowInEasing)
+                    // 位移的 spec 是 IntOffset，不能复用上面那两条 Float 的。
+                    val moveIn = tween<IntOffset>(170, easing = FastOutSlowInEasing)
+                    val moveOut = tween<IntOffset>(140, easing = FastOutSlowInEasing)
                     if (navDir == 0) {
-                        (fadeIn(fade) + scaleIn(fade, initialScale = 0.985f))
-                            .togetherWith(fadeOut(fade) + scaleOut(fade, targetScale = 0.99f))
+                        fadeIn(enter).togetherWith(fadeOut(exit))
                     } else {
                         val d = navDir
                         (
-                            fadeIn(fade) +
-                                slideInHorizontally(slide) { it / 5 * d } +
-                                scaleIn(fade, initialScale = 0.97f)
+                            fadeIn(enter) +
+                                slideInHorizontally(moveIn) { it / 60 * d }
                             )
                             .togetherWith(
-                                fadeOut(tween(160)) +
-                                    slideOutHorizontally(slide) { -it / 9 * d } +
-                                    scaleOut(fade, targetScale = 0.98f),
+                                fadeOut(exit) +
+                                    slideOutHorizontally(moveOut) { -it / 90 * d },
                             )
                     }
                 },
@@ -199,21 +260,58 @@ fun WanzaiMainShell(
                     .fillMaxSize()
                     // 拖动期间整块内容跟着手指走一点（松手归零，真正的换页交给下面
                     // 那条 280ms 的 transitionSpec）。**没有这层位移，滑动就是"拖了没反应"**。
-                    .graphicsLayer { translationX = swipePx }
+                    .graphicsLayer { translationX = swipePx.value }
                     .swipeToSwitchSection(
                         enabled = section > 0 || section < maxIdx,
-                        onDrag = { swipePx = it },
-                        onSwipeEnd = { deltaPx, widthPx ->
-                            swipePx = 0f
-                            // 越界比例 + 手势方向一起判，**不靠速度阈值**：
-                            // 这台机 120Hz，速度阈值会把"慢慢推过去"误判成不翻页。
-                            if (abs(deltaPx) > widthPx * 0.28f) {
-                                val dir = if (deltaPx < 0f) 1 else -1
+                        onDrag = { v ->
+                            swipeGen++
+                            swipeScope.launch { swipePx.snapTo(v) }
+                        },
+                        onSwipeEnd = { deltaPx, velocityPxPerSec, widthPx ->
+                            // 先把"手指停在哪"作为起点；下面两条分支都从这里动画收口。
+                            val from = swipePx.value
+                            // ★ B4-08（业主 2026-10-23「底栏之间的左右滑切换不丝滑」）：
+                            //   以前只看**位移**（>0.28 宽）⇒ 轻轻一甩翻不了页（要拖够距离），
+                            //   而慢慢推过去又会突然翻 ⇒ 手感"发黏/发硬"。
+                            //   现在按标准走**落点投影**：`projected = 位移 + 速度 × 投影时长`。
+                            //   ⚠️ 不是"速度阈值"（那条老注释的担心仍在）：慢推时 v≈0 ⇒ 投影≈位移，
+                            //   行为与以前完全一致；只有真的甩起来才会多走那一段。
+                            //   投影时长用与周条同一个热调键 `wz_fling_ms`（默认 110ms），不另造一个数。
+                            // 判据抽到 `sectionSwipeStep`（生产与单测共用），这里只负责落位
+                            val dir = com.muyao.wanzaihyperos.ui.main.sectionSwipeStep(
+                                deltaPx = deltaPx,
+                                velocityPxPerSec = velocityPxPerSec,
+                                widthPx = widthPx,
+                            )
+                            if (dir != 0) {
                                 val target = (section + dir).coerceIn(0, maxIdx)
                                 if (target != section) {
                                     navDir = dir
                                     section = target
+                                    // **不要在这里归零**：让内容停在手指松开的位置，等换页动画（280ms）
+                                    // 把新页面铺好之后再收口 —— 归零发生在"内容刚换掉"的那一刻，
+                                    // 眼睛看到的是新页面滑进位置，而不是旧页面砰地弹回去。
+                                    val gen = ++swipeGen
+                                    swipeScope.launch {
+                                        kotlinx.coroutines.delay(280)
+                                        if (gen != swipeGen) return@launch   // 他又开始拖了，别抢
+                                        swipePx.animateTo(
+                                            targetValue = 0f,
+                                            animationSpec = tween(180, easing = FastOutSlowInEasing),
+                                        )
+                                    }
+                                    return@swipeToSwitchSection
                                 }
+                            }
+                            // 不换页：带阻尼地弹回 0（不是瞬移）
+                            swipeScope.launch {
+                                swipePx.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring(
+                                        dampingRatio = com.muyao.wanzaihyperos.ui.design.Motion.OVERLAY_OUT_DAMPING,
+                                        stiffness = com.muyao.wanzaihyperos.ui.design.Motion.OVERLAY_IN_STIFFNESS,
+                                    ),
+                                )
                             }
                         },
                     ),
@@ -231,6 +329,9 @@ fun WanzaiMainShell(
                     }
                 }
 
+                // 「在场」按**这一份内容自己的板块**判：切换过渡期间，离场页的
+                // pilot 必须停写 chrome.progress，否则两页会抢同一根顶栏。
+                CompositionLocalProvider(LocalPageActive provides (s == section)) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -246,22 +347,26 @@ fun WanzaiMainShell(
                                 onOpenTimetable = onOpenTimetable,
                                 onOpenTodos = onOpenTodos,
                                 onOpenMessages = onOpenMessages,
+                                onOpenRollcall = onOpenRollcall,
+                                onOpenAppearance = { showAppearance = true },
                             )
 
                             MainSection.Timetable -> TimetableSectionPage(
                                 graph = graph,
                                 uiState = uiState,
+                                onOpenJw = onOpenJw,
                             )
 
                             MainSection.Notify -> NotifySectionPage(
                                 graph = graph,
-                                onOpenMessages = onOpenMessages,
-                                onOpenNews = onOpenNews,
+                                onOpenRollcall = onOpenRollcall,
+                                onOpenTodos = onOpenTodos,
                             )
 
                             MainSection.Apps -> AppsSectionPage(
                                 graph = graph,
                                 onOpenApp = onOpenApp,
+                                onOpenSearch = onOpenSearch,
                             )
 
                             MainSection.Settings -> SettingsSectionPage(
@@ -269,9 +374,19 @@ fun WanzaiMainShell(
                                 uiState = uiState,
                                 onOpenSettings = onOpenSettings,
                                 onOpenLogin = onOpenLogin,
+                                onOpenAppearance = { showAppearance = true },
+                                onOpenJw = onOpenJw,
+                                onOpenZhgy = onOpenZhgy,
+                                // CJH52 的临时码要「在应用里打开一次网页」才激活，
+                                // 所以那一行的「去哪登」就是切到应用板块。
+                                onOpenApps = { uiState.selectedTab = MainSection.Apps.ordinal },
+                                onOpenAbout = onOpenAbout,
+                                onOpenAccounts = onOpenAccounts,
+                                refreshKey = navDepth,
                             )
                         }
                     }
+                }
                 }
             }
             }   // CompositionLocalProvider(LocalPageChrome …)
@@ -287,8 +402,30 @@ fun WanzaiMainShell(
                 canGoBack = false,
                 onBack = {},
                 backdrop = activeBackdrop.value,
+                // 这一屏顶栏后面真正铺的色：首页是天空最上一站（浅色主题 × 夜航时它很暗），
+                // 其它页是页面渐变最上一站 —— 都**不是**主题令牌。
+                backdropColor = if (section == 0) {
+                    com.muyao.wanzaihyperos.ui.home.skyLookOf(
+                        com.muyao.wanzaihyperos.ui.home.SkyPreset.of(UiPrefs.wallpaperPreset),
+                        java.time.LocalTime.now().hour,
+                    ).colorAt(0f)
+                } else {
+                    com.muyao.wanzaihyperos.ui.design.AppColors.pageTopColor(
+                        MiuixTheme.colorScheme.background.luminance() < 0.5f,
+                    )
+                },
                 veilBlurDp = veilBlurDp,
                 actions = {
+                    // 小球不在顶栏：业主 2026-10-25「小球不要单独一个图层，要与其他内容同层、
+                    // 并且可以变化位置」⇒ 五页各自把球放进第一个区块标题的左边（[AiBallRow]），
+                    // 跟着列表一起滚。顶栏只留搜索钮。
+                    // 业主 2026-10-21：课表与应用的右上角不要搜索钮（那两页有页内入口）。
+                    // 首页、消息保留。
+                    // 业主 2026-10-25：「在设置页面也可以加上」⇒ 设置页也放进这颗。
+                    if (MainSection.entries[section] == MainSection.Home ||
+                        MainSection.entries[section] == MainSection.Notify ||
+                        MainSection.entries[section] == MainSection.Settings
+                    ) {
                     GlassSearchButton(
                         onClick = onOpenSearch,
                         // 采样层只在「真的录到内容」时才交给它 —— Miuix 对空样本
@@ -296,16 +433,27 @@ fun WanzaiMainShell(
                         backdrop = if (backdropIsLive(activeBackdrop.value)) activeBackdrop.value else null,
                         liveBlur = btnLive,
                     )
+                    }
+                    // 板 `.topbar .meta .tidybtn`：**「整理」是应用页顶栏右边那颗**，
+                    // 上一版被我塞进「常用」那一行的行尾，位置比板上低了两层。
+                    if (MainSection.entries[section] == MainSection.Apps) {
+                        // ★ 第 1 轮 B-10 / 第 3 轮必修 7：这颗以前叫「整理」却跳**外观页**，
+                        //   与这一页里那颗同名不同义的「整理」并存。现在接到页内同一个状态上。
+                        AppsTidyButton(onClick = {
+                            UiPrefs.appsTidy.value = !UiPrefs.appsTidy.value
+                        })
+                    }
                 },
             )
 
             // ── 底栏：AnimatedContent 的兄弟节点，自己不参与页面动画 ──
             AnimatedVisibility(
                 visible = true,
-                enter = slideInVertically(
-                    animationSpec = spring(dampingRatio = 0.9f, stiffness = 600f),
-                    initialOffsetY = { it },
-                ) + fadeIn(tween(160)),
+                enter = (if (com.muyao.wanzaihyperos.ui.design.rememberMotion().canMove)
+                        slideInVertically(
+                            animationSpec = spring(dampingRatio = 0.9f, stiffness = 600f),
+                            initialOffsetY = { it },
+                        ) else fadeIn()) + fadeIn(tween(160)),
                 exit = slideOutVertically(
                     animationSpec = spring(dampingRatio = 1.0f, stiffness = 900f),
                     targetOffsetY = { it },
@@ -320,6 +468,9 @@ fun WanzaiMainShell(
                     onSelect = { idx ->
                         if (idx != section) {
                             navDir = if (idx > section) 1 else -1
+                            // 轻：滑块**吸到位**那一下。这是"落位"，不是"成功"，
+                            // 所以用 tick 而不是 commit（点位表在 `Haptics` 档头）。
+                            navHaptics.tick()
                         }
                         section = idx
                         uiState.selectedTab = idx
@@ -329,6 +480,59 @@ fun WanzaiMainShell(
                     blurDp = blurDp,
                     lensDp = lensDp,
                 )
+            }
+
+            // ── 外觀子頁：全屏覆蓋，**蓋住底欄與頂欄** ──────────────
+            //
+            // 它只改這台手機怎麼顯示，不屬於任何板塊。做成殼內覆蓋層而不是新路由：
+            // 關掉就回到原來那一頁，不新增 Route、不動根導航。
+            // 進場 240ms / 出場 140ms（出場必須比進場快）；減弱動效時只留淡入。
+            AnimatedVisibility(
+                visible = showAppearance,
+                enter = (if (motion.canMove) {
+                    slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = Motion.OVERLAY_IN_DAMPING,
+                            stiffness = Motion.OVERLAY_IN_STIFFNESS,
+                        ),
+                        initialOffsetY = { it / 14 },
+                    )
+                } else {
+                    fadeIn(tween(120))
+                }) + fadeIn(tween(200)),
+                exit = (if (motion.canMove) {
+                    slideOutVertically(
+                        animationSpec = spring(
+                            dampingRatio = Motion.OVERLAY_OUT_DAMPING,
+                            stiffness = Motion.OVERLAY_OUT_STIFFNESS,
+                        ),
+                        targetOffsetY = { it / 20 },
+                    )
+                } else {
+                    fadeOut(tween(120))
+                }) + fadeOut(tween(140)),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .align(Alignment.TopStart),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(AppColors.pageBrush(isDark)),
+                ) {
+                    AppearancePage(
+                        onClose = { showAppearance = false },
+                        graph = graph,
+                        themeMode = uiState.themeMode,
+                        // ★ B4-14（2026-10-23 工单第 13 轮）：这里**只改了运行期状态、没落盘** ⇒
+                        //   杀进程重进就回退（设置页那一份是写盘的，两处行为不一致）。
+                        //   现在与 `SettingsSectionPage` 对齐：改状态 + 写 `UiPrefs`。
+                        onThemeMode = {
+                            uiState.themeMode = it
+                            com.muyao.wanzaihyperos.data.UiPrefs.saveThemeMode(it.name)
+                        },
+                    )
+                }
             }
         }
     }

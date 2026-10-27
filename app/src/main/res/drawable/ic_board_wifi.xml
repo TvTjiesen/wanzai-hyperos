@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自动生成：逐字抄自 v2 定稿板 wz-v2.html 的 <symbol id="i-wifi">，
+     fill:none / stroke:currentColor(1.65) / round cap+join 与板 .icon 一致。
+     不要手改；要改形状就改 wz-v2.html 再重跑 tools/board_icons_to_xml.py。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <group>
+        <path android:pathData="M3.5 9.3a13 13 0 0 1 17 0M6.6 12.5a8.6 8.6 0 0 1 10.8 0M9.7 15.7a4.3 4.3 0 0 1 4.6 0" android:strokeWidth="1.65" android:strokeLineCap="round" android:strokeLineJoin="round" android:strokeColor="#FF000000" android:fillColor="#00000000" />
+        <path android:pathData="M12.8,18.7 A0.8,0.8 0 1 1 11.2,18.7 A0.8,0.8 0 1 1 12.8,18.7 Z" android:strokeWidth="1.65" android:strokeLineCap="round" android:strokeLineJoin="round" android:strokeColor="#FF000000" android:fillColor="#FF000000" />
+    </group>
+</vector>

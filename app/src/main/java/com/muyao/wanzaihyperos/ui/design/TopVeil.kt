@@ -52,6 +52,11 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun TopVeil(
     progress: Float,
+    /**
+     * **这一屏顶栏后面真正铺出来的底色**（不是主题令牌）。
+     * 必填、没有默认值 —— 默认值会变成下一版"忘了接"的漏洞。
+     */
+    backdrop: Color,
     modifier: Modifier = Modifier,
     /** 覆蓋高度 = 狀態欄 + 欄身 52 + 尾巴 44（那段尾巴是留給「淡到零」的）。 */
     heightDp: androidx.compose.ui.unit.Dp = Dims.barHeight + VEIL_TAIL,
@@ -61,8 +66,7 @@ fun TopVeil(
     // 這樣停在頂部時連一個合成層都沒有（規範 §14 的性能預算：不空轉）。
     if (alpha <= 0f) return
 
-    val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
-    val base = AppColors.veilColor(isDark)
+    val base = AppColors.veilColorFor(backdrop)
 
     Box(
         modifier = modifier
