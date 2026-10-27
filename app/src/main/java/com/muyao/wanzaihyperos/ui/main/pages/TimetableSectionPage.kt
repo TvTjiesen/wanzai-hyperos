@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -268,17 +269,542 @@ fun TimetableSectionPage(
     val inFlight by graph.inFlight.collectAsState()
     val ballState = AiBallStates.ofTimetable(state, jwState, fetching = inFlight > 0)
 
-    // 2026-10-28 业主：「底下的提示词也太明显了，淡化它的存在」。
-    // 原来它是 primary 12% 淡底 + primary 11sp 字，读起来像一句操作提示、跟顶栏强调色抢。
-    // 现在没有底、字降一档（micro）、颜色走次墨：留下「取到几门课、哪一份」，不再教人点格子
-    //（点格子会就地放大，那句话已经过时了）。
-    Box(modifier = Modifier.padding(top = 6.dp, start = 1.dp)) {
-        Text(
-            text = "第 $week 周 · 本周 $courseCount 门课 · " + source.label,
-            style = TextStyle(fontFeatureSettings = Type.tabular),
-            fontSize = Type.micro,
-            color = if (isDark) Tone.quietDark else Tone.quiet,
-        )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // 放大的起點要用「格子在 root 裡的座標」減掉「頁面在 root 裡的原點」，
+            // 這樣不管主殼把這一頁放在哪（狀態欄下方、有無側欄）算出來的落點都對。
+            .onGloballyPositioned { pageOrigin = it.boundsInRoot().topLeft },
+    ) {
+    // ── 教務課表要的「看不見的登入器」────────────────────────────────────
+    //
+    // ★ 為什麼必須放在這裡（而不是只在「教务系统」那一頁才有）：
+    //   教務的登入**只能靠 WebView 走它自己的表單**（`docs/B18-WALKTHROUGH.md` §4），
+    //   而爬課表的是**這一頁**。沒有這個 1dp 的 WebView，
+    //   `JwEngine.awaitAttached()` 等 5 秒就會回「页面还没准备好」——
+    //   那一句話我在真機上還沒跑就已經從程式碼裡看見了。
+    //
+    // 只在選了教務時才掛：掛著就多一個 WebView 的內存與進程成本，
+    // 而他可能一學期都用不著那份來源。
+    if (useJiaowu) {
+        JwHiddenEngine(graph.jwEngine)
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = Dims.screenH,
+            end = Dims.screenH,
+            // 标题自己带 inset，这里不再留 56dp 顶白
+            // ★ #58 第 6 条：这里原来是写死的 132.dp —— 全工程第二个「底栏内距」真值。
+            //   132 是「悬浮胶囊那会儿」拍的数：它等于共享公式 94dp（= 64 条高 + 24 inset + 2 + 4）
+            //   再多加 38dp。多出来的那段是底栏覆盖不到的空白，但那是**已经上线的观感**，
+            //   所以这里不悄悄减少它，只把「底栏实占」那部分换成同一份 pageBottomInsetDp()，
+            //   于是底栏高度一改，这一页跟着动，不再各猜一个数。
+            bottom = pageBottomInsetDp(barVisible) + 38.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
+    ) {
+        // ---- 大标题 + 周次 + 翻周（板子：同一行，标题在左、控制在右）
+        item(key = "large_title") {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { if (it.height > 0) pilot.titleHeightPx = it.height.toFloat() }
+                    // 不再留右边的 46dp：那颗球原来在顶栏 actions 里、和「第 N 周 / ‹ / ›」同一水平线，
+                    // 实测 2026-10-25 压住翻周钮。现在球挪到标题左边（AiBallRow），顶栏不再有球。
+                    .padding(start = 0.dp, end = 0.dp, top = statusBarTopPadding() + 4.dp, bottom = 6.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AiBallRow(state = ballState, modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "课表",
+                            // 板 `.topbar h2{font-size:27px}` × 0.886 ⇒ **24sp**（`Type.displayTitle`）。
+                            style = TextStyle(fontFeatureSettings = Type.tabular),
+                            fontSize = Type.caption,
+                            fontWeight = Type.weightBody,
+                            color = colors.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(colors.primary.copy(alpha = 0.12f))
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    WeekNavButton("‹", desc = "上一周", backwards = true) { weekOffset -= 1 }
+                    Spacer(Modifier.width(6.dp))
+                    WeekNavButton("›", desc = "下一周") { weekOffset += 1 }
+                }
+                // 学期名不在标题下再占一行（板子那行在页脚）；这里只留标题+周次+翻周。
+            }
+        }
+        // ---- 日期条（板子：7 个数字 + 有课小圆点；点一天就切到那天）----------
+        item(key = "week-strip") {
+            val today = LocalDate.now()
+            val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
+                .plusWeeks(weekOffset.toLong())
+            WeekDateStrip(
+                monday = monday,
+                selected = selectedDay,
+                today = if (weekOffset == 0) today.dayOfWeek.value else 0,
+                dotsFor = { day -> stripSlots.count { it.dayOfWeek == day }.coerceAtMost(3) },
+                onSelect = { day ->
+                    selectedDay = day
+                    // 点某一天 = 回到日程；「整周」是另一颗按钮。
+                    if (uiState.timetableGrid) {
+                        uiState.timetableGrid = false
+                        UiPrefs.saveTimetableGrid(false)
+                    }
+                },
+            )
+        }
+
+        // ---- 今天 / 整周（板子：左边日期与门数，右边两颗小胶囊）----------------
+        item(key = "view-switch") {
+            val today = LocalDate.now()
+            val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
+                .plusWeeks(weekOffset.toLong())
+            val date = monday.plusDays((selectedDay - 1).toLong())
+            val daySlots = stripSlots.filter { it.dayOfWeek == selectedDay }
+            val dayCourses = daySlots
+                .map { if (it.courseId != 0) "id:${it.courseId}" else "name:${it.courseName}" }
+                .distinct().size
+            val isToday = weekOffset == 0 && selectedDay == today.dayOfWeek.value
+            DayModeSwitch(
+                // 板 `.dayhead`：`h3{font-size:17px;font-weight:740}` + `.n{font-size:10.5px;color:var(--sub)}`
+                // × 0.886 ⇒ **周几 15sp 粗 + 日期与节数 9.3sp 淡**，两档。
+                // 原来三者串成同一句、同一档 10sp —— 周几是这一屏的主语，被降级成
+                // 和元数据同级，列表首行就没有层级了（复评 2026-10-21）。
+                label = DAY_WEEK[selectedDay - 1],
+                meta = buildString {
+                    append("${date.monthValue} 月 ${date.dayOfMonth} 日")
+                    if (daySlots.isNotEmpty()) append(" · $dayCourses 门课")
+                },
+                firstLabel = if (isToday) "今天" else DAY_WEEK[selectedDay - 1],
+                weekMode = uiState.timetableGrid,
+                onFirst = {
+                    selectedDay = today.dayOfWeek.value
+                    if (uiState.timetableGrid) {
+                        uiState.timetableGrid = false
+                        UiPrefs.saveTimetableGrid(false)
+                    }
+                },
+                onWeek = {
+                    uiState.timetableGrid = true
+                    UiPrefs.saveTimetableGrid(true)
+                },
+            )
+        }
+        // ---- 課表內容 -------------------------------------------------------
+        //
+        // ★ 選了教務時，**教務那一支的狀態才是主角**：
+        //   它還在爬就說在爬，它失敗就把原因顯示出來（含「要先在設定裡存教務帳密」），
+        //   絕不退回去畫學在城院那份卻標著「教務」—— 那是會讓人走錯教室的謊。
+        // 教務那份**取不到時不空著**：先退回學在城院那一份，並在頂上說清楚
+        // 「現在顯示的是另一份、為什麼」。
+        //
+        // ★ 為什麼要退而不是報錯完事（业主 2026-10-19 同時說過「好多功能都報錯」）：
+        //   課表是每天要看的东西。教务那份爬不通（沒帳密／學校改版／介面形態不同）時，
+        //   只顯示一張錯誤卡等於這一頁今天沒用 —— 而學在城院那份八成是對的。
+        //   退回去 + 標明來源，比「正確地失敗」更有用，也沒有說謊。
+        val jwResultNow = (jwState as? ListState.Content)?.items?.firstOrNull()
+        val jwUsable = jwResultNow != null && jwResultNow.slots.isNotEmpty()
+        // ★ 第 4 轮必修 2（N1）：横幅以前用 `jwResultNow != null` 分"没取到 / 这周没课"，
+        //   而 Empty 修好之后 **Empty 没有 items** ⇒ 教务真给了空表时这里说"没取到"，
+        //   同一屏下面那句又说"那份是空的" —— 两句话同时挂在一张屏上。
+        //   现在两处都读同一个 `jwVerdictOf`，一个态只有一种说法。
+        val bannerVerdict = jwVerdictOf(jwState, jwCrawlingNow, jwUsable)
+        // 首屏（FirstLoad）由下面那张 `jw-pending` 单独说明；这张只在**已经有结论**时出现
+        // （失败 / 登录失效 / 空的），否则两张卡会同时挂在屏上，各说各的。
+        val jwPending = useJiaowu && jwState is ListState.FirstLoad
+        // ★★ 独立审计 v3 #4 第 1 轮 A-5：这句话以前**只问教务、不问学在城院有没有货**。
+        //   教务 Failed、学在城院也 Failed 的那一屏，上面写"下面显示的是学在城院那份"，
+        //   下面同一屏就是"取不到课表"——界面自己跟自己 contradiction。
+        //   现在必须**兜底那份真的有货**才挂这张横幅；没有货就不该承诺"下面有"。
+        val tronHasSlotsNow = (state as? ListState.Content)
+            ?.items?.firstOrNull()?.slots?.isNotEmpty() == true
+        if (useJiaowu && !jwUsable && !jwPending && tronHasSlotsNow) {
+            item(key = "jw-fallback") {
+                AppCard {
+                    Column(Modifier.padding(Dims.cardPadding)) {
+                        Text(
+                            // 原来这里还写着 `if (jwState is ListState.FirstLoad) "正在从教务系统取课表…"`，
+                            // 但外层 `!jwPending` 已经把 FirstLoad 排除掉了 —— 那是永远走不到的死分支，删。
+                            // 剩下的两种要分开说：**教务给了结论、这周没课** 与 **这一次没取到**，
+                            // 把后者说成"这周没课"是在替学校撒谎（红线：不编）。
+                            text = com.muyao.wanzaihyperos.data.schedule
+                                .jwVerdictSentence(bannerVerdict) + "，下面显示的是“学在城院”那份",
+                            fontSize = Type.body,
+                            fontWeight = Type.weightBody,
+                            color = colors.error,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        val jwDetail: String = when (jwState) {
+                            is ListState.Failed ->
+                                (jwState as ListState.Failed).error.userText
+                            // ★ 這一態要**單獨講**：它不是壞了，是還沒給他憑據。
+                            //   把它混進「取数失败」他就會一直點重試而不知道差在哪。
+                            ListState.SessionExpired ->
+                                "教务系统还没登录 —— 那一页要输一次账号密码（存在手机加密存储）"
+                            is ListState.Content ->
+                                jwResultNow?.unparsed?.firstOrNull()
+                                    ?: "教务那份是空的（可能学校还没排这学期的课）"
+                            // 外层已经把 FirstLoad 排除掉了，这一支只剩 Empty（服务端说没有）。
+                            // 以前它写"正在取…"，而这一刻并没有任何东西在跑。
+                            else -> "教务那份没给出内容"
+                        }
+                        Text(
+                            text = jwDetail,
+                            fontSize = Type.caption,
+                            color = colors.onSurfaceVariantSummary,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row {
+                            if (jwState is ListState.SessionExpired) {
+                                Text(
+                                    text = "去教务系统登录 ›",
+                                    fontSize = Type.caption,
+                                    color = colors.primary,
+                                    modifier = Modifier
+                                        .clickable { onOpenJw() }
+                                        .padding(end = 14.dp),
+                                )
+                            }
+                            Text(
+                                text = "重试教务那份",
+                                fontSize = Type.caption,
+                                color = colors.primary,
+                                modifier = Modifier.clickable {
+                                    graph.fetch { graph.jwTimetable.refresh() }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        // ★ 教务還在爬的時候**不畫另一份**（业主 2026-10-20：「你课表里面还有垃圾没删完，
+        //   会闪过一些错误的数据估计是学在城院里的数据」）。
+        //   以前這一屏會先把學在城院那份畫出來、教务回来再整屏換掉 ——
+        //   閃過的那幾門課是他**實際上沒有的**，比一片空白更糟（他會以為要去上）。
+        //   所以加載中只給進度，不給另一份；只有教务**明確失敗**才退回並說明。
+        //
+        // ★★ 2026-10-22 v3 清单 #4：业主说这个闪**还在**。根因就是下面原来那个
+        //   `&& !fallbackUsable` —— 学在城院那份一回来 `fallbackUsable` 就为真，
+        //   于是这张"先不放另一份"的卡被自己关掉，直接落进 else 的 when，
+        //   而那个 when 的 `state is ListState.Content` 分支画的就是学在城院那份。
+        //   **闸门被它想保护的那份数据打开了**，等于这条规矩从来没生效过。
+        //   现在只认 `jwPending`：教务在路上就只给进度，别的一律不画。
+        if (jwPending) {
+            item(key = "jw-pending") {
+                AppCard {
+                    Column(Modifier.padding(Dims.cardPadding)) {
+                        Text(
+                            text = "正在从教务系统取课表",
+                            fontSize = Type.body,
+                            fontWeight = Type.weightBody,
+                            color = colors.onBackground,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            // 不藏「這一次會慢」：它要走一次網頁登入 + 等它自己把表格填完。
+                            text = "教务那份要走一次网页登录、再等它自己把表格渲染完，" +
+                                "第一次可能要十几秒。这一屏先不放另一份数据，" +
+                                "免得闪出几门你其实没上的课。",
+                            fontSize = Type.caption,
+                            color = colors.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+            }
+        } else when {
+            // ★ 判「这一屏有没有东西可画」用的是**内容**，不是「学在城院那支请求回没回」
+            //   （业主 2026-10-20：「首先你就没解决刷新的问题，我不想每次进来都要看到他
+            //    重新加载一遍」）。教务那份已经落盘、周次也能从锚点推出来时，
+            //   第一眼就该是课表本身；只有**两份都还没有**才给一句「正在加载」。
+            !jwUsable && state is ListState.FirstLoad -> item(key = "loading") {
+                Text(
+                    "正在取得课表…",
+                    fontSize = Type.secondary,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(Dims.cardPadding),
+                )
+            }
+
+            !jwUsable && state is ListState.Failed -> item(key = "failed") {
+                AppCard {
+                    Column(Modifier.padding(Dims.cardPadding)) {
+                        Text(
+                            "取不到课表",
+                            fontSize = Type.body,
+                            fontWeight = Type.weightBody,
+                            color = colors.error,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            (state as ListState.Failed).error.userText,
+                            fontSize = Type.caption,
+                            color = colors.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+            }
+
+            jwUsable || state is ListState.Content -> {
+                // ⚠️ `schedule.state` 是 `ListState<TronSchedule>`，而 `Content.items`
+                // 是 `List<TronSchedule>` —— **單元素清單**（倉庫把單一 schedule 包起來）。
+                // 所以要先 `firstOrNull()` 才是 TronSchedule 本身。
+                // 走到這裡時它**可能還在路上**（教务那份已經夠畫了）⇒ 全部按可空讀。
+                val schedule = (state as? ListState.Content)?.items?.firstOrNull()
+                // 目前教學週：學在城院算出來的那個是**權威值**（拿到就順手把錨點往前推，
+                // 見 `UiPrefs.weekAnchor`）；它還沒回來時用錨點推算，於是課表能秒開。
+                // 顯示值直接用外層 baseWeek（已經含同一條錨點兜底），避免標題/內容各算各的。
+                com.muyao.wanzaihyperos.data.UiPrefs.noteWeek(
+                    (schedule?.currentWeek as? com.muyao.wanzaihyperos.data.CountValue.Known)?.value,
+                    java.time.LocalDate.now().toEpochDay(),
+                )
+                val targetWeek = baseWeek?.plus(weekOffset)
+
+                // 全學期的槽位：優先教務那份（帶老師與教室），取不到就退回學在城院。
+                // 上面那張「退回」橫幅已經把這件事講給他聽了，這裡只負責選對資料。
+                val jwResult = (jwState as? ListState.Content)?.items?.firstOrNull()
+                val bodyPick = pickSlots(
+                    jwSlots = jwResult?.slots.orEmpty(),
+                    jwVerdict = jwVerdictOf(
+                        state = jwState,
+                        crawling = jwCrawlingNow,
+                        hasSlots = !jwResult?.slots.isNullOrEmpty(),
+                    ),
+                    tronSlots = schedule?.slots.orEmpty(),
+                )
+                val fromJiaowu = bodyPick.fromJiaowu
+                val allSlots = bodyPick.slots
+
+                if (targetWeek == null) {
+                    item(key = "no-week") {
+                        Text(
+                            "还不知道目前是第几教学周，所以无法对应课表。",
+                            fontSize = Type.secondary,
+                            color = colors.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(Dims.cardPadding),
+                        )
+                    }
+                } else {
+                    val slots = com.muyao.wanzaihyperos.data.schedule.WeekLayout.forWeek(
+                        allSlots, targetWeek,
+                    )
+                    val columns = com.muyao.wanzaihyperos.data.schedule.WeekLayout.columns(slots)
+                    val courseCount =
+                        com.muyao.wanzaihyperos.data.schedule.WeekLayout.courseCount(slots)
+                    val periodCount = slots.sumOf {
+                        (it.periodEnd - it.periodStart + 1).coerceAtLeast(1)
+                    }
+                    val source = if (fromJiaowu) {
+                        com.muyao.wanzaihyperos.data.tronclass.ScheduleSource.JIAOWU
+                    } else {
+                        com.muyao.wanzaihyperos.data.tronclass.ScheduleSource.TRONCLASS
+                    }
+
+                    // 「有的课还不知道几点」这句话要在**课表上**能解决，
+                    // 不是让他自己去設定里翻（业主：「你课表和时间对不上」）。
+                    item(key = "clock-hint") {
+                        ClockHint(slots) { showClockEditor = true }
+                    }
+
+                    if (slots.isEmpty()) {
+                        item(key = "empty") {
+                            Text(
+                                if (bodyPick.jwVerdict == com.muyao.wanzaihyperos.data.schedule.JwVerdict.SETTLED_EMPTY) {
+                                    // 与上面那张横幅同一个 verdict：一个态只有一种说法（N1）。
+                                    // 只有教务**真的给了结论且是空的**才可以说这句话（第 3 轮必修 6）：
+                                    // 以前 `allSlots.isEmpty() && useJiaowu` 把"教务失败了 / 从没取过 /
+                                    // 空的是学在城院那份"都说成"教务那份是空的"。
+                                    "教务系统那份课表是空的（可能学校还没排这学期的课）。"
+                                } else {
+                                    "第 $targetWeek 周没有课程。"
+                                },
+                                style = TextStyle(fontFeatureSettings = Type.tabular),
+                                fontSize = Type.secondary,
+                                color = colors.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(Dims.cardPadding),
+                            )
+                        }
+                    } else if (uiState.timetableGrid) {
+                        // ---- 本週課表板（五天全顯示、單層）--------------------
+                        item(key = "board") {
+                            // 2026-10-28 业主：「把课表的那个背景去掉」。
+                            // 原来这层 AppCard 给了板子一个实色卡底 + 1dp 描边 + 7dp 投影，
+                            // 代价是横向吃掉 cardPadding×2 = 28dp、纵向再多一层卡边距 ——
+                            // 列宽从 45.49dp 掉到 45.49dp 的同一行里再挤 28dp 分给五列。
+                            // 去掉之后板子直接坐在纸面上，五列各宽 51.49dp（+13%）。
+                            WeekBoard(
+                                        columns = columns,
+                                        // 只有看本週時才高亮今天；翻到別的週還標「今天」
+                                        // 是把上週的課說成今天有課（列表視圖早就這麼判了）。
+                                        today = if (weekOffset == 0) {
+                                            LocalDate.now().dayOfWeek.value
+                                        } else {
+                                            0
+                                        },
+                                        week = targetWeek,
+                                        courseCount = courseCount,
+                                        source = source,
+                                        onPick = { s, b ->
+                                            picked = s
+                                            pickedAnchor = b
+                                        },
+                            )
+                        }
+                        item(key = "jw-fresh") {
+                            FreshnessLine(jwState, now = System.currentTimeMillis()) {
+                                graph.fetch { graph.jwTimetable.refresh() }
+                            }
+                        }
+                    } else {
+                        // ---- 单日日程（板子：先把今天读清楚，再给整周）----------
+                        val todayDow = LocalDate.now().dayOfWeek.value
+                        val isToday = weekOffset == 0 && selectedDay == todayDow
+                        val daySlots = slots
+                            .filter { it.dayOfWeek == selectedDay }
+                            .sortedBy { it.periodStart }
+                        if (daySlots.isEmpty()) {
+                            item(key = "day-empty") {
+                                Text(
+                                    "${DAY_WEEK[selectedDay - 1]}没有课。",
+                                    fontSize = Type.secondary,
+                                    color = colors.onSurfaceVariantSummary,
+                                    modifier = Modifier.padding(start = 0.dp, top = 4.dp),
+                                )
+                            }
+                        } else {
+                            // 一天的课装进**一张纸面卡**，行与行之间只留一条细线 ——
+                            // 板子的日程是一行一节课，不是一节课一张卡（七张卡要滚三屏）。
+                            item(key = "day-agenda") {
+                                // 板子的日程直接落在纸面上，没有「一张大卡把一天装起来」。
+                                // 这里只保留行与行之间的发丝线，边界交给页面的左右留白。
+                                Column(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp),
+                                ) {
+                                    daySlots.forEachIndexed { idx, slot ->
+                                        if (idx > 0) {
+                                            Box(
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .height(1.dp)
+                                                    .background(colors.onBackground.copy(alpha = 0.07f)),
+                                            )
+                                        }
+                                        CourseCell(slot = slot, isToday = isToday)
+                                    }
+                                }
+                            }
+                        }
+                        item(key = "week-stats") {
+                            Column(Modifier.fillMaxWidth().padding(start = 0.dp, top = 10.dp)) {
+                                // 板 `.weekfoot{display:flex;justify-content:space-between;
+                                // align-items:center;font-size:9.5px;color:var(--faint)}` + `b{--sub/650}`
+                                // ⇒ **左右两栏**，不是把三段用「·」串成一行：
+                                // 串起来那一行会自己折行，右边就空了（复评 2026-10-21）。
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "本周 $periodCount 节 · $courseCount 门课",
+                                        style = TextStyle(fontFeatureSettings = Type.tabular),
+                                        fontSize = Type.caption,
+                                        fontWeight = Type.weightBody,
+                                        color = colors.onSurfaceVariantSummary,
+                                    )
+                                    if (slots.none { it.dayOfWeek >= 6 }) {
+                                        Text(
+                                            text = "周六日无课",
+                                            fontSize = Type.caption,
+                                            color = colors.onSurfaceVariantSummary.copy(alpha = 0.8f),
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = buildString {
+                                        if (targetWeek != null) append("第 $targetWeek 周")
+                                        if (termLabel.isNotBlank()) {
+                                            if (isNotEmpty()) append(" · ")
+                                            append(termLabel)
+                                        }
+                                        if (isNotEmpty()) append(" · ")
+                                        append("来源 ${source.label}")
+                                    },
+                                    style = TextStyle(fontFeatureSettings = Type.tabular),
+                                    fontSize = Type.micro,
+                                    color = colors.onSurfaceVariantSummary.copy(alpha = 0.8f),
+                                )
+                            }
+                        }
+                        // 秒开的代价必须写在屏幕上：这份是几点存的、要不要重取。
+                        item(key = "jw-fresh-day") {
+                            FreshnessLine(jwState, now = System.currentTimeMillis()) {
+                                graph.fetch { graph.jwTimetable.refresh() }
+                            }
+                        }
+                    }
+
+                    // ---- 認不出來的段落**原樣列出來**（兩種排版都要有）----------
+                    //
+                    // 寧可顯示一句看不懂的字串，也不要讓某門課的上課時間靜默消失
+                    //（`TronScheduleSlot` 檔頭那條紀律）。
+                    // 認不出來的原文：學在城院那份是 (課名, 原文)，教務那份是一句話。
+                    // 合成一種形態再顯示，兩邊都不會漏。
+                    val unknown: List<Pair<String, String>> =
+                        if (fromJiaowu) {
+                            jwResult?.unparsed.orEmpty().map { "教务" to it }
+                        } else {
+                            schedule?.unparsed.orEmpty()
+                        }
+                    if (unknown.isNotEmpty()) {
+                        item(key = "unparsed") {
+                            AppCard {
+                                Column(Modifier.padding(Dims.cardPadding)) {
+                                    Text(
+                                        "有 ${unknown.size} 段上课时间没认出格式（原样列在下面）",
+                                        fontSize = Type.summary,
+                                        color = colors.error,
+                                    )
+                                    Text(
+                                        "没认出的那些**不会算进上面的门数** —— " +
+                                            "所以数字比教务系统里少时，先来看这一段。",
+                                        fontSize = Type.caption,
+                                        color = colors.onSurfaceVariantSummary,
+                                    )
+                                    unknown.forEach { (courseName, raw) ->
+                                        Text(
+                                            "$courseName：$raw",
+                                            fontSize = Type.caption,
+                                            color = colors.onSurfaceVariantSummary,
+                                            maxLines = 3,
+                                            modifier = Modifier.padding(top = 4.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            else -> item(key = "none") {
+                Text(
+                    "还没有课表资料。",
+                    fontSize = Type.secondary,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(Dims.cardPadding),
+                )
+            }
+        }
     }
     // 節次時間就地编辑：**存一次就落盘**（PeriodTimeEditor 每改一格就 save），
     // 所以这里不需要「保存」钮，也不会有「改了但忘了存」那种状态。
@@ -489,19 +1015,16 @@ internal fun WeekBoard(
     }
 
     // 这一行是**取数回执**：这一周真取到几门课、来自哪一份，一眼能核对，不用去数格子。
-    Box(
-        modifier = Modifier
-            .padding(top = 8.dp)
-            .clip(RoundedCornerShape(Dims.cardCorner))
-            .background(colors.primary.copy(alpha = 0.12f))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-    ) {
+    // 2026-10-28 业主：「底下的提示词也太明显了，淡化它的存在」。
+    // 原来它是 primary 12% 淡底 + primary 11sp 字，读起来像一句操作提示、跟顶栏强调色抢。
+    // 现在没有底、字降一档（micro）、颜色走次墨：留下「取到几门课、哪一份」，不再教人点格子
+    //（点格子会就地放大，那句话已经过时了）。
+    Box(modifier = Modifier.padding(top = 6.dp, start = 1.dp)) {
         Text(
-            text = "第 $week 周 · 本周 $courseCount 门课 · 来源：${source.label} · 点格子看详情",
+            text = "第 $week 周 · 本周 $courseCount 门课 · " + source.label,
             style = TextStyle(fontFeatureSettings = Type.tabular),
-            fontSize = Type.caption,
-            fontWeight = Type.weightBody,
-            color = colors.primary,
+            fontSize = Type.micro,
+            color = if (isDark) Tone.quietDark else Tone.quiet,
         )
     }
 }
@@ -1604,7 +2127,7 @@ private fun ClockHint(slots: List<TronScheduleSlot>, onOpen: () -> Unit) {
  * 3. 关掉动效时降级为一次短淡入，**不是零**（动效标准第 3 条：减少动效 ≠ 没有动效）。
  */
 @Composable
-private fun SlotZoomOverlay(
+internal fun SlotZoomOverlay(
     slot: TronScheduleSlot,
     anchor: Rect?,
     pageOrigin: Offset,

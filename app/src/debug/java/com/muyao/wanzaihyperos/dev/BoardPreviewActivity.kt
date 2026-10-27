@@ -10,7 +10,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -23,6 +31,7 @@ import com.muyao.wanzaihyperos.ui.AppThemeMode
 import com.muyao.wanzaihyperos.ui.WanzaiTheme
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.main.pages.SlotZoomOverlay
 import com.muyao.wanzaihyperos.ui.main.pages.WeekBoard
 import com.muyao.wanzaihyperos.data.schedule.WeekLayout
 
@@ -135,7 +144,17 @@ class BoardPreviewActivity : ComponentActivity() {
         val thisWeek = WeekLayout.forWeek(slots, week)
         val columns = WeekLayout.columns(thisWeek)
 
-        Box(modifier = Modifier.fillMaxSize().background(Color(0xFFEFF1F6))) {
+        // 2026-10-28 业主要看「点就地放大」的动画：预览页也要能点，
+        // 否则动画只能等真页面有课表数据才验得到。
+        var picked by remember { mutableStateOf<TronScheduleSlot?>(null) }
+        var pickedAnchor by remember { mutableStateOf<Rect?>(null) }
+        var pageOrigin by remember { mutableStateOf(Offset.Zero) }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFFEFF1F6))
+                .onGloballyPositioned { pageOrigin = it.boundsInRoot().topLeft },
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -149,18 +168,25 @@ class BoardPreviewActivity : ComponentActivity() {
                     color = Color(0xFFB4552E),
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                AppCard {
-                    Column(Modifier.padding(Dims.cardPadding)) {
-                        WeekBoard(
-                            columns = columns,
-                            today = java.time.LocalDate.now().dayOfWeek.value,
-                            week = week,
-                            courseCount = WeekLayout.courseCount(thisWeek),
-                            source = ScheduleSource.JIAOWU,
-                            onPick = {},
-                        )
-                    }
-                }
+                // 2026-10-28 业主「把课表的那个背景去掉」：预览页也不再套 AppCard，
+                // 否则预览看到的和真页面不是同一个东西。
+                WeekBoard(
+                    columns = columns,
+                    today = java.time.LocalDate.now().dayOfWeek.value,
+                    week = week,
+                    courseCount = WeekLayout.courseCount(thisWeek),
+                    source = ScheduleSource.JIAOWU,
+                    onPick = { s, r -> picked = s; pickedAnchor = r },
+                )
+            }
+            val zoom = picked
+            if (zoom != null) {
+                SlotZoomOverlay(
+                    slot = zoom,
+                    anchor = pickedAnchor,
+                    pageOrigin = pageOrigin,
+                    onClose = { picked = null },
+                )
             }
             Box(modifier = Modifier.fillMaxSize().padding(6.dp), contentAlignment = Alignment.TopEnd) {
                 // 「仅测试」水印：防我哪天把这张图当成真机截图交给他。
