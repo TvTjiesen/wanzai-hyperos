@@ -72,6 +72,7 @@ import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.UiPrefs
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.AppColors
+import com.muyao.wanzaihyperos.ui.design.BackgroundPreset
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.PillSwitch
 import com.muyao.wanzaihyperos.ui.design.Tone
@@ -206,6 +207,10 @@ fun AppearancePage(
     val albumMissing = preset == SkyPreset.ALBUM && wallpaper == null
     val effectivePreset = if (albumMissing) SkyPreset.AUTO else preset
 
+    // 当前选中的全局底色。直接读 AppColors（它内部现取 UiPrefs.backgroundPreset），
+    // **不另存一份本地状态** —— 两份状态就会有"点了但没生效"的那种假开关。
+    val backgroundChoice = AppColors.background
+
     // 选完图之后那一段（拷字节 + 解码）必须在 IO 上跑，见下面回调里的注释。
     val cropScope = androidx.compose.runtime.rememberCoroutineScope()
 
@@ -323,6 +328,33 @@ fun AppearancePage(
                     panY = UiPrefs.wallpaperPanY,
                     zoom = UiPrefs.wallpaperZoom,
                 )
+            }
+
+
+            // ---- 背景 ----------------------------------------------------
+            // 业主 2026-10-29：「全局背景的颜色也改改，做个自定义界面把，让用户自己选择
+            // 背景颜色，并且推荐几个主流的好看的颜色」。落点选在预览卡正下方 —— 换底色
+            // 时上面那张卡同帧变色，不用滚到别处去看效果。
+            item(key = "background-label") { SubSection("背景", "五套主流色 · 深浅各一") }
+            item(key = "background-presets") {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    BackgroundPreset.entries.chunked(3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            row.forEach { preset ->
+                                BackgroundSwatch(
+                                    preset = preset,
+                                    selected = backgroundChoice == preset,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    UiPrefs.saveBackgroundPreset(preset.id)
+                                    note = null
+                                }
+                            }
+                            // 末行只有两张时不铺满：权重留白，色卡宽度与上一行对齐。
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
             }
 
             // ---- 壁紙 ----------------------------------------------------
@@ -1229,6 +1261,78 @@ private fun ModuleChip(label: String, id: String) {
             }
             .padding(horizontal = 8.dp, vertical = 4.4.dp),
     )
+}
+
+/**
+ * 一块背景色卡。
+ *
+ * 色卡**画的是这一套真实的渐层**（[BackgroundPreset.lightStops] 三档），不是一坨近似色：
+ * 用户在设置里看到的就是回首页看到的那三档。深色档由主题切换时自动跟（枚举里
+ * lightStops/darkStops 是成对的），所以这里只画亮档，不在选色区掺一份"当前深浅"的临时态。
+ *
+ * 色值全部来自 [BackgroundPreset]，本文件里不写任何一个十六进制字面量
+ *（`IconSystemTest` 盯着这三个页面的硬编码颜色）。
+ */
+@Composable
+private fun BackgroundSwatch(
+    preset: BackgroundPreset,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    val shape = RoundedCornerShape(Dims.wallpaperTileCorner)
+    Column(
+        modifier = modifier.clickable(onClickLabel = preset.label) { onClick() },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f / 0.62f)
+                .clip(shape)
+                .background(
+                    Brush.linearGradient(
+                        colors = preset.lightStops,
+                        start = Offset(0f, 0f),
+                        end = Offset(600f, 400f),
+                    ),
+                )
+                .border(
+                    width = if (selected) 1.6.dp else 0.8.dp,
+                    color = if (selected) colors.primary else colors.dividerLine,
+                    shape = shape,
+                ),
+        ) {
+            // 选中不只在描边上说话：右下角一颗实心勾，色弱也分得清。
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(5.dp)
+                        .size(15.dp)
+                        .clip(CircleShape)
+                        .background(colors.primary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "✓",
+                        fontSize = Type.micro,
+                        fontWeight = Type.weightTitle,
+                        color = colors.onPrimary,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = preset.label,
+            fontSize = Type.micro,
+            fontWeight = if (selected) Type.weightTitle else Type.weightBody,
+            color = if (selected) colors.primary else colors.onSurfaceVariantSummary,
+            maxLines = 1,
+        )
+    }
 }
 
 @Composable

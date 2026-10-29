@@ -486,6 +486,9 @@ class TronclassClient(
                 """{"code_str":${jsonString(code.orEmpty())}}"""
             else -> "{}"
         }
+        // 只给可调试构建：把他自己按下提交那一次真正发出去的包体留下（业主 2026-10-28 第⑤条）。
+        // 没有这一条，签到码只能靠猜；有了它，服务端收到什么就是一串可查的原文。
+        debugDump?.invoke("answer_" + kind.name.lowercase(), bodyJson)
         val (status, text) = rawRequest(path, "PUT", bodyJson)
         return com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult(
             ok = status == 200,

@@ -111,9 +111,12 @@ class AppearanceOneStopTest {
         assertTrue("主壳 onThemeMode 没落盘", "UiPrefs.saveThemeMode(it.name)" in shellText)
 
         val themeText = read(File("src/main/java/com/muyao/wanzaihyperos/ui/AppTheme.kt"))
+        // 2026-10-29：加了背景预设后 key 变成 remember(themeMode, background)。
+        // 判据要的是「themeMode 在 key 里」，不是「key 只有它一个」—— 所以按正则认
+        // themeMode 作**首个 key**，后面允许多个。把 themeMode 从 key 里删掉仍会判红。
         assertTrue(
-            "WanzaiTheme 的 controller 不是按 themeMode 重建的（remember 没 key themeMode）",
-            "remember(themeMode)" in themeText,
+            "WanzaiTheme 的 controller 不是按 themeMode 重建的（remember 的 key 里没有 themeMode）",
+            Regex("""remember\(\s*themeMode\s*[,)]""").containsMatchIn(themeText),
         )
     }
 }

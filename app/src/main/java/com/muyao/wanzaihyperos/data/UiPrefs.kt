@@ -40,6 +40,7 @@ object UiPrefs {
 
     // ── 外观 / 首页（v2）─────────────────────────────────────────────
     private const val KEY_WALLPAPER_PRESET = "wallpaper_preset"
+    private const val KEY_BACKGROUND_PRESET = "background_preset"
     private const val KEY_WALLPAPER_DIM = "wallpaper_dim"
     private const val KEY_WALLPAPER_SOFT = "wallpaper_soft"
     private const val KEY_WALLPAPER_REV = "wallpaper_rev"
@@ -109,6 +110,10 @@ object UiPrefs {
 
     private val WALLPAPER_PRESETS = listOf("auto", "morning", "dusk", "night", "album")
 
+    /** 背景预设的可接受值。与 `ui/design/BackgroundPreset.entries` 的 id 一一对应；
+     *  这里是**字符串白名单**而不是直接引用枚举：偏好层不 import UI 层（同一纪律，见 `saveReduceTransparency`）。 */
+    private val BACKGROUND_PRESETS = listOf("porcelain", "cream", "mist", "sakura", "lake")
+
 
     /**
      * 壁纸预设：`auto`（跟着时间走的内置天空）/ `morning` / `dusk` / `night` / `album`。
@@ -118,6 +123,10 @@ object UiPrefs {
      * ★ 判据的真实落点是 `HomeStudio.decodeWallpaper`（第 6 轮审计指出：这句注释以前指的
      *   `wallpaperExists` **全工程根本不存在**，grep 唯一命中就是这条注释自己）。
      */
+    /** 全局背景预设 id（业主 2026-10-29「让用户自己选择背景颜色」）。读它的人是 `AppColors`。 */
+    var backgroundPreset by mutableStateOf("porcelain")
+        private set
+
     var wallpaperPreset by mutableStateOf("auto")
         private set
 
@@ -237,6 +246,8 @@ object UiPrefs {
 
         wallpaperPreset = (p.getString(KEY_WALLPAPER_PRESET, "auto") ?: "auto")
             .takeIf { it in WALLPAPER_PRESETS } ?: "auto"
+        backgroundPreset = (p.getString(KEY_BACKGROUND_PRESET, "porcelain") ?: "porcelain")
+            .takeIf { it in BACKGROUND_PRESETS } ?: "porcelain"
         wallpaperDim = p.getInt(KEY_WALLPAPER_DIM, 24).coerceIn(0, 80)
         wallpaperSoft = p.getInt(KEY_WALLPAPER_SOFT, 26).coerceIn(0, 100)
         wallpaperPanX = p.getFloat(KEY_WALLPAPER_PAN_X, 0f).coerceIn(-1f, 1f)
@@ -334,6 +345,12 @@ object UiPrefs {
         prefs()?.edit()?.putString(KEY_WALLPAPER_PRESET, v)?.apply()
     }
 
+    fun saveBackgroundPreset(id: String) {
+        val v = id.takeIf { it in BACKGROUND_PRESETS } ?: "porcelain"
+        backgroundPreset = v
+        prefs()?.edit()?.putString(KEY_BACKGROUND_PRESET, v)?.apply()
+    }
+
     fun saveWallpaperDim(value: Int) {
         val v = value.coerceIn(0, 80)
         wallpaperDim = v
@@ -426,6 +443,7 @@ object UiPrefs {
     /** 外观页「恢复默认」：只重置外观，不碰周次锚点、节次时间这些学习数据。 */
     fun resetAppearance() {
         wallpaperPreset = "auto"
+        backgroundPreset = "porcelain"
         // ★ 独立审计（v3 #10 第 1 轮④）：这颗按钮以前只清 preset/dim/soft 三条，
         //   **不清取景三元组** ⇒ 他按过「恢复默认」之后再点相册那一格，
         //   旧图带着旧裁切原地复活（名不副实）。现在一起清。
@@ -449,6 +467,7 @@ object UiPrefs {
         appsWebCollapsed = false
         prefs()?.edit()
             ?.putString(KEY_WALLPAPER_PRESET, "auto")
+            ?.putString(KEY_BACKGROUND_PRESET, "porcelain")
             ?.putInt(KEY_WALLPAPER_DIM, 24)
             ?.putInt(KEY_WALLPAPER_SOFT, 26)
             ?.putString(KEY_HOME_DENSITY, "comfortable")

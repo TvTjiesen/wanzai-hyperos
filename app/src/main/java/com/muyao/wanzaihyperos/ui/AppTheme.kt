@@ -87,22 +87,29 @@ fun WanzaiTheme(
     //
     // 40 → 比預設 36 亮一檔，讓卡片在漸層上「浮起來」；
     // 對比度約 1.22:1，配合第 5 步要加的 1dp 描邊，層級才真正立得住。
-    val controller = remember(themeMode) {
+    // ★ 背景预设也是 key（业主 2026-10-29 让用户自选底色）：主题令牌里的
+    //   background / surface / surfaceContainer **都按预设现取**，所以换一套底
+    //   必须重建控制器。少这个 key 的症状是「设置里选了米白，页面还是冷的」。
+    val background = com.muyao.wanzaihyperos.ui.design.AppColors.background
+    val controller = remember(themeMode, background) {
         ThemeController(
             colorSchemeMode = themeMode.mode,
             // 定稿板（wz-v2.html）的真实色值：暖米底 + 墨绿强调 + 暖灰字。
             // 不是「差不多」——色相从蓝改成绿、底从冷蓝紫改成 #F4F0E8，
             // 这两条一改，整页的观感才和板子站到同一边。
             lightColors = lightColorScheme(
-                primary = Color(0xFF2E6B64),
+                // 2026-10-29 业主「我不喜欢绿色」⇒ 主色 #2E6B64 暖墨绿换成 #3E4E9E 靛蓝。
+                // 白字压它 7.53:1（旧的 4.42:1）；对纸面 6.95、对卡片 7.34。
+                // 同一次还换了背景层：四枚底色改成跟着 BackgroundPreset 走。
+                primary = Color(0xFF3E4E9E),
                 onPrimary = Color(0xFFFFFFFF),
-                primaryContainer = Color(0xFFDCEAE6),
-                onPrimaryContainer = Color(0xFF163A35),
-                secondaryContainer = Color(0xFFDCEAE6),
-                onSecondaryContainer = Color(0xFF1A3A35),
+                primaryContainer = Color(0xFFE4E7F7),
+                onPrimaryContainer = Color(0xFF1E2650),
+                secondaryContainer = Color(0xFFE4E7F7),
+                onSecondaryContainer = Color(0xFF1E2650),
                 background = com.muyao.wanzaihyperos.ui.design.AppColors.pageBackgroundLight,
                 onBackground = Color(0xFF1A1917),
-                surface = Color(0xFFFBFCFE),
+                surface = com.muyao.wanzaihyperos.ui.design.AppColors.surface(isDark = false),
                 onSurface = Color(0xFF1A1917),
                 surfaceContainer = com.muyao.wanzaihyperos.ui.design.AppColors.surfaceContainerLight,
                 onSurfaceContainer = Color(0xFF1A1917),
@@ -112,15 +119,16 @@ fun WanzaiTheme(
                 error = Color(0xFFB65E3D),
             ),
             darkColors = darkColorScheme(
-                primary = Color(0xFF83C9BC),
+                // 深档主色 #83C9BC → #8E9CE8：对 #101213 7.22:1、对暗卡 5.93:1。
+                primary = Color(0xFF8E9CE8),
                 onPrimary = Color(0xFF101213),
-                primaryContainer = Color(0xFF23413C),
-                onPrimaryContainer = Color(0xFFBFE9E1),
-                secondaryContainer = Color(0xFF23413C),
-                onSecondaryContainer = Color(0xFFBFE9E1),
+                primaryContainer = Color(0xFF262E5C),
+                onPrimaryContainer = Color(0xFFC9D0F5),
+                secondaryContainer = Color(0xFF262E5C),
+                onSecondaryContainer = Color(0xFFC9D0F5),
                 background = com.muyao.wanzaihyperos.ui.design.AppColors.pageBackgroundDark,
                 onBackground = Color(0xFFF2EFE7),
-                surface = Color(0xFF171A1B),
+                surface = com.muyao.wanzaihyperos.ui.design.AppColors.surface(isDark = true),
                 onSurface = Color(0xFFF2EFE7),
                 surfaceContainer = com.muyao.wanzaihyperos.ui.design.AppColors.surfaceContainerDark,
                 onSurfaceContainer = Color(0xFFF2EFE7),

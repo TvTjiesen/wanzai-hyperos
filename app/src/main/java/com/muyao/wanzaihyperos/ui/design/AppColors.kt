@@ -3,6 +3,7 @@ package com.muyao.wanzaihyperos.ui.design
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import com.muyao.wanzaihyperos.data.UiPrefs
 
 /**
  * 全 App 的**色彩策略**。
@@ -51,6 +52,20 @@ object AppColors {
     val glassSurfaceDark = Color.White.copy(alpha = GLASS_SURFACE_ALPHA_DARK)
 
     /**
+     * 当前选中的背景预设（业主 2026-10-29「做个自定义界面，让用户自己选择背景颜色」）。
+     *
+     * ⚠️ 每次读都现取 `UiPrefs.backgroundPreset` —— 它是个 `mutableStateOf`，
+     * 读它的人自动订阅重组，所以外观页换一套底，整屏（含主题令牌）跟着换。
+     * 缓存成字段会得到一个「设置里点了没反应」的假开关。
+     */
+    val background: BackgroundPreset
+        get() = BackgroundPreset.of(UiPrefs.backgroundPreset)
+
+    /** 卡片那一层（比纸更亮，让卡片浮起来）。`surface` 令牌也用它。 */
+    fun surface(isDark: Boolean): Color =
+        if (isDark) background.cardDark else background.cardLight
+
+    /**
      * 主題的紙面色（`AppTheme` 裡 `surfaceContainer` 用的就是這兩枚，**同一個定義**）。
      *
      * ★ 為什麼提到這裡：`HomeSectionPage` 那張此刻卡要算「墊色壓在天空上真正鋪出來的顏色」
@@ -58,8 +73,8 @@ object AppColors {
      *   `0xFFF4F7FF / 0xFF1C1F20` 兩枚"近似值"（第 7 轮审计判死：近似值扫出来的 4.5:1
      *   不是真机上那个数）⇒ 现在主题与测试读同一份，谁改色卡面判据跟着变。
      */
-    val surfaceContainerLight = Color(0xFFFBFCFE)
-    val surfaceContainerDark = Color(0xFF222526)
+    val surfaceContainerLight: Color get() = background.cardLight
+    val surfaceContainerDark: Color get() = background.cardDark
 
     /**
      * 主題的頁面底色（`AppTheme` 的 `background` 用它，同一個定義）。
@@ -78,8 +93,8 @@ object AppColors {
      * 同 ROI 改前/改后实测见 `verify/b4-03/`。
      * ⚠️ 相册那条路径的收尾正是渐到这一枚色（`fadeTo`）⇒ 这条同时是相册档变白的根。
      */
-    val pageBackgroundLight = Color(0xFFF4F6F8)
-    val pageBackgroundDark = Color(0xFF101213)
+    val pageBackgroundLight: Color get() = background.paper(isDark = false)
+    val pageBackgroundDark: Color get() = background.paper(isDark = true)
 
     /** 玻璃表面提亮色（淺色模式用）。 */
     val glassSurfaceLight = Color.White.copy(alpha = GLASS_SURFACE_ALPHA_LIGHT)
@@ -202,8 +217,7 @@ object AppColors {
      * 前面那支是**這一屏的像素真相**（例如淺色主題 + 暗度壓到底的壁紙）。
      * 顶栏纱按它挑深浅，才不会出现「页面已经暗了、纱仍是亮的」。
      */
-    fun pageTopColor(isDark: Boolean): Color =
-        if (isDark) darkBgStops.first() else lightBgStops.first()
+    fun pageTopColor(isDark: Boolean): Color = background.stops(isDark).first()
 
     // -----------------------------------------------------------------------
     // 背景層次
@@ -222,12 +236,8 @@ object AppColors {
      *
      * 三檔、相鄰差 3~6% 明度 —— 差距太大會有明顯條帶，太小看不出層次。
      */
-    internal val lightBgStops = listOf(
-        // B4-03 抬白：黄度 R−B 11/12/16 → 5/7/7；2026-10-25 业主「色调还是有点黄，可以再白一点」→ 3/4/6。
-        Color(0xFFF8FAFC), // 冷白顶端（R−B 3 → −4）：2026-10-27 业主「背景太黄，换一种色调」
-        Color(0xFFF4F6F8), // 页面纸色（= pageBackgroundLight，R−B 4 → −4）
-        Color(0xFFECF0F4), // 右下压一点冷灰（R−B 6 → −8）
-    )
+    internal val lightBgStops: List<Color>
+        get() = BackgroundPreset.DEFAULT.lightStops
 
     /**
      * 背景漸層（暗色）。
@@ -235,11 +245,8 @@ object AppColors {
      * ⚠️ **深色不是簡單反相**：分層靠這三檔深藍，而不是純黑。
      * 純黑在 OLED 上有「塗抹感」（滑動時黑色區域會拖影）。
      */
-    private val darkBgStops = listOf(
-        Color(0xFF101213), // 板子 body.dark --phone
-        Color(0xFF131617),
-        Color(0xFF171A1B), // --phone-2
-    )
+    private val darkBgStops: List<Color>
+        get() = BackgroundPreset.DEFAULT.darkStops
 
     /**
      * 頁面背景刷。
@@ -251,7 +258,7 @@ object AppColors {
      * @param isDark 由 `MiuixTheme.colorScheme.isDark` 或 controller 決定。
      */
     fun pageBrush(isDark: Boolean): Brush {
-        val stops = if (isDark) darkBgStops else lightBgStops
+        val stops = background.stops(isDark)
         // 斜向漸層（左上 → 右下）。
         //
         // ⚠️ 這裡**不能**用 `Offset.Infinite` ——

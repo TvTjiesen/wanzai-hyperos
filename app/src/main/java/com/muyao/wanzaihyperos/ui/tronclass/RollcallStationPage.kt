@@ -198,6 +198,31 @@ fun RollcallBody(
     }
     /** 某一行手输/粘贴的内容。按 id 存，免得两行共用一个字符串。 */
     var inputs by remember { mutableStateOf(mapOf<Int, String>()) }
+    /**
+     * 只给可调试构建：把他真正扫到的那一串原文留下来。
+     *
+     * 业主 2026-10-28 第⑤条：他用本 App 扫了真实签到码，要我自己去找那串值。
+     * 事后取： run-as com.muyao.wanzaihyperos cat files/tron_raw_scanned.txt
+     * 只记他真按下的那一次；release 构建恒为 null，不写任何东西。
+     */
+    val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val rawScanSink: ((String) -> Unit)? = remember(appCtx) {
+        val ctx = appCtx
+        if ((ctx.applicationInfo.flags and
+                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        ) {
+            { raw ->
+                runCatching {
+                    java.io.File(ctx.filesDir, "tron_raw_scanned.txt").appendText(
+                        System.currentTimeMillis().toString() + " " + raw + "\n",
+                    )
+                }
+                Unit
+            }
+        } else {
+            null
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (state is ListState.FirstLoad) repository.refresh()
@@ -208,6 +233,7 @@ fun RollcallBody(
         QrScannerPage(
             onExit = { scanTarget = null },
             onScanned = { raw ->
+                rawScanSink?.invoke(raw)
                 val target = scanTarget
                 scanTarget = null
                 val payload = com.muyao.wanzaihyperos.data.tronclass.QrPayloadParser.extract(raw)

@@ -246,7 +246,7 @@ class HomeSkyTest {
                         }
                         val accent = readableAccent(
                             faces,
-                            if (isDark) Color(0xFF83C9BC) else Color(0xFF2E6B64),
+                            if (isDark) Color(0xFF8E9CE8) else Color(0xFF3E4E9E),
                             ink.main,
                         )
                         faces.forEach { f ->

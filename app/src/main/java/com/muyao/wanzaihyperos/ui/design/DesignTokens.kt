@@ -383,8 +383,14 @@ object Motion {
  * 綠 6.17、灰 5.07），深色板上同樣成立 ⇒ 只收口，不改值。
  */
 object Tone {
-    /** 已登錄 / 正常。 */
-    val ok = Color(0xFF2E6B64)
+    /**
+     * 已登錄 / 正常。
+     *
+     * 2026-10-29 业主「我不喜欢绿色」⇒ 青绿 #2E6B64 换成靛蓝 **#3E4E9E**。
+     * 白图形压它 7.53:1（设置页磁贴里的线稿恒为纯白，见 SettingsChrome.SettingGlyph），
+     * 对纸面 6.95、对卡片 7.34、对课块底 6.34 —— 四层全过 4.5，且比原来那枚绿的余量更大。
+     */
+    val ok = Color(0xFF3E4E9E)
 
     /** 拿到了但沒激活 / 需要他動一下。 */
     val warn = Color(0xFFB65E3D)
@@ -459,21 +465,25 @@ object Chip {
      * 旧写法是 Color.hsl((courseId * 137.5) % 360, 0.55, 0.32) —— 全色相轮转，
      * 实测对块底 #E8ECF0 的对比度从 4.09（青绿 174°）到 9.57（紫 264°），差 2.3 倍，
      * 一排课看过去就是「有的重有的轻」，业主说的「乱」就是这个。
-     * 手选这十枚把明度压在同一段里：浅档对块底最坏 5.13、对卡 5.93；
-     * 深档十枚对 #2C2F2E 最坏 5.62。全部过 WCAG 1.4.11 的 3:1 且留足余量。
+     * 手选这十枚把明度压在同一段里：浅档对块底最坏 **4.85**、对卡 5.61；
+     * 深档十枚对 #2C2F2E 最坏 **4.64**。全部过 WCAG 1.4.11 的 3:1 且留足余量。
      * 顺序是排过的：相邻两枚色相差 ≥24°，撞在一起也认得出是两门课。
+     *
+     * 2026-10-29 随主色换靛蓝：原来十枚的头两枚（青绿 #2F6B6E / #3A6180）与末枚
+     * （#3F6B4F）都偏绿，业主说不要绿，整表重排成「蓝 → 紫 → 酒红 → 赭 → 钢蓝」，
+     * 相邻色相差仍 ≥24°。
      */
     private val spineLight = intArrayOf(
-        0xFF2F6B6E.toInt(), 0xFF3A6180.toInt(), 0xFF3D5A8A.toInt(), 0xFF4A5480.toInt(),
-        0xFF5B4E76.toInt(), 0xFF6B4A64.toInt(), 0xFF7A4A55.toInt(), 0xFF7A5540.toInt(),
-        0xFF5F6338.toInt(), 0xFF3F6B4F.toInt(),
+        0xFF3E4E9E.toInt(), 0xFF4A3F8C.toInt(), 0xFF5F3E8A.toInt(), 0xFF7A3E7A.toInt(),
+        0xFF8C3E62.toInt(), 0xFF8C4248.toInt(), 0xFF8C5238.toInt(), 0xFF7A6030.toInt(),
+        0xFF4A5578.toInt(), 0xFF3E6A8C.toInt(),
     )
 
     /** 深档同序：深底上要抬明度，色相不动。 */
     private val spineDark = intArrayOf(
-        0xFF7DBFC2.toInt(), 0xFF8FBBDD.toInt(), 0xFF93B4E8.toInt(), 0xFF9EA9DC.toInt(),
-        0xFFB39ED1.toInt(), 0xFFCFA0C4.toInt(), 0xFFDCA6AE.toInt(), 0xFFD9A98E.toInt(),
-        0xFFBCC487.toInt(), 0xFF8FC7A5.toInt(),
+        0xFF8E9CE8.toInt(), 0xFF9A8CE0.toInt(), 0xFFAE8CDC.toInt(), 0xFFC68CC0.toInt(),
+        0xFFD08CA0.toInt(), 0xFFD4948C.toInt(), 0xFFD0A07C.toInt(), 0xFFC4B070.toInt(),
+        0xFF93A0C8.toInt(), 0xFF84AECB.toInt(),
     )
 
     /** courseId 允许是 0（撞课占位），负数也兜住，绝不越界。 */

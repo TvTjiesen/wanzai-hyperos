@@ -48,6 +48,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
@@ -192,7 +193,13 @@ fun TimetableSectionPage(
     // 2026-10-28 业主「我想要那种点击放大的动画」：详情不再插进列表，而是从**被点那一格**
     // 长到页面中央。所以点的时候要把那一格的位置记下来（root 坐标），并减掉页面自身原点。
     var pickedAnchor by remember { mutableStateOf<Rect?>(null) }
+    /** 正在播退场动画。播完（onClosed）才真正把 picked 清掉，否则整层会一帧消失。 */
+    var zoomClosing by remember { mutableStateOf(false) }
     var pageOrigin by remember { mutableStateOf(Offset.Zero) }
+    /** 整周板正文顶端在 root 里的 y（量出来的，用来把板子压进一屏）。 */
+    var boardTopPx by remember { mutableStateOf(0f) }
+    /** 这一页的真实高度（root 像素）；0 = 还没量到。 */
+    var pageHeightPx by remember { mutableStateOf(0f) }
     /** 「節次時間」就地编辑（填完课表上每块课立刻显示几点到几点）。 */
     var showClockEditor by remember { mutableStateOf(false) }
 
@@ -274,7 +281,10 @@ fun TimetableSectionPage(
             .fillMaxSize()
             // 放大的起點要用「格子在 root 裡的座標」減掉「頁面在 root 裡的原點」，
             // 這樣不管主殼把這一頁放在哪（狀態欄下方、有無側欄）算出來的落點都對。
-            .onGloballyPositioned { pageOrigin = it.boundsInRoot().topLeft },
+            .onGloballyPositioned {
+                pageOrigin = it.boundsInRoot().topLeft
+                pageHeightPx = it.size.height.toFloat()
+            },
     ) {
     // ── 教務課表要的「看不見的登入器」────────────────────────────────────
     //
@@ -340,7 +350,13 @@ fun TimetableSectionPage(
             }
         }
         // ---- 日期条（板子：7 个数字 + 有课小圆点；点一天就切到那天）----------
-        item(key = "week-strip") {
+        //
+        // ★ 2026-10-30 业主：「课表侧边的 ui 也有点丑，包括顶部的日期」。
+        //   真机帧上这条周条和下面的整周板表头**是同一行字**（都是一26 二27 … 五30），
+        //   一屏里把同一件事写两遍，还占掉 160px —— 而那 160px 正是板子要的行高。
+        //   整周模式（板子在场）里周条的职责已经被表头接走，这里就不再画；
+        //   日程模式没有板子，周条仍然是「换天」的唯一入口，照旧。
+        if (!uiState.timetableGrid) item(key = "week-strip") {
             val today = LocalDate.now()
             val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
                 .plusWeeks(weekOffset.toLong())
@@ -376,10 +392,30 @@ fun TimetableSectionPage(
                 // × 0.886 ⇒ **周几 15sp 粗 + 日期与节数 9.3sp 淡**，两档。
                 // 原来三者串成同一句、同一档 10sp —— 周几是这一屏的主语，被降级成
                 // 和元数据同级，列表首行就没有层级了（复评 2026-10-21）。
-                label = DAY_WEEK[selectedDay - 1],
-                meta = buildString {
-                    append("${date.monthValue} 月 ${date.dayOfMonth} 日")
-                    if (daySlots.isNotEmpty()) append(" · $dayCourses 门课")
+                // 整周模式下左边必须说「这一周」，不能说「周三」——
+                // 2026-10-30 真机抓到的缺陷：点表头周三看日程、再点回「整周」，
+                // 左边仍写着「周三 10 月 28 日 · 1 门课」，而板上画的是整周 8 门课。
+                // 同一屏两种主语，读的人第一眼就分不清板上那五列是"这周"还是"周三"。
+                label = if (uiState.timetableGrid) {
+                    if (weekOffset == 0) "本周" else stripTargetWeek?.let { "第 $it 周" } ?: "这一周"
+                } else {
+                    DAY_WEEK[selectedDay - 1]
+                },
+                // 整周模式这行只写日期区间：门数板子底下已经有一句「本周 8 门课」，
+                // 再说一遍既啰嗦又把这行挤到截断（2026-10-30 真机帧上正是「· 8 …」）。
+                meta = if (uiState.timetableGrid) {
+                    buildString {
+                        append("${monday.monthValue} 月 ${monday.dayOfMonth} 日")
+                        val sun = monday.plusDays(6)
+                        append(" – ")
+                        if (sun.monthValue != monday.monthValue) append("${sun.monthValue} 月 ")
+                        append("${sun.dayOfMonth} 日")
+                    }
+                } else {
+                    buildString {
+                        append("${date.monthValue} 月 ${date.dayOfMonth} 日")
+                        if (daySlots.isNotEmpty()) append(" · $dayCourses 门课")
+                    }
                 },
                 firstLabel = if (isToday) "今天" else DAY_WEEK[selectedDay - 1],
                 weekMode = uiState.timetableGrid,
@@ -632,13 +668,38 @@ fun TimetableSectionPage(
                         }
                     } else if (uiState.timetableGrid) {
                         // ---- 本週課表板（五天全顯示、單層）--------------------
+                        val boardMonday = LocalDate.now()
+                            .minusDays((LocalDate.now().dayOfWeek.value - 1).toLong())
+                            .plusWeeks(weekOffset.toLong())
                         item(key = "board") {
+                            // 业主第 ⑤ 条「课表的占地面积可以大一点」：这一页的 LazyColumn 左右各有
+                            // screenH=16dp 边距，别的 item 需要它，板子不需要 —— 板子越宽，一行能放的
+                            // 课名越全。fullBleedHorizontal 把子项按「两边各多 16dp」测量，再按原宽
+                            // 上报、横向外扩半个出血位画出去：父级只认上报的宽度，多出来的部分
+                            // 落在 LazyColumn 自己的边界内（它只裁自己的边，不裁 16dp 边距区）。
+                            // 五栏各宽 220.8px，比加边距时每栏宽 12.8px（3.7dp）。
                             // 2026-10-28 业主：「把课表的那个背景去掉」。
                             // 原来这层 AppCard 给了板子一个实色卡底 + 1dp 描边 + 7dp 投影，
                             // 代价是横向吃掉 cardPadding×2 = 28dp、纵向再多一层卡边距 ——
                             // 列宽从 45.49dp 掉到 45.49dp 的同一行里再挤 28dp 分给五列。
                             // 去掉之后板子直接坐在纸面上，五列各宽 51.49dp（+13%）。
                             WeekBoard(
+                                        // 2026-10-29 业主：「看完整个页面得上下滑动了…我要他刚好铺满
+                                        // 不用翻页」。行高不能写死，得由「这块板子真正拿到多少高度」算：
+                                        // 这里顺手量出正文顶端的 root y，页面根节点量出整页高度，
+                                        // 两者相减再扣掉底栏预留，就是留给整周板的那一段。
+                                        modifier = Modifier
+                                            .fullBleedHorizontal(5.dp, Dims.screenH - 5.dp)
+                                            .onGloballyPositioned { co ->
+                                                val y = co.positionInRoot().y
+                                                if (kotlin.math.abs(y - boardTopPx) > 0.5f) boardTopPx = y
+                                            },
+                                        boardHeightPx = if (pageHeightPx > 0f && boardTopPx > 0f) {
+                                            val reserve = with(LocalDensity.current) { BoardBottomReserve.toPx() }
+                                            (pageHeightPx - boardTopPx - reserve).coerceAtLeast(0f)
+                                        } else {
+                                            0f
+                                        },
                                         columns = columns,
                                         // 只有看本週時才高亮今天；翻到別的週還標「今天」
                                         // 是把上週的課說成今天有課（列表視圖早就這麼判了）。
@@ -650,6 +711,14 @@ fun TimetableSectionPage(
                                         week = targetWeek,
                                         courseCount = courseCount,
                                         source = source,
+                                        // 表头要带日期数字（业主「包括顶部的日期」）：
+                                        // monday 在这一分支里由 targetWeek 反推不出来，直接用本周一。
+                                        dayDate = { dow -> boardMonday.plusDays((dow - 1).toLong()).dayOfMonth },
+                        onPickDay = { dow ->
+                            selectedDay = dow
+                            uiState.timetableGrid = false
+                            UiPrefs.saveTimetableGrid(false)
+                        },
                                         onPick = { s, b ->
                                             picked = s
                                             pickedAnchor = b
@@ -814,7 +883,7 @@ fun TimetableSectionPage(
     // 和详情之间没有任何视觉联系。现在详情浮在同一页上，并从**那一格的实际矩形**
     // 长大到最终位置：起点来自 onGloballyPositioned 量出的真实坐标，不写死。
     androidx.activity.compose.BackHandler(enabled = picked != null) {
-        picked = null
+        zoomClosing = true
     }
     val zoomSlot = picked
     if (zoomSlot != null) {
@@ -822,7 +891,13 @@ fun TimetableSectionPage(
             slot = zoomSlot,
             anchor = pickedAnchor,
             pageOrigin = pageOrigin,
-            onClose = { picked = null },
+            closing = zoomClosing,
+            onClose = { zoomClosing = true },
+            onClosed = {
+                picked = null
+                pickedAnchor = null
+                zoomClosing = false
+            },
         )
     }
     OverlayDialog(
@@ -893,11 +968,24 @@ private fun JwHiddenEngine(engine: com.muyao.wanzaihyperos.data.jw.JwEngine) {
  */
 @Composable
 internal fun WeekBoard(
+    modifier: Modifier = Modifier,
+    /** 正文可用高度（root 像素）。<=0 = 还没量到，退回写死的 48dp。 */
+    boardHeightPx: Float = 0f,
     columns: List<com.muyao.wanzaihyperos.data.schedule.DayColumn>,
     today: Int,
     week: Int,
     courseCount: Int,
     source: com.muyao.wanzaihyperos.data.tronclass.ScheduleSource,
+    /** 给表头的日期数字：dayOfWeek(1..7) -> dayOfMonth；返回 0 就不画（预览页没传日期）。 */
+    dayDate: (Int) -> Int = { 0 },
+    /**
+     * 点表头某一天 = 切到那一天的日程。
+     *
+     * ★ 为什么要这个回调（2026-10-30）：整周模式下我撤掉了上面那条周条（它和表头是同一行字，
+     *   还占掉 160px 行高）。撤掉之后「点一天看一天」这个动作就没有入口了 ——
+     *   而表头本来就是那五颗日期，让它自己可点，比再多一行控件省一层。
+     */
+    onPickDay: (Int) -> Unit = {},
     onPick: (TronScheduleSlot, Rect) -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -907,24 +995,68 @@ internal fun WeekBoard(
     val times = UiPrefs.periodTimes
     val maxPeriod = com.muyao.wanzaihyperos.data.schedule.WeekLayout.rowsNeeded(columns)
     if (maxPeriod <= 0) return
-    val rowH = 34.dp
+    // 2026-10-27 业主「课表的占地面积可以大一点」：行高 34 -> 48dp。
+    // 9 行共 432dp + 表头 28dp = 460dp，仍落在 474.9dp 的可见视口内（余 14.9dp）。
+    val density = LocalDensity.current
+    val rowH = remember(boardHeightPx, maxPeriod, density) {
+        if (boardHeightPx <= 0f) {
+            // 没量到就只能用旧值：48dp 是 10-27「课表占地大一点」那版的高度。
+            48.dp
+        } else {
+            // 表头也是一份固定开销：漏掉它，整块板就会比预算高出 28dp，
+            // 页脚被底栏压住、页面还得再滚 70px —— 实测就是这么溢出的。
+            val overhead = with(density) { HeaderHeight.toPx() + WeekBoardFooterHeight.toPx() }
+            with(density) { ((boardHeightPx - overhead) / maxPeriod).toDp() }
+                .coerceIn(WeekBoardMinRowHeight, 48.dp)
+        }
+    }
+
+    // 轴上一行文字的**钉死行高**：两行各 12sp（≈13.8dp @font_scale 1.15），
+    // 让「时刻在上、节次号在下」在任何行高下都排得下，空行也占同样的高。
+    val axisLine = with(density) { Type.lineTight.toDp() }
 
     // ---- 表頭：軸位空一格，後面一天一格 --------------------------------
-    // B4-04 v4 §5：表头总高 28dp（与稿的 HEADER=28 一致，334dp 那一行才算得对）。
-    // 今天那一格只做两件事 —— 换强调色 + 底下一条 2dp 短线，线画在 28dp 里面、不额外占高。
-    // 列底不再铺 6% 淡底（对卡只有 1.09:1，等于没标），也不画竖线（会和课块色脊并排成两条）。
+    // 两行：周几（micro）+ 日期数字（summary）。2026-10-30 加日期数字是因为整周模式下
+    // 上面那条周条撤掉了，表头得自己说清「这几列是哪几天」——表头高度因此 28 → 40dp。
+    // 今天那一格只做三件事 —— 换强调色、两行都加粗、底下一条 2dp 短线（线画在表头里面，
+    // 不额外占高）。列底不铺 6% 淡底（对卡只有 1.09:1，等于没标），也不画竖线
+    // （会和课块色脊并排成两条）。
     Row(modifier = Modifier.fillMaxWidth().height(HeaderHeight)) {
         Spacer(Modifier.width(AxisWidth))
         columns.forEach { col ->
             val isToday = col.dayOfWeek == today
-            Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = col.dayLabel.replace("周", "周"),
-                    fontSize = Type.summary,
-                    fontWeight = if (isToday) Type.weightTitle else Type.weightBody,
-                    color = if (isToday) colors.primary else colors.onSurfaceVariantSummary,
-                    textAlign = TextAlign.Center,
-                )
+            val dom = dayDate(col.dayOfWeek)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClickLabel = "看" + DAY_WEEK[col.dayOfWeek - 1] + "的日程") {
+                        onPickDay(col.dayOfWeek)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = DAY_LABELS[col.dayOfWeek - 1],
+                        fontSize = Type.micro,
+                        fontWeight = if (isToday) Type.weightTitle else Type.weightBody,
+                        color = if (isToday) colors.primary else colors.onSurfaceVariantSummary,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                    )
+                    if (dom > 0) {
+                        Text(
+                            text = "$dom",
+                            fontSize = Type.summary,
+                            fontWeight = if (isToday) Type.weightTitle else Type.weightBody,
+                            color = if (isToday) colors.primary else colors.onBackground,
+                            textAlign = TextAlign.Center,
+                            style = TextStyle(fontFeatureSettings = Type.tabular),
+                            maxLines = 1,
+                        )
+                    }
+                }
                 if (isToday) {
                     Box(
                         modifier = Modifier
@@ -939,42 +1071,50 @@ internal fun WeekBoard(
         }
     }
 
+    Column(modifier = modifier.fillMaxWidth()) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         // ---- 左側時間軸 ---------------------------------------------------
-        // 節次號居中，**上課時間貼在這一行的上沿** —— 那是它真正的意思：
-        // 「从这一刻开始是第 N 节」，而不是「第 N 节的时间是…」。
+        // 一条等距的尺子：节次号 1..N 永远钉在同一相对位置，时刻只在真有开始时间的
+        // 那几行出现（学校时间表里第 2/4/11 节只有结束时间，缺的就空着，不编造）。
+        //
+        // 2026-10-26 踩过：旧的「节次号居中 + 时刻绝对定位贴顶」两段各自定位，
+        //   34dp 行里 10sp 行盒 + 11sp 行盒 = 29.4dp 只余 4.6dp，帧上已经交叠 2px。
+        // 2026-10-29 踩过：改成「时刻槽 + 节次号」一列居中后，有时刻的行节次号被顶到
+        //   下半、没时刻的行孤零零悬在中间 ⇒ 11 行数字看着不在一条线上（业主：「时间不均匀」）。
+        // 2026-10-30 踩过：把时刻叠回节次号上面但**没钉行高**，font_scale 1.15 下两行
+        //   行盒加起来超过行高，Compose 不裁只叠，「11:30」直接压住「5」。
+        // 定案：两行竖排、两行都写 lineHeight = Type.lineTight（各 13.8dp，共 27.6dp），
+        //   空行也占同样高的一格 ⇒ 任何行高下都不叠，且节次号始终等距。
         Column(modifier = Modifier.width(AxisWidth)) {
             (1..maxPeriod).forEach { n ->
-                // 2026-10-26 真机取证：旧写法是「节次号 Box 居中 + 时刻绝对定位贴顶」，两段各
-                // 自定位 ⇒ 34dp 的行里 10sp 行盒(14dp) + 11sp 行盒(15.4dp) = 29.4dp，只余
-                // 4.6dp；帧上「08:00」占 y938..967、「1」占 y966..998，已经交叠 2px。
-                // 改成同一列里顺排：时刻槽固定 14dp 高，没有时刻也占位，节次号因此在每一行
-                // 都停在同一高度，两段文字永不可能重叠。
                 Column(
                     modifier = Modifier.height(rowH).fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    // B4-04 v4 §4：节次号走墨色（它是这一行的主字），时刻走实色次墨。
-                    // 原来是 onSurfaceVariantSummary + alpha 0.75 ⇒ 合成出 #949087，
-                    // 对卡只有 3.10:1，10sp 小字远不够；现在是 Tone.quiet 实色 5.07:1。
-                    Box(modifier = Modifier.height(ClockSlot), contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier.height(axisLine),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         PeriodClock.startOf(times, n)?.let { t ->
                             Text(
                                 text = t,
-                                // 原来写死 7.5.sp —— 低于本工程 Type.micro 这条地板，
-                                // 而且 DesignTokensTest 明令「再小不許」。取 8sp。
                                 fontSize = Type.micro,
+                                lineHeight = Type.lineTight,
                                 color = if (isDark) Tone.quietDark else Tone.quiet,
+                                style = TextStyle(fontFeatureSettings = Type.tabular),
                                 maxLines = 1,
                             )
                         }
                     }
                     Text(
                         text = "$n",
-                        fontSize = Type.caption,
-                        fontWeight = Type.weightBody,
+                        fontSize = Type.micro,
+                        lineHeight = Type.lineTight,
+                        fontWeight = Type.weightTitle,
                         color = if (isDark) Tone.inkDark else Tone.ink,
+                        style = TextStyle(fontFeatureSettings = Type.tabular),
+                        maxLines = 1,
                     )
                 }
             }
@@ -1027,7 +1167,31 @@ internal fun WeekBoard(
             color = if (isDark) Tone.quietDark else Tone.quiet,
         )
     }
+    }
 }
+
+/**
+ * 让一个子项比父级给的宽度更宽地画出来，但只上报原来的宽度。
+ *
+ * 用途只有一个：课表板。它所在的 LazyColumn 左右各有 Dims.screenH = 16dp 的
+ * contentPadding（这一页别的 item 都要它），而板子**越宽一行能放的课名越全**。
+ * 这层 modifier 把子项按「左右各多 bleed」测量、按原宽上报、再往外挪 bleed 画，
+ * 于是父级布局不变，板子却一直吃到屏幕边缘。多出来的 16dp 落在 LazyColumn
+ * 自己的边界以内（它只裁自己的视口），不会被切掉。
+ */
+internal fun Modifier.fullBleedHorizontal(startBleed: Dp, endBleed: Dp): Modifier =
+    this.layout { measurable, constraints ->
+        val a = startBleed.roundToPx()
+        val b = endBleed.roundToPx()
+        val widened = constraints.copy(
+            minWidth = constraints.maxWidth + a + b,
+            maxWidth = constraints.maxWidth + a + b,
+        )
+        val placeable = measurable.measure(widened)
+        layout(placeable.width - a - b, placeable.height) {
+            placeable.place(-a, 0)
+        }
+    }
 
 /**
  * 「这份课表是几点存的」+ 一个重取的出口。
@@ -1076,14 +1240,38 @@ private fun FreshnessLine(
     }
 }
 
-/** 左側時間軸那一欄的寬度（要放得下「08:00」+ 節次號，又不能把五欄擠窄）。 */
-private val AxisWidth = 38.dp
-
-/** 轴上一行里时刻那一槽的固定高度（10sp 行盒 = 14dp），没有时刻也占位。 */
-private val ClockSlot = 14.dp
+/**
+ * 轴宽。
+ *
+ * 2026-10-30 定案 36dp：轴上是**两行竖排**（时刻在上、节次号在下）。
+ * 实测 font_scale 1.15 下时刻「08:00」的墨迹宽 112px = 32.0dp —— 32dp 那一版
+ * 最后一个字符被裁成「08:0」（帧上抓到的），所以两侧各留 2dp ⇒ 36dp。
+ * 横排那版要 46dp（时刻与节次号并排），竖排只要 36dp。
+ */
+private val AxisWidth = 36.dp
 
 /** 表頭高度（B4-04 v4 §2：34×9 + 28 = 334dp，這一格必須真的是 28dp 才算得对）。 */
-private val HeaderHeight = 28.dp
+private val HeaderHeight = 40.dp
+
+/** 「今天 / 整周」那颗药丸的高度：两颗一样高，也不许被触摸目标最小尺寸撑大。 */
+private val ModePillHeight = 24.dp
+
+/** 板子底下那行「第 N 周 · 本周 M 门课 · 来源」占的高度（含 6dp 上边距）。 */
+private val WeekBoardFooterHeight = 22.dp
+
+/** 一屏塞满时行高的下限：再矮连两行课名都放不下了。 */
+private val WeekBoardMinRowHeight = 32.dp
+
+/**
+ * 板子底下要让出多高，才能让它"刚好铺满一屏"。
+ *
+ * 这个数不是拍出来的，是解出来的：滚动余量 = 板下内容 + 列表底 padding − 本预留。
+ * 2026-10-30 真机实测（1216x2640 / density 560）：板下内容（"N 分钟前更新 / 重取"那行）
+ * + 列表底 padding（pageBottomInsetDp + 38dp = 108dp）合计 406px，而当时预留 76dp(266px)
+ * ⇒ 还多出正好 140px，也就是板子明明"铺满"了、手指一滑还能再滚一小段（业主口径里的
+ * "刚好铺满不用翻页"没达成）。406px = 116dp，往下取整到 120dp 保证一定不剩。
+ */
+private val BoardBottomReserve = 120.dp
 
 /**
  * 一格課（時間網格裡的一塊）。
@@ -1135,7 +1323,11 @@ private fun CourseChip(
     val badgeInk = if (isDark) Chip.badgeInkDark else Chip.badgeInk
     val shape = RoundedCornerShape(Chip.corner)
     val tight = rows <= 1
-    val showDetail = rows >= 2
+    // 行高 48dp：块内可用高度 = 48*rows - 2(外距) - 4(内距) ⇒ 单节 42dp、两节 90dp。
+    // 一行 = Type.caption(11sp) + Type.lineTight(12sp) = 13.8dp（本机 font_scale 1.15）。
+    //   单节 2 行课名 + 教室 = 41.4dp 塞满 42dp；两节 3 行课名 + 教室 = 55.2dp 仍宽松。
+    // 业主 2026-10-28 拍板：教室每一块都给，老师那一行删掉（详情卡里仍有全称）。
+    val showDetail = true
     // 徽标上的 N = 「同格还有几门」。misaligned 只会发生在被撞课挤下来时，那时 conflicts 必然非空；
     // 这里仍取一次 max，免得哪天 lane() 的语义变了徽标静悄悄变成 +0。
     val extra = maxOf(conflicts.size, if (misaligned) 1 else 0)
@@ -1185,7 +1377,7 @@ private fun CourseChip(
             //   第二轮 3+2dp + 12sp 剩 40.49dp ⇒ 2.93 字/行，仍是「B/S架 / 构应用…」。
             //   第三轮 3+1dp + 11sp（Type.caption）剩 41.49dp ⇒ 3.41 字/行，能显示 7 个字。
             //   左边 3dp 仍给色脊留 1dp 余量，不压它。
-            Column(Modifier.padding(start = 3.dp, end = 1.dp, top = 2.dp, bottom = 2.dp)) {
+            Column(Modifier.padding(start = 3.dp, end = 0.dp, top = 2.dp, bottom = 2.dp)) {
                 Text(
                     text = slot.courseName.ifBlank { "（未命名）" },
                     // ★ 清单 #11（业主「字太小」）：这一栏是他看课表格子必读的课名。以前 tight 档
@@ -1209,7 +1401,7 @@ private fun CourseChip(
                     //   真机实测：两节的块里「教六…」正好被截在底边）。所以两节仍只给 2 行课名；
                     //   三节的块 102dp 剩 96dp，够 3 行课名 + 教室 + 老师，那一档才给 3 行。
                     // 截断有 TextOverflow.Ellipsis 兜着，点开还有详情卡的完整课名。
-                    maxLines = if (rows >= 2) 3 else 2,
+                    maxLines = if (rows >= 3) 3 else 2,
                     overflow = TextOverflow.Ellipsis,
                     // ★ 有 +N 徽标时**课名一个字都不让**：实测把课名 end 内边距设成 14dp 后，
                     //   这一格的课名只剩「数 …」（35.49 − 14 = 21.49dp ÷ 13sp ≈ 1.6 字）。
@@ -1224,7 +1416,7 @@ private fun CourseChip(
                     //   「陈明·文」（文1-103 少了后半）、「周勇·」（教室整个没了）——
                     //   而这一栏最要紧的信息恰恰是**去哪间教室**。
                     //   所以拆成两行、各自一行一截，并**优先给教室**。
-                    //   两行的块只放教室（老师再挤就谁都不清楚了），三行以上两个都给。
+                    //   业主 2026-10-28：「要显示教室和课程，可以不显示老师」⇒ 教室每一块都给，老师整行删掉。
                     if (slot.room.isNotBlank()) {
                         Text(
                             text = slot.room,
@@ -1234,16 +1426,6 @@ private fun CourseChip(
                             color = ink2,   // v4：实色 #5F5A50 对块底 5.76:1，不用 80% 透明造灰
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,   // 截了要看得出来，不能静悄悄少字
-                        )
-                    }
-                    if (rows >= 3 && slot.teacher.isNotBlank()) {
-                        Text(
-                            text = slot.teacher,
-                            fontSize = Type.caption,   // 清单 #11：原 8.5sp，低于地板，改走令牌
-                            lineHeight = Type.lineTight,
-                            color = ink3,   // v4：实色 #68635A 对块底 5.02:1（造灰的 #736E64@66% 只有 4.26）
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -1412,7 +1594,7 @@ private fun DayModeSwitch(
             modifier = Modifier
                 .clip(RoundedCornerShape(50))
                 .border(1.dp, colors.dividerLine, RoundedCornerShape(50))
-                .padding(2.7.dp),
+                .padding(2.dp),
             horizontalArrangement = Arrangement.spacedBy(0.9.dp),
         ) {
             ModePill(firstLabel, selected = !weekMode, onClick = onFirst)
@@ -1424,17 +1606,28 @@ private fun DayModeSwitch(
 @Composable
 private fun ModePill(label: String, selected: Boolean, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    Text(
-        text = label,
-        fontSize = Type.caption,
-        fontWeight = if (selected) Type.weightTitle else Type.weightBody,
-        color = if (selected) colors.background else colors.onSurfaceVariantSummary,
+    // 2026-10-29 业主：「课表侧边的 ui 也有点丑…时间不均匀」。
+    // 原来这颗药丸是 Text 自带行盒 + vertical padding 4.5dp，行高由字体撑开，
+    // 真机 1216x2640 上量到外框 y590..758 = **48dp**，比左边「周四」那一行高一倍多，
+    // 看着像一颗大药丸挂在右边。现在给死高度，左右两颗一定一样高，也不会被
+    // 任何触摸目标的最小尺寸撑开。
+    Box(
         modifier = Modifier
+            .height(ModePillHeight)
             .clip(RoundedCornerShape(50))
             .background(if (selected) colors.onBackground else Color.Transparent)
             .clickable(onClickLabel = "切换到$label") { onClick() }
-            .padding(horizontal = 9.dp, vertical = 4.5.dp),
-    )
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            fontSize = Type.caption,
+            fontWeight = if (selected) Type.weightTitle else Type.weightBody,
+            color = if (selected) colors.background else colors.onSurfaceVariantSummary,
+            maxLines = 1,
+        )
+    }
 }
 
 @Composable
@@ -2117,6 +2310,33 @@ private fun ClockHint(slots: List<TronScheduleSlot>, onOpen: () -> Unit) {
 }
 
 
+internal object ZoomMotion {
+    /** 进场首帧的不透明度。不是 0：从全透明弹出来会像闪一下。 */
+    const val ENTER_ALPHA_FLOOR = 0.30f
+
+    /** 退场最后这一段路程把不透明度收到 0（占整段轨迹的比例）。 */
+    const val EXIT_FADE_SPAN = 0.25f
+
+    fun scaleAt(s0: Float, t: Float): Float = s0 + (1f - s0) * t
+
+    fun alphaAt(t: Float, closing: Boolean): Float {
+        val base = ENTER_ALPHA_FLOOR + (1f - ENTER_ALPHA_FLOOR) * t
+        if (!closing) return base
+        return base * (t / EXIT_FADE_SPAN).coerceIn(0f, 1f)
+    }
+
+    /** 退场用的时间曲线：弹簧或者（关掉动效时）一段短淡出，不是零。 */
+    fun exitSpec(canMove: Boolean): androidx.compose.animation.core.AnimationSpec<Float> =
+        if (canMove) {
+            androidx.compose.animation.core.spring(
+                dampingRatio = com.muyao.wanzaihyperos.ui.design.Motion.OVERLAY_OUT_DAMPING,
+                stiffness = com.muyao.wanzaihyperos.ui.design.Motion.OVERLAY_OUT_STIFFNESS,
+            )
+        } else {
+            androidx.compose.animation.core.tween(com.muyao.wanzaihyperos.ui.design.Motion.FAST_MS)
+        }
+}
+
 /**
  * 点格子后就地放大的详情层。
  *
@@ -2131,7 +2351,9 @@ internal fun SlotZoomOverlay(
     slot: TronScheduleSlot,
     anchor: Rect?,
     pageOrigin: Offset,
+    closing: Boolean = false,
     onClose: () -> Unit,
+    onClosed: () -> Unit = {},
 ) {
     val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
     val haptics = com.muyao.wanzaihyperos.ui.design.rememberHaptics(
@@ -2155,6 +2377,15 @@ internal fun SlotZoomOverlay(
         } else {
             progress.animateTo(1f, animationSpec = androidx.compose.animation.core.tween(motionSpec.FAST_MS))
         }
+    }
+    // 退场：业主说进场「生硬」，退场原来更差 —— onClose 直接把 picked 置空，整层一帧消失，
+    // 连它自己文档第 3 条（关掉动效时降级为一次短淡入，不是零）都不满足。现在反过来播一遍
+    // 同一条轨迹：缩回那一格的真实矩形，最后 25% 路程把不透明度收到 0，免得停在残影上再消失。
+    // 播完才通知上层把 picked 清掉。
+    LaunchedEffect(closing) {
+        if (!closing) return@LaunchedEffect
+        progress.animateTo(0f, animationSpec = ZoomMotion.exitSpec(canMove = motion.canMove))
+        onClosed()
     }
     Box(Modifier.fillMaxSize()) {
         // 遮罩：既有「这一层在最上面」的提示，也顺手吃掉点击（点空白处收起）。
@@ -2187,12 +2418,12 @@ internal fun SlotZoomOverlay(
                         // 等比缩放：取宽高比里更小的那个，免得先被撑变形再回正。
                         val s0 = minOf(from.width / target.width, from.height / target.height)
                             .coerceIn(0.06f, 1f)
-                        val s = s0 + (1f - s0) * t
+                        val s = ZoomMotion.scaleAt(s0, t)
                         scaleX = s
                         scaleY = s
                         translationX = from.center.x + (target.center.x - from.center.x) * t - target.center.x
                         translationY = from.center.y + (target.center.y - from.center.y) * t - target.center.y
-                        alpha = 0.30f + 0.70f * t
+                        alpha = ZoomMotion.alphaAt(t, closing)
                     }
                 },
         ) {

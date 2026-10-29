@@ -31,6 +31,7 @@ import com.muyao.wanzaihyperos.ui.AppThemeMode
 import com.muyao.wanzaihyperos.ui.WanzaiTheme
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.main.pages.fullBleedHorizontal
 import com.muyao.wanzaihyperos.ui.main.pages.SlotZoomOverlay
 import com.muyao.wanzaihyperos.ui.main.pages.WeekBoard
 import com.muyao.wanzaihyperos.data.schedule.WeekLayout
@@ -148,11 +149,14 @@ class BoardPreviewActivity : ComponentActivity() {
         // 否则动画只能等真页面有课表数据才验得到。
         var picked by remember { mutableStateOf<TronScheduleSlot?>(null) }
         var pickedAnchor by remember { mutableStateOf<Rect?>(null) }
+        var zoomClosing by remember { mutableStateOf(false) }
         var pageOrigin by remember { mutableStateOf(Offset.Zero) }
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFEFF1F6))
+                // 2026-10-28 深色档取证：原来写死浅色纸底，切深色后预览页仍是白纸 + 深块，
+                // 看着像「深色档把块变黑了」。改成跟真页面同一个主题底色，预览才算数。
+                .background(top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.background)
                 .onGloballyPositioned { pageOrigin = it.boundsInRoot().topLeft },
         ) {
             Column(
@@ -171,6 +175,8 @@ class BoardPreviewActivity : ComponentActivity() {
                 // 2026-10-28 业主「把课表的那个背景去掉」：预览页也不再套 AppCard，
                 // 否则预览看到的和真页面不是同一个东西。
                 WeekBoard(
+                    // 与真页面同一条出血：预览页也要吃到屏幕边缘，否则预览看到的宽度不是真的。
+                    modifier = Modifier.fullBleedHorizontal(5.dp, Dims.screenH - 5.dp),
                     columns = columns,
                     today = java.time.LocalDate.now().dayOfWeek.value,
                     week = week,
@@ -185,7 +191,9 @@ class BoardPreviewActivity : ComponentActivity() {
                     slot = zoom,
                     anchor = pickedAnchor,
                     pageOrigin = pageOrigin,
-                    onClose = { picked = null },
+                    closing = zoomClosing,
+                    onClose = { zoomClosing = true },
+                    onClosed = { picked = null; pickedAnchor = null; zoomClosing = false },
                 )
             }
             Box(modifier = Modifier.fillMaxSize().padding(6.dp), contentAlignment = Alignment.TopEnd) {
