@@ -1376,8 +1376,9 @@ private fun CourseChip(
             //   第一轮 4+3dp 剩 38.49dp、13sp ⇒ 2.73 字/行，这门课显示成「B/S / 架…」。
             //   第二轮 3+2dp + 12sp 剩 40.49dp ⇒ 2.93 字/行，仍是「B/S架 / 构应用…」。
             //   第三轮 3+1dp + 11sp（Type.caption）剩 41.49dp ⇒ 3.41 字/行，能显示 7 个字。
-            //   左边 3dp 仍给色脊留 1dp 余量，不压它。
-            Column(Modifier.padding(start = 3.dp, end = 0.dp, top = 2.dp, bottom = 2.dp)) {
+            //   2026-10-30 真机量：色脊占 0..10px（3dp×3.5），文字起笔在 59px ⇒ 只隔 5px（1.4dp），
+            //   看着像字贴着色条长出来。start 3dp → 5dp，缝变成 ~2.4dp；代价是每行少 0.2 字，换「不贴边」值得。
+            Column(Modifier.padding(start = 5.dp, end = 0.dp, top = 2.dp, bottom = 2.dp)) {
                 Text(
                     text = slot.courseName.ifBlank { "（未命名）" },
                     // ★ 清单 #11（业主「字太小」）：这一栏是他看课表格子必读的课名。以前 tight 档
