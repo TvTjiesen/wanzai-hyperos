@@ -31,6 +31,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.jw.JwEngine
 import com.muyao.wanzaihyperos.data.jw.JwExamParser
+import com.muyao.wanzaihyperos.data.jw.JwExamSchedule
+import com.muyao.wanzaihyperos.data.jw.NextExam
 import com.muyao.wanzaihyperos.data.jw.JwFeature
 import com.muyao.wanzaihyperos.data.jw.JwPageParser
 import com.muyao.wanzaihyperos.data.jw.JwRepository
@@ -122,6 +124,11 @@ fun JwPage(
 
     // 學期匯總（已修學分 / 加權平均分 / 加權績點）：純函式算，算不出來就是空。
     val scoreSummary = remember(scoreItems) { JwScoreSummarizer.summarize(scoreItems) }
+
+    // 最近一场考试：只认服务端真给了日期的。学校没开放的那些（未放开不可查）
+    // 不進排序，但要在卡片下面如实数出来，否则看着像没有考试。
+    val nextExam = remember(allItems) { JwExamSchedule.next(allItems, java.time.LocalDate.now()) }
+    val examUnknown = remember(allItems) { JwExamSchedule.unknownCount(allItems) }
 
     // 清單的滾動狀態提到外面：頂欄漸變紗要靠它算進度
     //（見 SecondaryScaffold 的 scrollProgress 參數說明）。
@@ -261,6 +268,12 @@ fun JwPage(
                     }
 
                     feature == JwFeature.EXAM -> {
+                        if (nextExam != null) {
+                            item(key = "exam-next") { NextExamCard(nextExam) }
+                        }
+                        if (examUnknown > 0) {
+                            item(key = "exam-unknown") { HintText("另有 " + examUnknown + " 场学校没开放时间，排不进来。") }
+                        }
                         item { SmallTitle(text = "考试（${allItems.size}）") }
                         // ★ key 必須**真的唯一**：同一門課會有多場考試
                         //   （補考、期末考…），實測「大学物理(Ⅰ)」就出現兩次。
@@ -410,4 +423,59 @@ private fun MetricCell(label: String, value: String) {
 internal fun formatOne(v: Double): String {
     val rounded = Math.round(v * 10.0) / 10.0
     return if (rounded == Math.floor(rounded)) rounded.toInt().toString() else String.format("%.1f", rounded)
+}
+
+/** 最近一场考试：左边是哪门课什么时候考，右边是还有几天。 */
+@Composable
+private fun NextExamCard(next: NextExam) {
+    val colors = MiuixTheme.colorScheme
+    AppCard(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "最近一场",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = colors.onSurfaceVariantSummary,
+                )
+                Text(
+                    text = next.courseName,
+                    style = MiuixTheme.textStyles.body1,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    color = colors.onSurface,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                // 日期与时间都是服务端原文里切出来的，只拼不换 —— 换算一次就可能编。
+                Text(
+                    text = listOfNotNull(
+                        next.date.toString().replace("-", "/"),
+                        next.startClock?.let { c -> if (next.endClock != null) c + "–" + next.endClock else c },
+                        next.room.takeIf { it.isNotBlank() },
+                    ).joinToString(" · "),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                Text(
+                    text = if (next.daysAway == 0L) "今天" else if (next.daysAway == 1L) "明天" else next.daysAway.toString(),
+                    style = MiuixTheme.textStyles.title2,
+                    color = colors.primary,
+                )
+                if (next.daysAway > 1L) {
+                    Text(
+                        text = "天",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = colors.onSurfaceVariantSummary,
+                    )
+                }
+            }
+        }
+    }
 }
