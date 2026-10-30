@@ -12,6 +12,13 @@
     <uses-permission android:name="android.permission.CAMERA" />
 
     <!--
+      麥克風：只給 WebView 裡的網頁用（門戶/校園網有些表單要錄音）。
+      WebChromeClient.onPermissionRequest 只放行相機與麥克風兩樣，
+      用戶拒絕時網頁自己失敗，App 其餘功能不受影響。
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
       ★ 不寫 `<uses-feature android:name="android.hardware.camera" android:required="true">`：
       那會讓「沒有相機的設備」在應用商店裡看不到這個 App。
       相機只是其中一個功能，不該成為安裝的前提。

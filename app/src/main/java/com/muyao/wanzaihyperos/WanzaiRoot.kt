@@ -565,6 +565,45 @@ fun WanzaiApp(
                     onOpenLogin = { backStack.add(Route.Login) },
                     // 设置页「帐号」那一组：智慧公寓只能他自己粘入口链接（App 取不到码）。
                     onOpenZhgy = { backStack.add(Route.Zhgy) },
+                    // 消息裡點一條：門戶的 openurl 交給 WebView。
+                    //
+                    // ⚠️ 原樣交過去對 cjh52 是不行的（真機 2026-10-30 實測）：
+                    //   它的 SPA 只認 URL 上的臨時碼，沒帶碼就 replace 到登錄頁、
+                    //   一幀內容都不渲染 —— 使用者看到一片灰，還以為 App 壞了。
+                    //   cjh52 的地址先換一枚一次性碼再打開（與「我的課程」網頁版同路）；
+                    //   其餘域維持原樣：門戶自己也是丟給 WebView。
+                    onOpenUrl = { raw ->
+                        HzcuEndpoints.portalOpenUrl(raw)?.let { url ->
+                            if (AppOpenStrategy.needsTempCode(url)) {
+                                scope.launch {
+                                    val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
+                                    if (tempCode == null) {
+                                        Toast.makeText(
+                                            context,
+                                            "没能取到一次性临时码，这条消息打不开，请稍后重试",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    } else {
+                                        backStack.add(
+                                            Route.Web(
+                                                0,
+                                                "消息详情",
+                                                AppOpenStrategy.buildTempCodeUrl(
+                                                    appUrl = url,
+                                                    appId = 0,
+                                                    colorArgb = null,
+                                                    tempCode = tempCode,
+                                                    nowMillis = System.currentTimeMillis(),
+                                                ),
+                                            ),
+                                        )
+                                    }
+                                }
+                            } else {
+                                backStack.add(Route.Web(0, "消息详情", url))
+                            }
+                        }
+                    },
                 )
             }
 

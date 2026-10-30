@@ -73,6 +73,8 @@ fun NotifySectionPage(
     graph: AppGraph,
     onOpenRollcall: () -> Unit = {},
     onOpenTodos: () -> Unit = {},
+    /** 點開一條消息：把它的 openurl 交給外部（真頁面接 Route.Web）。 */
+    onOpenUrl: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val msgState by graph.messages.messages.collectAsState()
@@ -282,7 +284,7 @@ fun NotifySectionPage(
                     // 一條一張卡會讓同一個板塊看起來像十個獨立入口；
                     // 收成一張分組卡，掃讀時眼睛只需認一次邊界。
                     // 全部列出（不再 take(5)）：既然沒有「全部」頁，少畫的那幾條就真丢了。
-                    item(key = "msg-card") { MessageGroup(items) }
+                    item(key = "msg-card") { MessageGroup(items, onOpenUrl) }
                 }
             }
 
@@ -539,7 +541,7 @@ private fun StatusError(title: String, detail: String) {
  * 未讀只用圓點標（規範紅線：不用字重，避免字寬變化造成行內抖動）。
  */
 @Composable
-private fun MessageGroup(items: List<PortalMessageItem>) {
+private fun MessageGroup(items: List<PortalMessageItem>, onOpenUrl: (String) -> Unit) {
     // 板子：消息直接铺在纸上，只有行与行之间的发丝线，没有一整张白卡。
     //
     // **按来源分组**（板 `.group-head`）：门户每条消息自带 `group` 字段，
@@ -558,7 +560,7 @@ private fun MessageGroup(items: List<PortalMessageItem>) {
                 }
                 grp.forEachIndexed { idx, m ->
                     key("msg-$gi-$idx-${m.id}") {
-                        MessageRow(m)
+                        MessageRow(m, onOpenUrl)
                         if (idx != grp.lastIndex) ThinDivider()
                     }
                 }
@@ -608,13 +610,22 @@ private fun GroupHead(name: String, count: Int, note: String = "") {
 }
 
 @Composable
-private fun MessageRow(m: PortalMessageItem) {
+private fun MessageRow(m: PortalMessageItem, onOpenUrl: (String) -> Unit) {
     val colors = MiuixTheme.colorScheme
+    // 門戶自己對 openurl 為空的行不給點也不畫箭頭，只 toast 一句
+    // 「未獲取到消息通知地址」。我們照同一條界線來（docs/API-PORTAL.md §1.3）。
+    // 以前整行可點但點下去只是把「消息」tab 再選一次 —— 那是死入口（審查 2026-10-21）。
+    val openUrl = m.openUrl?.takeIf { it.isNotBlank() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // 不可點：門戶詳情路由還沒接。以前整行可點、點下去只是把
-            // 「消息」tab 再選一次 —— 那是死入口（审查 2026-10-21）。
+            .then(
+                if (openUrl == null) {
+                    Modifier
+                } else {
+                    Modifier.clickable(onClickLabel = "打开这条通知") { onOpenUrl(openUrl) }
+                }
+            )
             .padding(horizontal = 0.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(Dims.loose),
         // 頂對齊是為了標題折成兩行時，日期仍停在第一行。
@@ -663,6 +674,16 @@ private fun MessageRow(m: PortalMessageItem) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+        if (openUrl != null) {
+            // 箭頭只是「這行能點」的信號，不是獨立按鈕（整行都可點）。
+            // 光學對齊首行文字，所以用固定 padding 而不是垂直居中。
+            Text(
+                text = "›",
+                fontSize = Type.title,
+                color = colors.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 1.dp),
+            )
         }
     }
 }

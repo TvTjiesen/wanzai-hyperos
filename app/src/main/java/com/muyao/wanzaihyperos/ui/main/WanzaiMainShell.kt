@@ -134,6 +134,8 @@ fun WanzaiMainShell(
     onOpenAbout: () -> Unit = {},
     /** B4-06：设置页「账号」二级页。 */
     onOpenAccounts: () -> Unit = {},
+    /** 消息裡點一條：把它的 openurl 交給根導航開 WebView（Route.Web）。 */
+    onOpenUrl: (String) -> Unit = {},
     /** 返回栈深度：设置页的账号聚合行要按它重算（见 `SettingsSectionPage.refreshKey`）。 */
     navDepth: Int = 0,
     modifier: Modifier = Modifier,
@@ -361,6 +363,7 @@ fun WanzaiMainShell(
                                 graph = graph,
                                 onOpenRollcall = onOpenRollcall,
                                 onOpenTodos = onOpenTodos,
+                                onOpenUrl = onOpenUrl,
                             )
 
                             MainSection.Apps -> AppsSectionPage(

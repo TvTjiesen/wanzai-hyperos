@@ -352,6 +352,45 @@ class AppOpenStrategyTest {
     }
 
     @Test
+    fun `cjh52 的地址同时带 tempcode 与 token 两个参数`() {
+        // 门户自己打开 cjh52 时两个参数都在、值相同（B0 §2.1 观察一）；
+        // 而它的 SPA 只读 token —— 少了那一枚就 replace 到登录页、一片灰。
+        val code = "9a362a1d-42f1-4173-b189-c96f2bfa4fd9"
+        val url = AppOpenStrategy.buildTempCodeUrl(
+            appUrl = "https://cjh52.hzcu.edu.cn/notice/123",
+            appId = 0,
+            colorArgb = null,
+            tempCode = code,
+            nowMillis = 1L,
+        )
+        assertTrue(url.contains("tempcode=$code"))
+        assertTrue("cjh52 还必须带 token 参数（SPA 只读它）：$url", url.contains("token=$code"))
+
+        // 别的域不多送一份凭据
+        val other = AppOpenStrategy.buildTempCodeUrl(
+            appUrl = "https://x.hzcu.edu.cn/y",
+            appId = 0,
+            colorArgb = null,
+            tempCode = code,
+            nowMillis = 1L,
+        )
+        assertFalse("别的域不该出现 token= 参数：$other", other.contains("&token="))
+    }
+
+    @Test
+    fun `只有 cjh52 的网页地址需要先换码`() {
+        // 真机 2026-10-30：门户消息的 openurl 直接指向 cjh52，不带码就渲染出灰屏。
+        assertTrue(AppOpenStrategy.needsTempCode("https://cjh52.hzcu.edu.cn/notice/123"))
+        // 后缀伪装不能混进来（与 isSchoolHost 同一条纪律）
+        assertFalse(AppOpenStrategy.needsTempCode("https://cjh52.hzcu.edu.cn.evil.com/x"))
+        // 门户自己的域、别的子系统：维持原样，不多拼一枚凭据
+        assertFalse(AppOpenStrategy.needsTempCode("http://iappdd.hzcu.edu.cn/x"))
+        assertFalse(AppOpenStrategy.needsTempCode("https://www.hzcu.edu.cn/x"))
+        assertFalse(AppOpenStrategy.needsTempCode(""))
+        assertFalse(AppOpenStrategy.needsTempCode("not a url"))
+    }
+
+    @Test
     fun `tempcode 是拼进去的，没有被编码`() {
         // UUID 里的短横线不需要编码；若哪天有人给它套了 URLEncoder，断言会立刻红。
         val code = "9a362a1d-42f1-4173-b189-c96f2bfa4fd9"

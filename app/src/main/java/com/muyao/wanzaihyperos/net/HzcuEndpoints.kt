@@ -35,6 +35,23 @@ object HzcuEndpoints {
     /** 门户回调 = ACCESS_TOKEN 的落地处。 */
     const val PORTAL_BASE_URL = "$PORTAL_SCHEME://$PORTAL_HOST/"
 
+    /**
+     * 把門戶消息自帶的 openurl 變成能直接交給 WebView 的絕對地址。
+     *
+     * 為什麼要這一層：docs/ 與抓包裡**一條真實 openurl 樣例都沒有**
+     * （grep -rho '"openurl":"[^"]*"' build/ docs/ = 0 命中），所以無法斷定
+     * 學校給的是絕對地址還是站內相對路徑 —— 兩種都得吃得下，否則某一種寫法的
+     * 消息點下去會是空白頁。空白/全空格返回 null（門戶自己對這種行也只 toast
+     * 一句「未獲取到消息通知地址」，不給點）。
+     */
+    fun portalOpenUrl(raw: String?): String? {
+        val text = raw?.trim().orEmpty()
+        if (text.isEmpty()) return null
+        val lower = text.lowercase()
+        if (lower.startsWith("http://") || lower.startsWith("https://")) return text
+        return PORTAL_BASE_URL + text.trimStart('/')
+    }
+
     /** 学在城院（TronClass）桌面版域。**只有 HTTPS。** */
     const val CHAOXING_HOST = "courses.hzcu.edu.cn"
 

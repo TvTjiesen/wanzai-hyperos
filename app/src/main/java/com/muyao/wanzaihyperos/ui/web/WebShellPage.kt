@@ -1,12 +1,17 @@
 package com.muyao.wanzaihyperos.ui.web
 
 import android.annotation.SuppressLint
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.webkit.PermissionRequest
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -95,6 +100,30 @@ fun WebShellPage(
 ) {
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
+
+    // 網頁要相機/麥克風（getUserMedia）時，先問系統、拿到系統權限再放行網頁。
+    //
+    // 為什麼必須接：WebChromeClient 不覆寫 onPermissionRequest 時默認一路拒絕，
+    // 於是校園網裡凡是要拍照上傳 / 語音的頁面都靜默失敗 —— 用戶看到的是
+    // 「按了沒反應」，而不是「缺權限」。真機 2026-10-30 復現（grep onPermissionRequest = 0）。
+    var pendingWebPermission by remember { mutableStateOf<PermissionRequest?>(null) }
+
+    // 回調裡重新查一次系統權限而不是只看返回的 map：
+    // 用戶可能本來就給過相機、只缺麥克風，那樣 map 裡不會有已經給過的那一項。
+    val webPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { _ ->
+        val request = pendingWebPermission
+        pendingWebPermission = null
+        if (request == null) return@rememberLauncherForActivityResult
+        val allowed = request.resources.filter { resource ->
+            val permission = androidPermissionOf(resource)
+            permission != null &&
+                ContextCompat.checkSelfPermission(context, permission) ==
+                PackageManager.PERMISSION_GRANTED
+        }
+        if (allowed.isEmpty()) request.deny() else request.grant(allowed.toTypedArray())
+    }
 
     var progress by remember { mutableFloatStateOf(0f) }
     var loadState by remember { mutableStateOf<WebLoadState>(WebLoadState.Loading) }
@@ -298,6 +327,30 @@ color = Color.Transparent,
                             }
                         }
                         webChromeClient = object : android.webkit.WebChromeClient() {
+                            override fun onPermissionRequest(request: PermissionRequest?) {
+                                if (request == null) return
+                                // 只放行相機 / 麥克風這兩樣；MIDI、受保護媒體標識一律拒。
+                                val wanted = request.resources.filter {
+                                    it == PermissionRequest.RESOURCE_VIDEO_CAPTURE ||
+                                        it == PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                                }
+                                if (wanted.isEmpty()) {
+                                    request.deny()
+                                    return
+                                }
+                                val missing = wanted.mapNotNull { androidPermissionOf(it) }
+                                    .filter {
+                                        ContextCompat.checkSelfPermission(context, it) !=
+                                            PackageManager.PERMISSION_GRANTED
+                                    }
+                                if (missing.isEmpty()) {
+                                    request.grant(wanted.toTypedArray())
+                                } else {
+                                    pendingWebPermission = request
+                                    webPermissionLauncher.launch(missing.toTypedArray())
+                                }
+                            }
+
                             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                 super.onProgressChanged(view, newProgress)
                                 // ⚠️ 只在**值真的變了**才寫 state。
@@ -395,6 +448,13 @@ color = Color.Transparent,
             }
         }
     }
+}
+
+/** 網頁資源 → 系統權限。不認識的資源返回 null（調用方據此拒絕）。 */
+private fun androidPermissionOf(resource: String): String? = when (resource) {
+    PermissionRequest.RESOURCE_VIDEO_CAPTURE -> android.Manifest.permission.CAMERA
+    PermissionRequest.RESOURCE_AUDIO_CAPTURE -> android.Manifest.permission.RECORD_AUDIO
+    else -> null
 }
 
 /** 从 URL 里取主机名用于顶栏副标题。取不到就显示原串（不假装解析成功）。 */

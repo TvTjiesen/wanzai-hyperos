@@ -429,6 +429,19 @@ object AppOpenStrategy {
         if (url.isBlank()) return null
         return runCatching { URI(url.trim()).host?.lowercase() }.getOrNull()
     }
+    /**
+     * 这条门户给的地址，打开前是否必须先换一枚临时码。
+     *
+     * 目前只有 cjh52：「消息」里的 openurl 会直接指向它（真机 2026-10-30 实测，
+     * 一条通知的落地页就是 cjh52 的一页），而它的 SPA **只认 URL 上的临时码**
+     * —— `umi.js` 逐字：`var Wr=Hr(location.href),ta=Wr==null?void 0:Wr.token ...`
+     * 取不到就 history.replace 到登录页、什么都不渲染，用户看到的是一片灰。
+     *
+     * 判据是**域**而不是「是不是门户自己给的」：门户消息的 openurl 各种子系统都有，
+     * 只有 cjh52 这条已实测必须带码；别的域维持原样 —— 给不相干的站多拼一枚凭据
+     * 是不必要的暴露（[buildTempCodeUrl] 自己的注释也守着同一条红线）。
+     */
+    fun needsTempCode(url: String): Boolean = hostOf(url) == HzcuHosts.CJH52
 
     /**
      * 拼「换码后」的子系统地址。**逐字照抄门户自己的 JS**
@@ -473,6 +486,19 @@ object AppOpenStrategy {
             .append("&devicetype=5")
             .append("&mode=").append(mode)
             .append("&tempcode=").append(tempCode)
+
+        // ★ cjh52 還要多一個 token 參數（同一個值）。
+        //
+        // 门户在钉钉容器里打开 cjh52 时，地址上**两个参数都在、值相同**
+        //（docs/B0-CJH52-CONTRACT.md §2.1 观察一：tempcodeEqualsTokenParam = true）。
+        // 而 cjh52 的 SPA 自己只读 token（umi.js 逐字：
+        //   var Wr=Hr(location.href),ta=Wr==null?void 0:Wr.token
+        //   ta&&(localStorage.setItem("token",ta),...)）——
+        // 只拼 tempcode 的话它读不到，history.replace 到登录页，页面一片灰。
+        // 真机 2026-10-30 实测；只对 cjh52 域补，别处不多送一份凭据。
+        if (hostOf(appUrl) == HzcuHosts.CJH52) {
+            builder.append("&token=").append(tempCode)
+        }
 
         val url = builder.toString()
         return if (!url.contains('?')) url.replaceFirst("&", "?") else url
