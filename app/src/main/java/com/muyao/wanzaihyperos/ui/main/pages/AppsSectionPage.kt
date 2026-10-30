@@ -554,7 +554,10 @@ private fun ScanEntry(onClick: () -> Unit) {
     ) {
         Icon(
             imageVector = ImageVector.vectorResource(R.drawable.ic_board_scan),
-            contentDescription = null,
+            // 必须给名字：这颗钮里只有一张图标，没有文字也没有子节点，
+            // contentDescription 留空的话 uiautomator 里它是 NAF="true"（无名称），
+            // 读屏用户听到的只是一声「按钮」（真机实测过）。
+            contentDescription = "扫一扫",
             tint = colors.onSurfaceVariantSummary.copy(alpha = 0.85f),
             modifier = Modifier.size(14.4.dp),
         )
