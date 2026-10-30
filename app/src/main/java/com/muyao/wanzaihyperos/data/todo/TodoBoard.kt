@@ -90,6 +90,19 @@ data class TodoItem(
      *   旗標在轉換處設（那里看得到原始 `type`），界面只負責照它亮/滅。
      */
     val actionable: Boolean = false,
+    /**
+     * [sortTimeMillis] 到底是**截止时间**还是**创建时间**。
+     *
+     * ★ 为什么必须分开（2026-11-01 真机抓到的错）：
+     *   两个来源的 `sortTimeMillis` 语义不同 ——
+     *   學在城院给的是 `end_time`（截止，可以拿来排急迫程度），
+     *   門戶那条给的是 `createtime`（**创建**时间）。
+     *   把创建时间当截止时间排序，一条 2025-08-29 创建的老审批
+     *   会被当成「过期最久、最该先做」顶到最上面 —— 排序看起来很确定，其实是编的。
+     *
+     * 只有 true 的条目才允许参与「最近要交」的挑选。
+     */
+    val hasDeadline: Boolean = false,
 )
 
 /**
@@ -273,6 +286,8 @@ fun TronTodo.toTodoItem(): TodoItem = TodoItem(
     courseId = courseId,
     // 只有「真的是作業」才允許點進詳情+提交（見 [TronTodo.isHomework]）。
     actionable = isHomework,
+    // end_time 解析出来了才算有截止时间；解析不出来就是「不知道」。
+    hasDeadline = endTimeMillis != null,
 )
 
 /** 門戶的事務 → 統一視圖。 */
@@ -285,6 +300,8 @@ fun PortalBill.toTodoItem(): TodoItem = TodoItem(
     //（**不猜一個時間**，那會讓排序看起來很確定其實是編的）。
     sortTimeMillis = parsePortalTime(createdAt),
     timeText = createdAt,
+    // ★ 門戶的 createtime 是**创建**时间，不是截止时间 —— 不许当急迫程度排序。
+    hasDeadline = false,
 )
 
 /**

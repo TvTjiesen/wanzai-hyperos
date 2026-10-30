@@ -30,7 +30,9 @@ import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.todo.TodoBoard
 import com.muyao.wanzaihyperos.data.todo.TodoGroup
 import com.muyao.wanzaihyperos.data.todo.TodoItem
+import com.muyao.wanzaihyperos.data.todo.TodoNext
 import com.muyao.wanzaihyperos.data.todo.TodoRepository
+import com.muyao.wanzaihyperos.data.todo.UrgentTodo
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
@@ -143,6 +145,15 @@ color = Color.Transparent,
                         modifier = Modifier.padding(horizontal = 4.dp),
                     )
                 }
+                // 「最近要交的那一件」摆最上面。
+                // 分组是必要的（两边的「办」法不同），但分组之后就看不出「今天最该先动哪件」——
+                // 真机上 19 条作业散在两组里，要自己滚动比对日期。
+                // 没截止时间的一条都不参与（學在城院 end_time 实测常为 null，
+                // 門戶那条给的是创建时间）—— 那些只计数，编一个时间会让人照着错的顺序做事。
+                val urgent = TodoNext.pick(board.groups, java.time.LocalDateTime.now())
+                if (urgent != null) {
+                    item(key = "urgent") { UrgentCard(urgent, onOpenHomework) }
+                }
                 items(board.groups, key = { it.source.name }) { group ->
                     SourceSection(group, onOpenHomework)
                 }
@@ -155,6 +166,68 @@ color = Color.Transparent,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 「最近要交」一张卡。
+ *
+ * 过期的**不藏起来**，而是摆到最前面并如实写「已过期 N 天」——
+ * 迟交的作业仍然在待办里，跳过它去显示下周那份，等于帮人把麻烦藏了。
+ */
+@Composable
+private fun UrgentCard(urgent: UrgentTodo, onOpen: (TodoItem) -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    val openable = urgent.item.actionable && urgent.item.courseId > 0
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+                .then(
+                    if (openable) {
+                        Modifier.clickable(onClickLabel = "打开这项作业") { onOpen(urgent.item) }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            Text(
+                text = "最近要交",
+                style = MiuixTheme.textStyles.footnote2,
+                color = colors.onSurfaceVariantSummary,
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = urgent.item.title.ifBlank { "（无标题）" },
+                    style = MiuixTheme.textStyles.title4,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = TodoNext.dueText(urgent.daysAway),
+                    style = MiuixTheme.textStyles.footnote2,
+                    // 过期的用 error 色，但**不只靠颜色**：文字本身就写着「已过期 N 天」。
+                    color = if (urgent.overdue) colors.error else colors.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            val meta = buildList {
+                if (urgent.item.subtitle.isNotBlank()) add(urgent.item.subtitle)
+                if (urgent.item.timeText.isNotBlank()) add(urgent.item.timeText)
+            }
+            if (meta.isNotEmpty()) {
+                Text(
+                    text = meta.joinToString("　"),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = colors.onSurfaceVariantSummary,
+                )
             }
         }
     }

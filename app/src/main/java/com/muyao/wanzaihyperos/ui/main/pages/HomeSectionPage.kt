@@ -65,6 +65,7 @@ import com.muyao.wanzaihyperos.data.schedule.TodayPlan
 import com.muyao.wanzaihyperos.data.schedule.jwVerdictOf
 import com.muyao.wanzaihyperos.data.schedule.pickSlots
 import com.muyao.wanzaihyperos.data.todo.TodoBoard
+import com.muyao.wanzaihyperos.data.todo.TodoNext
 import com.muyao.wanzaihyperos.data.tronclass.TronRollcall
 import com.muyao.wanzaihyperos.data.tronclass.TronScheduleSlot
 import com.muyao.wanzaihyperos.ui.design.AppCard
@@ -1357,7 +1358,12 @@ private fun TodoSummaryCard(
 ) {
     val colors = MiuixTheme.colorScheme
     val board = (state as? ListState.Content)?.items?.firstOrNull()
+    // ★ 跨來源按「急迫程度」排，而不是按分组顺序取前三条。
+    //   分组顺序是「学在城院在前、门户在后」，于是门户里明天就截止的那条永远露不出来；
+    //   过期的（还没交的旧作业）也一直被压在下面 —— 那等于帮人把迟交的事藏起来。
+    //   没有截止时间的条目排在最后，保持它们原有的相对顺序（不编一个时间）。
     val items = board?.groups?.flatMap { it.items }.orEmpty()
+        .let { TodoNext.ordered(it, java.time.LocalDateTime.now()) }
     val loading = state is ListState.FirstLoad
     val expired = state is ListState.SessionExpired
     val error = (state as? ListState.Failed)?.error?.userText
