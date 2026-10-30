@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.tronclass
 
+import com.muyao.wanzaihyperos.data.tronclass.RollcallQrCode
 import com.muyao.wanzaihyperos.data.tronclass.TronRollcall
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -171,5 +172,43 @@ class ScanPlanTest {
         val hits = main.walkTopDown().filter { it.isFile && it.extension == "kt" }
             .count { it.readText(Charsets.UTF_8).contains("scanQrCode") }
         assertEquals("`scanQrCode`（roomis 端点）不该再有任何调用点", 0, hits)
+    }
+
+    @Test
+    fun `码里带签到编号时 清单里没有也能签`() {
+        // 学校签到码 /j?p= 的第 4 段就是 rollcallId（36 进制）。
+        // 扫到码不必等它出现在「进行中」清单里 —— 这是 2026-10-30 更正的口径。
+        val code = RollcallQrCode.Payload(rollcallId = 249656, courseId = 67619, data = "abc")
+        val picked = pendingCandidates(emptyList(), targetId = null, code = code)
+        assertEquals("必须凭码里的编号合成一条", 1, picked.size)
+        assertEquals(249656, picked[0].id)
+        assertEquals(67619, picked[0].courseId)
+        assertTrue("标题要写明这是扫到的编号，别让他以为是清单里的", "249656" in picked[0].title)
+    }
+
+    @Test
+    fun `清单里有这条时用清单里的 别另造一条`() {
+        val real = rollcall(249656)
+        val code = RollcallQrCode.Payload(rollcallId = 249656, courseId = 67619, data = "abc")
+        val picked = pendingCandidates(listOf(real), targetId = null, code = code)
+        assertEquals(1, picked.size)
+        assertEquals("必须是清单里那条（标题、时间都是真的）", real.title, picked[0].title)
+    }
+
+    @Test
+    fun `行内扫码优先于码里的编号`() {
+        val a = rollcall(1)
+        val b = rollcall(2)
+        val code = RollcallQrCode.Payload(rollcallId = 2, courseId = 67619, data = "abc")
+        val picked = pendingCandidates(listOf(a, b), targetId = 1, code = code)
+        assertEquals("他点了第 1 行，就只认第 1 行", listOf(1), picked.map { it.id })
+    }
+
+    @Test
+    fun `没有码也没有行内目标时退回需扫码且未签的`() {
+        val open = rollcall(1)
+        val signed = rollcall(2, unanswered = false)
+        val picked = pendingCandidates(listOf(open, signed), targetId = null, code = null)
+        assertEquals("只挑需扫码且还没签的", listOf(1), picked.map { it.id })
     }
 }
