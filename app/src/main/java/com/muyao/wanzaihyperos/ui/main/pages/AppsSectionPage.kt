@@ -89,6 +89,8 @@ fun AppsSectionPage(
     graph: AppGraph,
     onOpenApp: (PortalApp) -> Unit,
     onOpenSearch: () -> Unit,
+    /** 全局扫一扫：搜索行右边那颗方形钮。扫到网址开网页，扫到签到码带去签到页。 */
+    onOpenScan: () -> Unit = {},
     // 「整理」不在这一页里画：板上它是**顶栏**那颗（`.topbar .meta .tidybtn`），
     // 由壳直接调 `showAppearance`，见本文件的 [AppsTidyButton]。
     modifier: Modifier = Modifier,
@@ -156,8 +158,14 @@ fun AppsSectionPage(
 
         // 搜索只做**入口**：真正的输入框与查询状态都在搜索页。
         // 这里再放一个输入框会出现两份查询状态，点进来还要同步一次。
+        // 扫一扫与搜索并排：两者是同一件事的两面 ——
+        // 搜索是「我知道我要什么」，扫一扫是「我不知道，让 App 认」。
         item(key = "search") {
-            SearchEntry(onClick = onOpenSearch)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SearchEntry(onClick = onOpenSearch, modifier = Modifier.weight(1f))
+                Spacer(Modifier.size(8.dp))
+                ScanEntry(onClick = onOpenScan)
+            }
         }
 
         when (val s = catalogState) {
@@ -491,7 +499,7 @@ fun AppsTidyButton(onClick: () -> Unit) {
 
 /** 顶部搜索入口：一条可点的近实底行，不是输入框。 */
 @Composable
-private fun SearchEntry(onClick: () -> Unit) {
+private fun SearchEntry(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val colors = MiuixTheme.colorScheme
     val isDark = colors.background.luminance() < 0.5f
     // 板 `.searchline{margin:2px 18px 5px;height:34px;border-radius:12px;
@@ -500,7 +508,7 @@ private fun SearchEntry(onClick: () -> Unit) {
     // 它是一条「按上去搜索的灰行」，不是输入框，也不是一张有投影的白卡 ——
     // 原来 44dp 全圆 + surfaceContainerHigh 把它抬成了主角，内容就被它压低了。
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(30.dp)
             .clip(RoundedCornerShape(10.6.dp))
@@ -524,6 +532,32 @@ private fun SearchEntry(onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+    }
+}
+
+/**
+ * 扫一扫入口：与搜索行同高的一颗方钮（30dp）。
+ *
+ * 为什么不做成第二条灰行：两条一模一样的灰行长在一起，
+ * 用户分不出哪条是按、哪条是搜；方钮在右端，形状本身就说明「按一下」。
+ */
+@Composable
+private fun ScanEntry(onClick: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(RoundedCornerShape(10.6.dp))
+            .background(colors.onBackground.copy(alpha = 0.045f))
+            .clickable(onClickLabel = "扫一扫") { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = ImageVector.vectorResource(R.drawable.ic_board_scan),
+            contentDescription = null,
+            tint = colors.onSurfaceVariantSummary.copy(alpha = 0.85f),
+            modifier = Modifier.size(14.4.dp),
+        )
     }
 }
 

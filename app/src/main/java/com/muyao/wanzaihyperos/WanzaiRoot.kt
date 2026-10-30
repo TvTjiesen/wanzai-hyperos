@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.data.AppOpenPlan
 import com.muyao.wanzaihyperos.data.AppOpenStrategy
+import com.muyao.wanzaihyperos.data.tronclass.ScanHandoff
 import com.muyao.wanzaihyperos.data.CountValue
 import com.muyao.wanzaihyperos.data.PortalApp
 import com.muyao.wanzaihyperos.nav.Route
@@ -458,6 +459,48 @@ fun WanzaiApp(
             }
         }
 
+        // 打开一条门户给的地址（消息 openurl 与扫到的网址都走这里）。
+        //
+        // 原樣交過去對 cjh52 是不行的（真機 2026-10-30 實測）：
+        // 它的 SPA 只認 URL 上的臨時碼，沒帶碼就 replace 到登錄頁、
+        // 一幀內容都不渲染 —— 使用者看到一片灰，還以為 App 壞了。
+        // cjh52 的地址先換一枚一次性碼再打開（與「我的課程」網頁版同路）；
+        // 其餘域維持原樣：門戶自己也是丟給 WebView。
+        //
+        // 標題由呼叫方給：消息裡是「消息详情」，掃一掃裡是「扫到的网页」。
+        fun openUrlWithTempCode(raw: String, title: String) {
+            HzcuEndpoints.portalOpenUrl(raw)?.let { url ->
+                if (AppOpenStrategy.needsTempCode(url)) {
+                    scope.launch {
+                        val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
+                        if (tempCode == null) {
+                            Toast.makeText(
+                                context,
+                                "没能取到一次性临时码，这条消息打不开，请稍后重试",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        } else {
+                            backStack.add(
+                                Route.Web(
+                                    0,
+                                    title,
+                                    AppOpenStrategy.buildTempCodeUrl(
+                                        appUrl = url,
+                                        appId = 0,
+                                        colorArgb = null,
+                                        tempCode = tempCode,
+                                        nowMillis = System.currentTimeMillis(),
+                                    ),
+                                ),
+                            )
+                        }
+                    }
+                } else {
+                    backStack.add(Route.Web(0, title, url))
+                }
+            }
+        }
+
         NavDisplay(
             backStack = backStack,
             // 参考（变焦环）的推/退动效，见 `nav/RouteTransitions.kt` 的换算说明。
@@ -558,6 +601,12 @@ fun WanzaiApp(
                     navDepth = backStack.size,
                     // 首頁「簽到」磁貼：兩步到掃碼（业主 2026-10-19）。
                     onOpenRollcall = { backStack.add(Route.Rollcall()) },
+                    // 應用頁的掃一掃。進來先清一次中轉槽：
+                    // 上一次掃到一半退出的碼不該在這次冒出來。
+                    onOpenScan = {
+                        ScanHandoff.clear()
+                        backStack.add(Route.Scanner)
+                    },
                     onOpenSettings = { uiState.selectedTab = 4 },
                     // 登入頁出口。v3 #8 之後只剩一處走它：「賬號」組的門戶那一行
                     // （舊的「去重新登錄」按鈕已並進去）。學在城院那一行只用文字指回這裡、
@@ -867,6 +916,25 @@ fun WanzaiApp(
                     repository = app.rollcall,
                     onExit = { backStack.removeLastOrNull() },
                     onOpenWeb = { openTronWeb(route.tileUrl) },
+                )
+            }
+
+            // 全局扫一掃：應用頁那顆方形鈕進來。
+            //
+            // 掃到的原文不進路由參數（憑據永不進導航狀態，見 nav/Routes.kt）：
+            // 簽到碼走 ScanHandoff 一次性中轉，簽到頁 take() 取走即清空。
+            entry<Route.Scanner> {
+                com.muyao.wanzaihyperos.ui.tronclass.ScannerPage(
+                    onExit = { backStack.removeLastOrNull() },
+                    onWeb = { url ->
+                        backStack.removeLastOrNull()
+                        openUrlWithTempCode(url, "扫到的网页")
+                    },
+                    onRollcall = { raw ->
+                        ScanHandoff.put(raw)
+                        backStack.removeLastOrNull()
+                        backStack.add(Route.Rollcall())
+                    },
                 )
             }
 

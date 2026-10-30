@@ -67,12 +67,24 @@ import java.util.concurrent.Executors
  * 1. **權限被拒** → 顯示說明 + 重試按鈕（系統第二次問會直接拒，所以要引導去設定）
  * 2. **沒有相機 / 相機被佔用** → 明確文字
  * 3. **一直掃不到** → 使用者可以自己返回，走「手動粘貼」那條路（[RollcallPage] 已支援）
+ *
+ * ### 同一台相机，两个地方用
+ *
+ * 签到页里它是「扫码签到」；应用页的扫一扫里它是通用扫码。
+ * 标题 / 副标题 / 提示 / 拒权文案因此都是参数 —— 写死的话，
+ * 从扫一扫进来会读到「扫码签到 · 对准学在城院的签到二维码」，
+ * 手里拿着活动报名码的人会被这句话骗。
+ * 默认值就是签到页那一套，所以签到页的调用点一个字都不用改。
  */
 @Composable
 fun QrScannerPage(
     onExit: () -> Unit,
     onScanned: (String) -> Unit,
     modifier: Modifier = Modifier,
+    title: String = "扫码签到",
+    subtitle: String = "对准二维码",
+    hint: String = "对准学在城院的签到二维码",
+    noPermissionText: String = "没有相机权限，无法扫码。可以返回后用粘贴的方式签到。",
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -94,7 +106,7 @@ fun QrScannerPage(
     ) { granted ->
         hasPermission = granted
         if (!granted) {
-            errorText = "没有相机权限，无法扫码。可以返回后用“粘贴扫码结果”的方式签到。"
+            errorText = noPermissionText
         }
     }
 
@@ -116,9 +128,9 @@ fun QrScannerPage(
         modifier = modifier.fillMaxSize(),
         topBar = {
             SmallTopAppBar(
-                title = "扫码签到",
+                title = title,
 color = Color.Transparent,
-                subtitle = "对准二维码",
+                subtitle = subtitle,
                 navigationIcon = {
                     IconButton(onClick = onExit) {
                         Icon(
@@ -229,7 +241,7 @@ color = Color.Transparent,
                     )
                 }
                 Text(
-                    text = "对准学在城院的签到二维码",
+                    text = hint,
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),

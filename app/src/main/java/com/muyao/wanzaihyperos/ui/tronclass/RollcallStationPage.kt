@@ -229,6 +229,20 @@ fun RollcallBody(
         if (state is ListState.FirstLoad) repository.refresh()
     }
 
+    // 從全局掃一掃帶過來的碼：take() 取走即清空，掛到同一張選擇卡上。
+    // 這裡仍然只挑不寫 —— 提交那一鍵由他按（簽到是寫操作）。
+    LaunchedEffect(Unit) {
+        val handed = com.muyao.wanzaihyperos.data.tronclass.ScanHandoff.take()
+            ?: return@LaunchedEffect
+        val payload = com.muyao.wanzaihyperos.data.tronclass.QrPayloadParser
+            .extract(handed)
+        if (payload == null) {
+            notice = Notice(false, "扫到的内容里没有签到信息")
+        } else {
+            pending = ScanPending(payload, null, RollcallQrCode.parse(handed))
+        }
+    }
+
     // ── 相机（全屏覆盖，扫完立即收起）──────────────────────────────
     if (scanTarget != null) {
         QrScannerPage(

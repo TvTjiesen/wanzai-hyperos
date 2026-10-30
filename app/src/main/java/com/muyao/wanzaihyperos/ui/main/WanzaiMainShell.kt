@@ -126,6 +126,8 @@ fun WanzaiMainShell(
     onOpenSettings: () -> Unit,
     /** 首頁「簽到」磁貼：直接進簽到頁（掃碼/數字/自助）。 */
     onOpenRollcall: () -> Unit = {},
+    /** 應用頁的掃一掃：全局入口，掃到網址開網頁、掃到簽到碼帶去簽到頁。 */
+    onOpenScan: () -> Unit = {},
     /** 「設定 → 去重新登入」：真的把使用者送回登入頁。 */
     onOpenLogin: () -> Unit = {},
     /** 设置页「智慧公寓」那一行：跳到它自己的闸门页（只能他自己粘贴入口链接）。 */
@@ -378,6 +380,7 @@ fun WanzaiMainShell(
                                 graph = graph,
                                 onOpenApp = onOpenApp,
                                 onOpenSearch = onOpenSearch,
+                                onOpenScan = onOpenScan,
                             )
 
                             MainSection.Settings -> SettingsSectionPage(

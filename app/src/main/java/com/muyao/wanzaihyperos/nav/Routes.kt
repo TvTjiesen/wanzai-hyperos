@@ -28,6 +28,18 @@ sealed interface Route : NavKey {
     @Serializable
     data object Search : Route
 
+    /**
+     * 全局扫一扫（应用页搜索行右边那颗方形钮进来）。
+     *
+     * 它自己不处理任何内容：判完就转交（见 ui/tronclass/ScannerPage.kt）——
+     * 网址开 WebView、签到码带去 [Rollcall]、其它老实说不是。
+     *
+     * 为什么单开一条路由而不是塞进 [Rollcall]：签到页的相机只认签到码，
+     * 而用户手里那张码不一定是签到码（可能是活动报名页、通知详情）。
+     */
+    @Serializable
+    data object Scanner : Route
+
     /** 关于 + 开源许可（B4-10）：从设置页「关于」那一行走进来。 */
     @Serializable
     data object About : Route
