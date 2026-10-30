@@ -9,6 +9,8 @@ import com.muyao.wanzaihyperos.ui.design.ai.AiBall
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +47,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.data.portal.PortalMessageGroup
 import com.muyao.wanzaihyperos.data.portal.PortalMessageItem
 import com.muyao.wanzaihyperos.data.portal.PortalNewsItem
 import com.muyao.wanzaihyperos.ui.design.Dims
@@ -100,6 +103,10 @@ fun NotifySectionPage(
     val msgSelected by graph.messages.selectedGroup.collectAsState()
     val newsGroupsState by graph.news.groups.collectAsState()
     val newsSelected by graph.news.selectedGroup.collectAsState()
+    // 门户的消息分组（服务端的 `listmessagegroup`，标识是名字）。
+    // 没有它，页面只能停在「仓库自己选中的第一个分组」上。
+    val msgGroups: List<PortalMessageGroup> =
+        (msgGroupsState as? ListState.Content)?.items.orEmpty()
 
     LaunchedEffect(Unit) {
         // ★ 取数交给 `AppGraph.fetch`（应用级作用域）。原因见 `AppGraph.ioScope` 的注释：
@@ -271,6 +278,17 @@ fun NotifySectionPage(
             GroupHead(name = "门户通知", count = msgCount ?: 0, note = if (msgCount == null) "—" else "")
         }
 
+        // 分组切换：`listmessage` 一次只返回**一个分组**，而首位分组会变
+        // （2026-10-30 实测在「讲座通知」与「活动通知」之间来回）。
+        // 没有这排胶囊，另一个分组对用户等于不存在。
+        item(key = "msg-groups") {
+            MsgGroupChips(
+                groups = msgGroups,
+                selected = msgSelected,
+                onSelect = { g -> graph.fetch { graph.messages.selectGroup(g) } },
+            )
+        }
+
         when (val s = msgState) {
             is ListState.FirstLoad -> item(key = "msg-loading") { StatusHint("正在取得消息…") }
 
@@ -342,6 +360,44 @@ private fun NotifyFilters(
         FilterPill("待处理", pillCount(pending), selected == 1) { onSelect(1) }
         FilterPill("门户", pillCount(portal), selected == 2) { onSelect(2) }
         FilterPill("新闻", pillCount(news), selected == 3) { onSelect(3) }
+    }
+}
+
+/**
+ * 消息分组胶囊。
+ *
+ * 为什么必须能切：`listmessage` 一次只回**一个分组**的行，而服务端排在第一的分组
+ * 会变（2026-10-30 实测在「讲座通知」与「活动通知」之间来回）。切不了的话，
+ * 另一个分组对用户等于不存在 —— 一百多条未读就藏在看不见的那一组里。
+ *
+ * 分组标识是**名字**不是 id（data/portal/PortalModels.kt 的注释），所以选中态按名字比。
+ * 胶囊样式直接复用 [FilterPill]：两排胶囊长成两种样子，用户会以为它们是两种东西。
+ */
+@Composable
+private fun MsgGroupChips(
+    groups: List<PortalMessageGroup>,
+    selected: PortalMessageGroup?,
+    onSelect: (PortalMessageGroup) -> Unit,
+) {
+    // 只有一个分组时这排胶囊不提供任何选择，白占一行高度。
+    if (groups.size < 2) return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            // 门户实测 9 个分组，一屏放不下；横滑而不是折行，免得把消息列表顶出屏幕。
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        groups.forEach { g ->
+            key(g.name) {
+                FilterPill(
+                    label = g.name,
+                    count = g.unread.toString(),
+                    selected = selected?.name == g.name,
+                    onClick = { onSelect(g) },
+                )
+            }
+        }
     }
 }
 
