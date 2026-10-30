@@ -1,7 +1,6 @@
 package com.muyao.wanzaihyperos.data.portal
 
 import androidx.compose.ui.graphics.Color
-import com.muyao.wanzaihyperos.data.AppGroup
 import com.muyao.wanzaihyperos.data.DemoMessage
 import com.muyao.wanzaihyperos.data.PortalApp
 import com.muyao.wanzaihyperos.data.PortalSystem
@@ -35,15 +34,8 @@ fun PortalAppEntry.toUiApp(): PortalApp = PortalApp(
     tint = colorArgb?.let { Color(it) },
 )
 
-/** 真实分组 → 界面分组。 */
-fun PortalAppGroup.toUiGroup(): AppGroup = AppGroup(
-    title = name,
-    apps = apps.map { it.toUiApp() },
-)
-
-fun PortalCatalog.toUiGroups(): List<AppGroup> = groups.map { it.toUiGroup() }
-
 /**
+
  * 真实消息 → 界面模型。
  *
  * `lastupdatedate` 为空时退回 `createdate`：界面上那一行是「更新时间」，

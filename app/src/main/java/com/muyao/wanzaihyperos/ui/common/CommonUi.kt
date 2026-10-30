@@ -242,59 +242,6 @@ private fun detailFor(state: PageState): String {
     }
 }
 
-/**
- * 宫格里的一个应用瓷贴。
- *
- * 图标是**本地推断**的，底色优先用门户下发的 `app_color`；
- * 不下载门户的 `app_img`（87 张外链图 = 87 次请求，违反 QPS≤1）。
- */
-@Composable
-fun AppTile(
-    app: PortalApp,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MiuixTheme.colorScheme
-    AppCard(
-        modifier = modifier,
-        onClick = onClick,
-        onLongPress = onLongClick,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 10.dp, horizontal = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(Dims.containerCorner))
-                    .background(app.effectiveTint.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = app.icon,
-                    contentDescription = null,
-                    tint = app.effectiveTint,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-            Text(
-                text = app.name,
-                style = MiuixTheme.textStyles.footnote1,
-                color = colors.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-}
-
 /** 非宫格场景的一行应用（列表用）。 */
 @Composable
 fun AppRow(

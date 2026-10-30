@@ -102,9 +102,11 @@ class TnumOnChangingNumbersTest {
         for ((_, code) in scanned) {
             for (c in calls(code)) if (countingPhrase(c.body) != null) counted += 1
         }
-        // 下限 = 现在的实测条数（首轮 22 处）。跌破说明扫描器或量词表被改坏了，
+        // 下限 = 现在的实测条数。跌破说明扫描器或量词表被改坏了，
         // 那时「上面那条全过」是空过，不是真的都合规。
-        assertTrue("扫描器只认出 " + counted + " 处计数短语，低于 20 ⇒ 这条守卫在空转", counted >= 20)
+        // 首轮 22 处；2026-10-30 删掉死页 AppsPage.kt（里面 3 处「共 $appCount 个应用」之类）
+        // 之后是 19 处 —— 下限跟着实测降，不是放宽判据：扫描器一旦坏掉会掉到个位数。
+        assertTrue("扫描器只认出 " + counted + " 处计数短语，低于 19 ⇒ 这条守卫在空转", counted >= 19)
     }
 
     @Test

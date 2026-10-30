@@ -22,7 +22,7 @@ import java.io.File
  * ## 处置约定
  *  - `MessagesPage`：**不许删**（B4-12 的小球要吃未读角标，接线前置就是它）；
  *  - `MinePage`：主题入口已摘（B4-14 ④），本体留着待接线；
- *  - `AppsPage`：门户应用目录旧实现，已被 `AppsSectionPage` 取代，登记待清。
+ *  - `AppsPage`：门户应用目录旧实现，2026-10-30 已连同上文 `toUiGroup`/`toUiGroups`/`AppTile` 一并删除。
  */
 class DeadPageRegistryTest {
 
@@ -38,11 +38,6 @@ class DeadPageRegistryTest {
             "main/ui/mine/MinePage.kt",
             "MinePage",
             "B4-14 ④：主题入口已摘（唯一入口在外观页）；本体留着待接线",
-        ),
-        Dead(
-            "main/ui/apps/AppsPage.kt",
-            "AppsPage",
-            "门户应用目录旧实现，已被 main/ui/main/pages/AppsSectionPage.kt 取代",
         ),
     )
 

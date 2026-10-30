@@ -203,13 +203,6 @@ class PortalApi(private val client: HzcuClient) {
          * 改成別的數，那個判據就跟著失效 —— 而它正是「有沒有更多」的唯一線索。
          */
         const val BILL_PAGE_SIZE = 10
-
-        /** 供测试断言「包体类型没被改错」。 */
-        internal val JSON_BODY_ENDPOINTS = setOf(
-            HzcuEndpoints.PORTAL_APP_SEARCH_PATH,
-            HzcuEndpoints.PORTAL_NEWS_LIST_PATH,
-            HzcuEndpoints.PORTAL_MESSAGE_LIST_PATH,
-        )
     }
 
     /** 把一个 JSON 包体原样发出去（给需要额外参数的调用方留的口子）。 */
