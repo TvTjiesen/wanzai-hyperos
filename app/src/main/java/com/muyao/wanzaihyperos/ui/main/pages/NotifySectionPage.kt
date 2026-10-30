@@ -165,6 +165,9 @@ fun NotifySectionPage(
         is ListState.Empty -> 0
         else -> null
     }
+    // 分页元信息：hasMore 由「本次返回条数 >= 页大小」算出（ListMeta 的注释），
+    // 不能拿服务端 total 算 —— 实测 total=20 而 allrecords=192。
+    val msgMeta = (msgNow as? ListState.Content)?.meta
     val msgCount: Int? = when (msgNow) {
         is ListState.Content -> msgNow.items.size
         is ListState.Empty -> 0
@@ -287,7 +290,13 @@ fun NotifySectionPage(
             GroupHead(
                 name = "门户通知",
                 count = msgCount ?: 0,
-                note = if (msgCount == null) "—" else "",
+                // 门户一个分组有 189 条未读，而列表一次只取 10 条（rows=10 是门户写死的）。
+                // 只写「10 条」会让人以为这一组只有 10 条 —— 剩下 179 条等于不存在。
+                note = when {
+                    msgCount == null -> "—"
+                    msgMeta?.hasMore == true -> "$msgCount 条 · 还有更多"
+                    else -> ""
+                },
             ) {
                 if (openGroup != null && openGroup.unread > 0) {
                     ReadAllAction(onClick = { confirmReadAll = openGroup })
@@ -322,6 +331,16 @@ fun NotifySectionPage(
                     // 收成一張分組卡，掃讀時眼睛只需認一次邊界。
                     // 全部列出（不再 take(5)）：既然沒有「全部」頁，少畫的那幾條就真丢了。
                     item(key = "msg-card") { MessageGroup(items, onOpenUrl, onRead) }
+                    // 门户一次只回 10 条（rows 写死），没有这个入口，第 11 条之后
+                    // 在界面上根本走不到 —— 而那一组有一百多条未读。
+                    if (msgMeta?.hasMore == true) {
+                        item(key = "msg-more") {
+                            MoreRow(
+                                loading = msgMeta.loadingMore,
+                                onClick = { graph.fetch { graph.messages.loadMore() } },
+                            )
+                        }
+                    }
                 }
             }
 
@@ -680,6 +699,35 @@ private fun MessageGroup(
 }
 
 /** 板 `.group-head{i,gname,gn,line}` × 0.886 ⇒ 点 5.3dp、名 9sp/700、数 8sp、线 0.3dp。 */
+/**
+ * 「加载更多」一行。
+ *
+ * 只在这一组还有下一页时出现（ListMeta.hasMore）；
+ * 取的时候显示「正在加载…」，而不是把按钮留在原地让人连点两次。
+ */
+@Composable
+private fun MoreRow(loading: Boolean, onClick: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (loading) {
+            Text(
+                text = "正在加载…",
+                fontSize = Type.caption,
+                color = colors.onSurfaceVariantSummary,
+            )
+        } else {
+            TextButton(
+                text = "加载更多",
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
 @Composable
 private fun GroupHead(
     name: String,
