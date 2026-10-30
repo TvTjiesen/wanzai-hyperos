@@ -1,7 +1,10 @@
 package com.muyao.wanzaihyperos.ui.web
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.webkit.ValueCallback
 import android.graphics.Bitmap
 import android.webkit.PermissionRequest
 import android.webkit.WebResourceError
@@ -123,6 +126,28 @@ fun WebShellPage(
                 PackageManager.PERMISSION_GRANTED
         }
         if (allowed.isEmpty()) request.deny() else request.grant(allowed.toTypedArray())
+    }
+
+    // 網頁要「選檔案上傳」（請假附件、報修照片、作業提交）時走的通道。
+    //
+    // 為什麼必須接：不覆寫 onShowFileChooser 時，頁面裡的 <input type="file"> 點了
+    // **什麼都不會發生** —— 沒有報錯、沒有對話框，用戶只會以為按鈕壞了。
+    // 校園網裡要傳附件的頁面很多（請假、報修、助學貸款回執），這條是硬需求。
+    // 2026-10-30 巡察時 `grep -rn onShowFileChooser app/src` = 0 命中。
+    var pendingFileCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+    val fileChooserLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val callback = pendingFileCallback
+        pendingFileCallback = null
+        // parseResult 負責「單選 / 多選 / 取消 / 沒有 data」四種情況；取消時給 null。
+        // **必須回調一次**：不調的話那個 file input 會永遠卡住，之後再點也沒有反應。
+        callback?.onReceiveValue(
+            android.webkit.WebChromeClient.FileChooserParams.parseResult(
+                result.resultCode,
+                result.data,
+            ),
+        )
     }
 
     var progress by remember { mutableFloatStateOf(0f) }
@@ -348,6 +373,26 @@ color = Color.Transparent,
                                 } else {
                                     pendingWebPermission = request
                                     webPermissionLauncher.launch(missing.toTypedArray())
+                                }
+                            }
+
+                            override fun onShowFileChooser(
+                                view: WebView?,
+                                filePathCallback: ValueCallback<Array<Uri>>?,
+                                fileChooserParams: android.webkit.WebChromeClient.FileChooserParams?,
+                            ): Boolean {
+                                if (filePathCallback == null || fileChooserParams == null) return false
+                                // 上一次的選擇還沒回話就又點了一次：先把舊回調餵 null 收掉，
+                                // 否則舊的那個 input 永遠等不到結果（Chromium 只認最後一次）。
+                                pendingFileCallback?.onReceiveValue(null)
+                                pendingFileCallback = filePathCallback
+                                // 沒有檔案管理器（罕見）時不能把回調吞掉，否則 input 卡死。
+                                return runCatching {
+                                    fileChooserLauncher.launch(fileChooserParams.createIntent())
+                                }.map { true }.getOrElse {
+                                    pendingFileCallback = null
+                                    filePathCallback.onReceiveValue(null)
+                                    false
                                 }
                             }
 
