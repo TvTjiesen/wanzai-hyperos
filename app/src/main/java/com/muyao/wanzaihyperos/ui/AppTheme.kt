@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.text.font.FontWeight
 import com.muyao.wanzaihyperos.ui.design.MiSans
 import androidx.compose.ui.graphics.Color
@@ -170,14 +171,32 @@ fun WanzaiTheme(
                 // 读两条状态：`UiPrefs.glassMode`（mutableStateOf，读了就会重组）
                 // 与 `motion.glassIsTranslucent`（减弱透明度/高对比 ⇒ 一律先退实底）。
                 val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
-                androidx.compose.runtime.CompositionLocalProvider(
-                    com.muyao.wanzaihyperos.ui.design.glass.LocalBarMaterial provides
-                        com.muyao.wanzaihyperos.ui.design.glass.barMaterialFor(
-                            glassMode = com.muyao.wanzaihyperos.data.UiPrefs.glassMode,
-                            translucent = motion.glassIsTranslucent,
-                        ),
-                    content = content,
-                )
+                // ★ 弹层宿主必须在这里挂一次，否则全 App 的 OverlayDialog 都画不出来。
+                //
+                // miuix 0.9.4 的 OverlayDialog 自己不画任何东西：它只是往
+                // `LocalDialogStates` 里塞一个 DialogState，真正把它渲染出来的是
+                // `MiuixPopupUtils.MiuixPopupHost()`。而整个 miuix jar 里**只有它自己的
+                // Scaffold** 调用过这个宿主（javap 查过：MiuixPopupHost 的调用点只有
+                // ComposableSingletons$ScaffoldKt 与 MiuixPopupUtils 自身）。
+                // 本工程主壳是自定义 Box + AnimatedContent，没有 miuix Scaffold ⇒
+                // 设置页/课表页/消息页的 OverlayDialog 全部点了没反应
+                // （2026-10-30 真机实测：「全部已读」clickable 走进了闭包、状态也写进去了，
+                //  就差这一层宿主，画面一动不动）。
+                //
+                // 放在 Box 的最后一层：弹层要压在所有页面内容之上。
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                ) {
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        com.muyao.wanzaihyperos.ui.design.glass.LocalBarMaterial provides
+                            com.muyao.wanzaihyperos.ui.design.glass.barMaterialFor(
+                                glassMode = com.muyao.wanzaihyperos.data.UiPrefs.glassMode,
+                                translucent = motion.glassIsTranslucent,
+                            ),
+                        content = content,
+                    )
+                    top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost()
+                }
             },
         )
     }

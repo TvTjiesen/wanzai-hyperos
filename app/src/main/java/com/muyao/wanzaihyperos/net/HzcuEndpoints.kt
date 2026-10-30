@@ -319,6 +319,21 @@ object HzcuEndpoints {
         id.trim().takeIf { it.isNotEmpty() }?.let { PORTAL_MESSAGE_READ_PATH + "/" + it }
 
     /**
+     * 分组全部标已读：**路径带「分组名字」的 POST、无请求体**。
+     *
+     * 契约逐字来自门户前端（见 docs/B7-WALKTHROUGH.md 第 1 节）：
+     * readAll = (group) => POST /api/app/ummessage/setallmessageread/{group}
+     *
+     * ⚠️ 路径里是**名字**不是 id —— docs/API-PORTAL.md 把它写成 {id} 是错的，以 B7 为准。
+     * 分组标识本来就只是名字（data/portal/PortalModels.kt 的注释）。
+     */
+    const val PORTAL_MESSAGE_READ_ALL_PATH = "/api/app/ummessage/setallmessageread"
+
+    /** 分组全部标已读的完整路径。名字为空时返回 null —— 宁可不发，也不发一个尾斜杠的地址。 */
+    fun portalMessageReadAllPath(group: String): String? =
+        group.trim().takeIf { it.isNotEmpty() }?.let { PORTAL_MESSAGE_READ_ALL_PATH + "/" + it }
+
+    /**
      * 首页「待办事项」三个计数的接口。契约逐字读自门户自己的 JS。
      *
      * ⚠️ 三个坑（与消息那一族**不同**，别互相套用）：

@@ -145,6 +145,7 @@ fun WanzaiMainShell(
      * 那是根導航（WanzaiRoot）的職責；頁面只管把 id 報上來。
      */
     onReadMessage: (String) -> Unit = {},
+    onReadAllMessage: (String) -> Unit = {},
     /**
      * 「消息」那颗 tab 上的未读数。0 = 不画角标。
      *
@@ -390,6 +391,7 @@ fun WanzaiMainShell(
                                 onOpenTodos = onOpenTodos,
                                 onOpenUrl = onOpenUrl,
                                 onRead = onReadMessage,
+                                onReadAll = onReadAllMessage,
                             )
 
                             MainSection.Apps -> AppsSectionPage(

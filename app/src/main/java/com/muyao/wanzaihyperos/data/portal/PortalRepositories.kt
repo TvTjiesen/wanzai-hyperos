@@ -343,6 +343,18 @@ interface PortalMessageRepository {
      * @return true = 服务端已接受（或它本来就是已读，没发请求）；false = 写失败、已回滚。
      */
     suspend fun markRead(id: String): Boolean
+
+    /**
+     * 把**当前这一组**整个标成已读。
+     *
+     * 契约是 POST setallmessageread/{分组名字}，门户没有「所有分组一起标」的接口。
+     *
+     * 同一个红线：这里**不碰任何计数**。服务端总未读 304 而各组 noread 之和 302，
+     * 本地减一会长期越偏；调用方成功后重取分组与 getmessagenoreadcount。
+     *
+     * @return true = 服务端已接受（列表已重取）；false = 名字为空或写失败。
+     */
+    suspend fun markAllRead(group: String): Boolean
 }
 
 /**
@@ -456,6 +468,22 @@ class LivePortalMessageRepository(
             _messages.value = now.copy(items = MessageRead.revertOne(now.items, content.items, id))
         }
         return false
+    }
+
+    /**
+     * 分组全部已读。成功后就重取一遍列表 —— 界面上的「已读」必须是服务端说已读，
+     * 本地先涂一遍再等服务端，一旦写失败就留下「看着读过、其实没读」的假象。
+     */
+    override suspend fun markAllRead(group: String): Boolean {
+        val name = group.trim()
+        if (name.isEmpty()) return false
+        val ok = runCatching { api.markAllMessagesRead(name) }.getOrDefault(false)
+        if (!ok) return false
+        refreshMessages()
+        // 分组胶囊上的数字也来自服务端（listmessagegroup 的 noread）——
+        // 不重取的话，标完一组，那颗胶囊还挂着「189 未读」。
+        refreshGroups()
+        return true
     }
 }
 

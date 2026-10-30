@@ -671,6 +671,17 @@ fun WanzaiApp(
                             }
                         }
                     },
+                    onReadAllMessage = { group ->
+                        scope.launch {
+                            val ok = runCatching { app.messages.markAllRead(group) }.getOrDefault(false)
+                            app.unread.refresh(force = true)
+                            Toast.makeText(
+                                context,
+                                if (ok) "这一组都标已读了" else "没标上，联网后再试一次",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    },
                 )
             }
 

@@ -190,6 +190,23 @@ class PortalApi(private val client: HzcuClient) {
         return true
     }
 
+    /**
+     * 把一个分组整个标成已读。
+     *
+     * 契约逐字来自门户前端（docs/B7-WALKTHROUGH.md 第 1 节）：
+     * readAll = (group) => POST /api/app/ummessage/setallmessageread/{group}
+     *
+     * 路径里是**分组名字**（中文也照拼，由 HTTP 层编码），不是 id；门户没有
+     * 「所有分组一起标」的接口 —— 一组一组来。
+     *
+     * @return true = 服务端回了成功；false = 名字为空或服务端拒绝。
+     */
+    suspend fun markAllMessagesRead(group: String): Boolean {
+        val path = HzcuEndpoints.portalMessageReadAllPath(group) ?: return false
+        client.portalPost(path = path, fields = emptyMap(), context = "分组全部已读")
+        return true
+    }
+
     /** 消息接口的 `rows` 参数值。门户 JS 里就写死 10。 */
     companion object {
         const val MESSAGE_ROWS = 10

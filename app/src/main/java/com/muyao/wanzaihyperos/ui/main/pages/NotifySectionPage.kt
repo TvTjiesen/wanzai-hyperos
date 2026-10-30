@@ -53,6 +53,8 @@ import com.muyao.wanzaihyperos.data.portal.PortalNewsItem
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.Type
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -80,6 +82,8 @@ fun NotifySectionPage(
     onOpenUrl: (String) -> Unit = {},
     /** 点开一条之后标已读。写在页面里而不是行里，行就仍然只认一个「怎么显示」。 */
     onRead: (String) -> Unit = {},
+    /** 把当前分组整个标已读。失败要能从外面给一句实话，所以也提到页面外面。 */
+    onReadAll: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val msgState by graph.messages.messages.collectAsState()
@@ -89,6 +93,8 @@ fun NotifySectionPage(
 
     // 板子顶部是四颗小胶囊：全部 / 待处理 / 门户 / 新闻。
     var filter by remember { mutableStateOf(0) }
+    // 「全部已读」是批量写，按下就先问一句 —— 一百多条一次性变已读，没有撤销。
+    var confirmReadAll by remember { mutableStateOf<PortalMessageGroup?>(null) }
 
     // ★ 這裡原本有個競態 bug（真機表現：兩個板塊永遠卡在「正在取得…」）。
     //
@@ -275,7 +281,18 @@ fun NotifySectionPage(
             // 板 `.group-head`：小灰点 + 组名(8.9sp/700) + 条数(8sp) + 一条吃掉余宽的发丝线。
             // 原来这里用 13sp 粗体大字，于是这一屏出现三个同级别的大标题，
             // 板上的层级（一个大标题 + 若干小分组头）被压平了（复评 2026-10-21）。
-            GroupHead(name = "门户通知", count = msgCount ?: 0, note = if (msgCount == null) "—" else "")
+            // 「全部已读」只对**当前选中的那一组**（门户没有跨组接口）。
+            // 数字取 libmessagegroup 的 noread，而不是列表长度：列表只是一页（10 条）。
+            val openGroup = msgGroups.firstOrNull { it.name == msgSelected?.name }
+            GroupHead(
+                name = "门户通知",
+                count = msgCount ?: 0,
+                note = if (msgCount == null) "—" else "",
+            ) {
+                if (openGroup != null && openGroup.unread > 0) {
+                    ReadAllAction(onClick = { confirmReadAll = openGroup })
+                }
+            }
         }
 
         // 分组切换：`listmessage` 一次只返回**一个分组**，而首位分组会变
@@ -339,6 +356,37 @@ fun NotifySectionPage(
 
             else -> item(key = "news-none") { StatusHint("暂时没有新闻。") }
         }
+        }
+    }
+
+    val pendingGroup = confirmReadAll
+    OverlayDialog(
+        show = pendingGroup != null,
+        onDismissRequest = { confirmReadAll = null },
+        title = "全部标成已读",
+        summary = "把「" + (pendingGroup?.name ?: "") + "」这一组的 " +
+            (pendingGroup?.unread ?: 0) + " 条未读一次标成已读。" +
+            "门户没有撤销接口，标完只能重新等新消息。",
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TextButton(
+                text = "取消",
+                onClick = { confirmReadAll = null },
+                modifier = Modifier.weight(1f),
+            )
+            top.yukonga.miuix.kmp.basic.Button(
+                onClick = {
+                    val g = confirmReadAll
+                    confirmReadAll = null
+                    g?.let { onReadAll(it.name) }
+                },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(text = "全部已读")
+            }
         }
     }
 }
@@ -633,7 +681,12 @@ private fun MessageGroup(
 
 /** 板 `.group-head{i,gname,gn,line}` × 0.886 ⇒ 点 5.3dp、名 9sp/700、数 8sp、线 0.3dp。 */
 @Composable
-private fun GroupHead(name: String, count: Int, note: String = "") {
+private fun GroupHead(
+    name: String,
+    count: Int,
+    note: String = "",
+    trailing: (@Composable () -> Unit)? = null,
+) {
     val colors = MiuixTheme.colorScheme
     Row(
         modifier = Modifier
@@ -668,7 +721,30 @@ private fun GroupHead(name: String, count: Int, note: String = "") {
                 .height(0.7.dp)
                 .background(colors.dividerLine),
         )
+        trailing?.invoke()
     }
+}
+
+/**
+ * 组头右边的「全部已读」。
+ *
+ * 故意**不用 [FilterPill]**：那是一排「选哪个分组」的开关，长得一样会让人以为
+ * 点下去只是换个分组，而这里会一次改掉一百多条消息的状态。
+ * 所以它是纯文字 + 强调色，落在发丝线右侧，像一行小注脚。
+ */
+@Composable
+private fun ReadAllAction(onClick: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Text(
+        text = "全部已读",
+        fontSize = Type.micro,
+        fontWeight = Type.weightTitle,
+        color = colors.primary,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .clickable(onClickLabel = "把这一组全部标成已读") { onClick() }
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+    )
 }
 
 @Composable
