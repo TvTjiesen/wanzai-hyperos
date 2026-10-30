@@ -604,6 +604,21 @@ fun WanzaiApp(
                             }
                         }
                     },
+                    // 點開一條消息之後標已讀（docs/B7-WALKTHROUGH.md 第 2 節的順序）：
+                    // ① 頁面已先把未讀點去掉、並發了 setmessageread；
+                    // ② 這裡只負責「寫成功就重取未讀總數」，③ 寫失敗就說一句並重取。
+                    //
+                    // 為什麼重取而不是本地減一：服務端 getmessagenoreadcount 的口徑未知
+                    // （只知它是標量），本地算術會長期越偏 —— 越用越不準比不更新更糟。
+                    onReadMessage = { id ->
+                        scope.launch {
+                            val ok = runCatching { app.messages.markRead(id) }.getOrDefault(false)
+                            app.unread.refresh(force = true)
+                            if (!ok) {
+                                Toast.makeText(context, "这条没标上已读，联网后会自动重标", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
                 )
             }
 

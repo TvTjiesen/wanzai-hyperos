@@ -329,6 +329,20 @@ interface PortalMessageRepository {
     suspend fun selectGroup(group: PortalMessageGroup)
     suspend fun refreshMessages()
     suspend fun loadMore()
+
+    /**
+     * 把一条标成已读。
+     *
+     * 顺序是固定的（docs/B7-WALKTHROUGH.md 第 2 节）：**先本地去点**（乐观），再发写请求；
+     * 写失败就把那一行退回未读并返回 false —— 界面说已读而服务端说未读，
+     * 会让人把没看过的通知漏掉。
+     *
+     * 这里**不碰未读总数**：服务端的计数口径未知（只知它是标量），
+     * 本地减一会长期越偏。调用方成功后重取 getmessagenoreadcount。
+     *
+     * @return true = 服务端已接受（或它本来就是已读，没发请求）；false = 写失败、已回滚。
+     */
+    suspend fun markRead(id: String): Boolean
 }
 
 /**
@@ -422,6 +436,26 @@ class LivePortalMessageRepository(
                 onFailure = { content.failWith(it.asPortalException()) },
             )
         }
+    }
+
+    override suspend fun markRead(id: String): Boolean {
+        val content = _messages.value as? ListState.Content ?: return false
+        val row = content.items.firstOrNull { it.id == id }
+        // 已经是已读（重复点、或服务端本来就标过）：不再发请求，也不算失败。
+        if (row == null || row.isRead) return true
+
+        // 先本地去点：未读点必须比网络先动，否则点下去像没反应。
+        _messages.value = content.copy(items = MessageRead.markOne(content.items, id))
+
+        val ok = runCatching { api.markMessageRead(id) }.getOrDefault(false)
+        if (ok) return true
+
+        // 只退回这一条：期间若已刷新/切组换了整份列表，就不拿旧数据盖回去。
+        val now = _messages.value
+        if (now is ListState.Content) {
+            _messages.value = now.copy(items = MessageRead.revertOne(now.items, content.items, id))
+        }
+        return false
     }
 }
 

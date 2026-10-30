@@ -304,6 +304,21 @@ object HzcuEndpoints {
     const val PORTAL_MESSAGE_LIST_PATH = "/api/app/ummessage/listmessage"
 
     /**
+     * 单条标已读：**路径带 id 的 POST、无请求体**。
+     *
+     * 契约逐字来自门户前端 pages/message/MessageAppListPage（见 docs/B7-WALKTHROUGH.md 第 1 节）：
+     * readOne = (id) => POST /api/app/ummessage/setmessageread/{id}
+     *
+     * 注意拼 id 时不要在常量末尾带斜杠 —— 这里靠 [portalMessageReadPath] 拼，
+     * 漏了斜杠只会得到一个 404 而不是编译错误。
+     */
+    const val PORTAL_MESSAGE_READ_PATH = "/api/app/ummessage/setmessageread"
+
+    /** 单条标已读的完整路径。id 为空时返回 null —— 宁可不发，也不发一个尾斜杠的地址。 */
+    fun portalMessageReadPath(id: String): String? =
+        id.trim().takeIf { it.isNotEmpty() }?.let { PORTAL_MESSAGE_READ_PATH + "/" + it }
+
+    /**
      * 首页「待办事项」三个计数的接口。契约逐字读自门户自己的 JS。
      *
      * ⚠️ 三个坑（与消息那一族**不同**，别互相套用）：

@@ -175,6 +175,21 @@ class PortalApi(private val client: HzcuClient) {
         context = "消息列表",
     )
 
+    /**
+     * 单条标已读。
+     *
+     * 形态照门户原文：POST、路径带 id、没有请求体 —— 走 form 分支的空 fields
+     * （[HzcuClient.portalPost] 里 fields/jsonBody 二选一，空 map 就是「无体」）。
+     * 失败时 unwrap 会抛 HzcuException，由调用方接。
+     *
+     * @return false 表示 id 不成立、**一个请求都没发**（调用方不要把这种情况当成「已读」）。
+     */
+    suspend fun markMessageRead(id: String): Boolean {
+        val path = HzcuEndpoints.portalMessageReadPath(id) ?: return false
+        client.portalPost(path = path, fields = emptyMap(), context = "消息已读")
+        return true
+    }
+
     /** 消息接口的 `rows` 参数值。门户 JS 里就写死 10。 */
     companion object {
         const val MESSAGE_ROWS = 10

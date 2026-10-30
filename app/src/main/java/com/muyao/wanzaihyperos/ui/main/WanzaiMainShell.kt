@@ -136,6 +136,13 @@ fun WanzaiMainShell(
     onOpenAccounts: () -> Unit = {},
     /** 消息裡點一條：把它的 openurl 交給根導航開 WebView（Route.Web）。 */
     onOpenUrl: (String) -> Unit = {},
+    /**
+     * 消息裡點開一條之後標已讀。
+     *
+     * 不寫在這一行裡，是因為「標已讀」要網路、要重取未讀數，
+     * 那是根導航（WanzaiRoot）的職責；頁面只管把 id 報上來。
+     */
+    onReadMessage: (String) -> Unit = {},
     /** 返回栈深度：设置页的账号聚合行要按它重算（见 `SettingsSectionPage.refreshKey`）。 */
     navDepth: Int = 0,
     modifier: Modifier = Modifier,
@@ -364,6 +371,7 @@ fun WanzaiMainShell(
                                 onOpenRollcall = onOpenRollcall,
                                 onOpenTodos = onOpenTodos,
                                 onOpenUrl = onOpenUrl,
+                                onRead = onReadMessage,
                             )
 
                             MainSection.Apps -> AppsSectionPage(
