@@ -4,6 +4,10 @@ import android.annotation.SuppressLint
 import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -31,12 +35,15 @@ import com.muyao.wanzaihyperos.data.jw.JwFeature
 import com.muyao.wanzaihyperos.data.jw.JwPageParser
 import com.muyao.wanzaihyperos.data.jw.JwRepository
 import com.muyao.wanzaihyperos.data.jw.JwScoreParser
+import com.muyao.wanzaihyperos.data.jw.JwScoreSummarizer
 import com.muyao.wanzaihyperos.net.HzcuException
+import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.AppList
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.HintText
 import com.muyao.wanzaihyperos.ui.design.InfoItem
 import com.muyao.wanzaihyperos.ui.design.ResultBanner
+import com.muyao.wanzaihyperos.ui.design.Tone
 import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
 import com.muyao.wanzaihyperos.ui.design.infoItemsIndexed
 import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
@@ -112,6 +119,9 @@ fun JwPage(
             emptyList()
         }
     }.orEmpty()
+
+    // 學期匯總（已修學分 / 加權平均分 / 加權績點）：純函式算，算不出來就是空。
+    val scoreSummary = remember(scoreItems) { JwScoreSummarizer.summarize(scoreItems) }
 
     // 清單的滾動狀態提到外面：頂欄漸變紗要靠它算進度
     //（見 SecondaryScaffold 的 scrollProgress 參數說明）。
@@ -279,6 +289,9 @@ fun JwPage(
                     }
 
                     else -> {
+                        if (!scoreSummary.isEmpty) {
+                            item(key = "score-summary") { ScoreSummaryCard(scoreSummary) }
+                        }
                         item { SmallTitle(text = "成绩（${scoreItems.size}）") }
                         // ★ 同上：**重修**會讓同一個課名出現多次，所以用下標當 key。
                         infoItemsIndexed(scoreItems) { s ->
@@ -328,3 +341,73 @@ fun JwPage(
 }
 
 private const val TAB_EXAM = 0
+
+/**
+ * 成績匯總卡：已修學分 / 加權平均分 / 加權績點。
+ *
+ * 為什麼要這張卡：本頁原本只有逐條列表 —— 想知道「我均分多少」得自己拿計算器。
+ * 三個數字都是 [JwScoreSummarizer] 算的，算不出來就整張不畫（不是畫一排「—」）。
+ */
+@Composable
+private fun ScoreSummaryCard(summary: com.muyao.wanzaihyperos.data.jw.JwScoreSummary) {
+    val colors = MiuixTheme.colorScheme
+    AppCard(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = "学业概览",
+                style = MiuixTheme.textStyles.headline2,
+                color = colors.onSurface,
+            )
+            summary.credits?.let { c ->
+                Text(
+                    text = "已修 " + formatOne(c) + " 学分 · " + summary.creditCount + " 门",
+                    style = MiuixTheme.textStyles.body2,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            if (summary.weightedScore != null || summary.weightedGradePoint != null) {
+                Row(modifier = Modifier.padding(top = 12.dp)) {
+                    summary.weightedScore?.let { v ->
+                        MetricCell(label = "加权平均分", value = formatOne(v))
+                    }
+                    summary.weightedGradePoint?.let { v ->
+                        Spacer(Modifier.width(20.dp))
+                        MetricCell(label = "加权绩点", value = String.format("%.2f", v))
+                    }
+                }
+            }
+            if (summary.excludedFromAverage > 0) {
+                Text(
+                    text = "另有 " + summary.excludedFromAverage + " 门是等第制或学分缺失，没进加权。",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = Tone.quiet,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetricCell(label: String, value: String) {
+    val colors = MiuixTheme.colorScheme
+    Column {
+        Text(
+            text = value,
+            style = MiuixTheme.textStyles.title2,
+            color = colors.primary,
+        )
+        Text(
+            text = label,
+            style = MiuixTheme.textStyles.footnote2,
+            color = colors.onSurfaceVariantSummary,
+        )
+    }
+}
+
+/** 一位小数的展示：整数去掉 .0，免得「已修 12.0 学分」看着像精度丢失。 */
+internal fun formatOne(v: Double): String {
+    val rounded = Math.round(v * 10.0) / 10.0
+    return if (rounded == Math.floor(rounded)) rounded.toInt().toString() else String.format("%.1f", rounded)
+}
