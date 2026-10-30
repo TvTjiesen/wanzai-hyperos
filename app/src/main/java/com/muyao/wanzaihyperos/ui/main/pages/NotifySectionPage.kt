@@ -4,6 +4,7 @@ import com.muyao.wanzaihyperos.ui.design.liquid.LocalNavBarVisible
 import com.muyao.wanzaihyperos.ui.design.liquid.largeTitleItem
 import com.muyao.wanzaihyperos.ui.design.liquid.rememberPageChromePilot
 import com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp
+import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
 import com.muyao.wanzaihyperos.ui.design.ai.AiBall
 import androidx.compose.foundation.background
@@ -34,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +54,8 @@ import com.muyao.wanzaihyperos.data.portal.PortalMessageItem
 import com.muyao.wanzaihyperos.data.portal.PortalNewsItem
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.Type
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -93,6 +97,9 @@ fun NotifySectionPage(
 
     // 板子顶部是四颗小胶囊：全部 / 待处理 / 门户 / 新闻。
     var filter by remember { mutableStateOf(0) }
+    // 下拉刷新只重取「当前这一组的第一页」，仓库走 startRefresh，列表不清空。
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     // 「全部已读」是批量写，按下就先问一句 —— 一百多条一次性变已读，没有撤销。
     var confirmReadAll by remember { mutableStateOf<PortalMessageGroup?>(null) }
 
@@ -195,204 +202,230 @@ fun NotifySectionPage(
     val inFlight by graph.inFlight.collectAsState()
     val ballState = AiBallStates.ofCount(pendingCount, fetching = inFlight > 0)
 
-    LazyColumn(
-        state = pilot.listState,
+    // 下拉刷新：重取两个列表的第一页（仓库走 startRefresh，内容原地不动、不闪白）。
+    // ⚠️ contentPadding 只影响下拉指示器的位置，不给内容加 padding ——
+    // 内容的 inset 仍由里面那个 LazyColumn 自己消费（见 Miuix PullToRefresh 源码）。
+    PullToRefresh(
+        isRefreshing = refreshing,
+        onRefresh = {
+            refreshing = true
+            scope.launch {
+                try {
+                    runCatching { graph.messages.refreshKeepingContent() }
+                    runCatching { graph.news.refreshKeepingContent() }
+                    // 未读数是服务端口径（总未读 304 ≠ 各组之和 302），只能重取，不许本地减一。
+                    runCatching { graph.unread.refresh(force = true) }
+                } finally {
+                    refreshing = false
+                }
+            }
+        },
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = Dims.screenH,
-            end = Dims.screenH,
-            // 大標題自己帶狀態欄 inset，這裡 top 必須歸零 ——
-            // 留著原本那 56dp 會出現「標題下面憑空一大塊空白」。
-            top = 0.dp,
-            bottom = pageBottomInsetDp(LocalNavBarVisible.current),   // 留出玻璃底欄的高度（讓內容能滾到它下面，玻璃才折射得到東西）
-        ),
-        verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
+        contentPadding = PaddingValues(top = statusBarTopPadding()),
+        // 四句气泡文案的默认值是英文（Pull down to refresh / Release to refresh /
+        // Refreshing... / Refreshed successfully）—— 真机上那行字就是「Refreshing...」，
+        // 中文界面里冒出一句英文。顺序是 下拉 / 松开 / 正在刷 / 刷完了。
+        refreshTexts = listOf("下拉刷新", "松开手就刷", "正在刷新…", "刷完了"),
     ) {
-        largeTitleItem(pilot, leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) })
+        LazyColumn(
+            state = pilot.listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = Dims.screenH,
+                end = Dims.screenH,
+                // 大標題自己帶狀態欄 inset，這裡 top 必須歸零 ——
+                // 留著原本那 56dp 會出現「標題下面憑空一大塊空白」。
+                top = 0.dp,
+                bottom = pageBottomInsetDp(LocalNavBarVisible.current),   // 留出玻璃底欄的高度（讓內容能滾到它下面，玻璃才折射得到東西）
+            ),
+            verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
+        ) {
+            largeTitleItem(pilot, leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) })
 
-        item(key = "tabs") {
-            NotifyFilters(
-                selected = filter,
-                total = totalCount,
-                pending = pendingCount,
-                portal = msgCount,
-                news = newsCount,
-                onSelect = { filter = it },
-            )
-        }
-
-        if (filter == 0 || filter == 1) {
-            item(key = "todo-header") {
-                SectionHeader(text = "需要处理", trailing = pendingCount?.toString() ?: "—")
+            item(key = "tabs") {
+                NotifyFilters(
+                    selected = filter,
+                    total = totalCount,
+                    pending = pendingCount,
+                    portal = msgCount,
+                    news = newsCount,
+                    onSelect = { filter = it },
+                )
             }
-            // 取不到 ≠ 没有：只有两个来源都拿到结论、且都为空时，才敢说这句话；
-            // 任一来源还没结论时只能承认「还没取到」。
-            if (rollCount == 0 && todoCount == 0) {
-                item(key = "todo-empty") { StatusHint("没有需要处理的事。") }
-            } else if (openRollcalls.isEmpty() && todos.isEmpty()) {
-                item(key = "todo-unknown") {
-                    StatusHint(
-                        if (rollCount == null || todoCount == null) {
-                            "待处理还没取到。"
-                        } else {
-                            "没有需要处理的事。"
-                        },
-                    )
+
+            if (filter == 0 || filter == 1) {
+                item(key = "todo-header") {
+                    SectionHeader(text = "需要处理", trailing = pendingCount?.toString() ?: "—")
                 }
-            } else {
-                item(key = "todo-card") {
-                    Column(Modifier.fillMaxWidth()) {
-                            var first = true
-                            openRollcalls.forEach { r ->
-                                if (!first) ThinDivider()
-                                first = false
-                                PendingRow(
-                                    title = r.title.ifBlank { "现在可以签到" },
-                                    subtitle = if (r.endTime.isBlank()) r.sourceLabel
-                                    else "截止 ${r.endTime} · ${r.sourceLabel}",
-                                    action = "去签到",
-                                    onClick = onOpenRollcall,
-                                )
-                            }
-                            todos.take(2).forEach { t ->
-                                if (!first) ThinDivider()
-                                first = false
-                                PendingRow(
-                                    title = t.title,
-                                    subtitle = listOfNotNull(
-                                        t.subtitle.takeIf { it.isNotBlank() },
-                                        t.timeText.takeIf { it.isNotBlank() },
-                                    ).joinToString(" · "),
-                                    action = "查看",
-                                    onClick = onOpenTodos,
-                                )
-                            }
+                // 取不到 ≠ 没有：只有两个来源都拿到结论、且都为空时，才敢说这句话；
+                // 任一来源还没结论时只能承认「还没取到」。
+                if (rollCount == 0 && todoCount == 0) {
+                    item(key = "todo-empty") { StatusHint("没有需要处理的事。") }
+                } else if (openRollcalls.isEmpty() && todos.isEmpty()) {
+                    item(key = "todo-unknown") {
+                        StatusHint(
+                            if (rollCount == null || todoCount == null) {
+                                "待处理还没取到。"
+                            } else {
+                                "没有需要处理的事。"
+                            },
+                        )
                     }
-                }
-            }
-        }
-
-        if (filter == 0 || filter == 2) {
-
-        // ══════════ 消息 ══════════
-        item(key = "msg-header") {
-            // 不叫「消息」：頁面大標題已經是「消息」，分組再來一個同名大字
-            // 看起來像標題重複。入口在首頁就叫「门户通知」，這裡沿用同一個說法。
-            //
-            // ★ 不再放「全部 ›」：它以前只把 selectedTab 設成 2 —— 而這裡就是 2，
-            //   點下去等於什麼都沒發生（审查 2026-10-21）。門戶詳情路由還沒接，
-            //   所以整段直接展開、行不可點：沒有死入口，也不用拿假動作騙人。
-            // 板 `.group-head`：小灰点 + 组名(8.9sp/700) + 条数(8sp) + 一条吃掉余宽的发丝线。
-            // 原来这里用 13sp 粗体大字，于是这一屏出现三个同级别的大标题，
-            // 板上的层级（一个大标题 + 若干小分组头）被压平了（复评 2026-10-21）。
-            // 「全部已读」只对**当前选中的那一组**（门户没有跨组接口）。
-            // 数字取 libmessagegroup 的 noread，而不是列表长度：列表只是一页（10 条）。
-            val openGroup = msgGroups.firstOrNull { it.name == msgSelected?.name }
-            GroupHead(
-                name = "门户通知",
-                count = msgCount ?: 0,
-                // 门户一个分组有 189 条未读，而列表一次只取 10 条（rows=10 是门户写死的）。
-                // 只写「10 条」会让人以为这一组只有 10 条 —— 剩下 179 条等于不存在。
-                note = when {
-                    msgCount == null -> "—"
-                    msgMeta?.hasMore == true -> "$msgCount 条 · 还有更多"
-                    else -> ""
-                },
-            ) {
-                if (openGroup != null && openGroup.unread > 0) {
-                    ReadAllAction(onClick = { confirmReadAll = openGroup })
-                }
-            }
-        }
-
-        // 分组切换：`listmessage` 一次只返回**一个分组**，而首位分组会变
-        // （2026-10-30 实测在「讲座通知」与「活动通知」之间来回）。
-        // 没有这排胶囊，另一个分组对用户等于不存在。
-        item(key = "msg-groups") {
-            MsgGroupChips(
-                groups = msgGroups,
-                selected = msgSelected,
-                onSelect = { g -> graph.fetch { graph.messages.selectGroup(g) } },
-            )
-        }
-
-        when (val s = msgState) {
-            is ListState.FirstLoad -> item(key = "msg-loading") { StatusHint("正在取得消息…") }
-
-            is ListState.Failed -> item(key = "msg-failed") {
-                StatusError(title = "取不到消息", detail = s.error.userText)
-            }
-
-            is ListState.Content -> {
-                val items = s.items
-                if (items.isEmpty()) {
-                    item(key = "msg-empty") { StatusHint("没有消息。") }
                 } else {
-                    // 一條一張卡會讓同一個板塊看起來像十個獨立入口；
-                    // 收成一張分組卡，掃讀時眼睛只需認一次邊界。
-                    // 全部列出（不再 take(5)）：既然沒有「全部」頁，少畫的那幾條就真丢了。
-                    item(key = "msg-card") { MessageGroup(items, onOpenUrl, onRead) }
-                    // 门户一次只回 10 条（rows 写死），没有这个入口，第 11 条之后
-                    // 在界面上根本走不到 —— 而那一组有一百多条未读。
-                    if (msgMeta?.hasMore == true) {
-                        item(key = "msg-more") {
-                            MoreRow(
-                                loading = msgMeta.loadingMore,
-                                onClick = { graph.fetch { graph.messages.loadMore() } },
-                            )
+                    item(key = "todo-card") {
+                        Column(Modifier.fillMaxWidth()) {
+                                var first = true
+                                openRollcalls.forEach { r ->
+                                    if (!first) ThinDivider()
+                                    first = false
+                                    PendingRow(
+                                        title = r.title.ifBlank { "现在可以签到" },
+                                        subtitle = if (r.endTime.isBlank()) r.sourceLabel
+                                        else "截止 ${r.endTime} · ${r.sourceLabel}",
+                                        action = "去签到",
+                                        onClick = onOpenRollcall,
+                                    )
+                                }
+                                todos.take(2).forEach { t ->
+                                    if (!first) ThinDivider()
+                                    first = false
+                                    PendingRow(
+                                        title = t.title,
+                                        subtitle = listOfNotNull(
+                                            t.subtitle.takeIf { it.isNotBlank() },
+                                            t.timeText.takeIf { it.isNotBlank() },
+                                        ).joinToString(" · "),
+                                        action = "查看",
+                                        onClick = onOpenTodos,
+                                    )
+                                }
                         }
                     }
                 }
             }
 
-            else -> item(key = "msg-none") { StatusHint("没有消息。") }
-        }
-        }
+            if (filter == 0 || filter == 2) {
 
-        if (filter == 0 || filter == 3) {
-
-        // ══════════ 新聞 ══════════
-        item(key = "news-header") {
-            // 同样不放「更多 ›」：它以前把新闻跳到 cjh52 的「日常通知」，
-            // 那是另一个系统、另一份数据（审查 2026-10-21）。没有正确的目的地就不画入口。
-            GroupHead(
-                name = "新闻",
-                count = newsCount ?: 0,
-                // 新闻一次取 8 条（门户 NEWS_PAGE_SIZE）。只报 8 会让人以为校园新闻只有 8 条。
-                note = when {
-                    newsCount == null -> "—"
-                    newsMeta?.hasMore == true -> "$newsCount 条 · 还有更多"
-                    else -> ""
-                },
-            )
-        }
-
-        when (val s = newsState) {
-            is ListState.FirstLoad -> item(key = "news-loading") { StatusHint("正在取得新闻…") }
-
-            is ListState.Failed -> item(key = "news-failed") {
-                StatusError(title = "取不到新闻", detail = s.error.userText)
-            }
-
-            is ListState.Content -> {
-                val items = s.items
-                if (items.isEmpty()) {
-                    item(key = "news-empty") { StatusHint("暂时没有新闻。") }
-                } else {
-                    item(key = "news-card") { NewsGroup(items) }
-                    if (newsMeta?.hasMore == true) {
-                        item(key = "news-more") {
-                            MoreRow(
-                                loading = newsMeta.loadingMore,
-                                onClick = { graph.fetch { graph.news.loadMore() } },
-                            )
-                        }
+            // ══════════ 消息 ══════════
+            item(key = "msg-header") {
+                // 不叫「消息」：頁面大標題已經是「消息」，分組再來一個同名大字
+                // 看起來像標題重複。入口在首頁就叫「门户通知」，這裡沿用同一個說法。
+                //
+                // ★ 不再放「全部 ›」：它以前只把 selectedTab 設成 2 —— 而這裡就是 2，
+                //   點下去等於什麼都沒發生（审查 2026-10-21）。門戶詳情路由還沒接，
+                //   所以整段直接展開、行不可點：沒有死入口，也不用拿假動作騙人。
+                // 板 `.group-head`：小灰点 + 组名(8.9sp/700) + 条数(8sp) + 一条吃掉余宽的发丝线。
+                // 原来这里用 13sp 粗体大字，于是这一屏出现三个同级别的大标题，
+                // 板上的层级（一个大标题 + 若干小分组头）被压平了（复评 2026-10-21）。
+                // 「全部已读」只对**当前选中的那一组**（门户没有跨组接口）。
+                // 数字取 libmessagegroup 的 noread，而不是列表长度：列表只是一页（10 条）。
+                val openGroup = msgGroups.firstOrNull { it.name == msgSelected?.name }
+                GroupHead(
+                    name = "门户通知",
+                    count = msgCount ?: 0,
+                    // 门户一个分组有 189 条未读，而列表一次只取 10 条（rows=10 是门户写死的）。
+                    // 只写「10 条」会让人以为这一组只有 10 条 —— 剩下 179 条等于不存在。
+                    note = when {
+                        msgCount == null -> "—"
+                        msgMeta?.hasMore == true -> "$msgCount 条 · 还有更多"
+                        else -> ""
+                    },
+                ) {
+                    if (openGroup != null && openGroup.unread > 0) {
+                        ReadAllAction(onClick = { confirmReadAll = openGroup })
                     }
                 }
             }
 
-            else -> item(key = "news-none") { StatusHint("暂时没有新闻。") }
-        }
+            // 分组切换：`listmessage` 一次只返回**一个分组**，而首位分组会变
+            // （2026-10-30 实测在「讲座通知」与「活动通知」之间来回）。
+            // 没有这排胶囊，另一个分组对用户等于不存在。
+            item(key = "msg-groups") {
+                MsgGroupChips(
+                    groups = msgGroups,
+                    selected = msgSelected,
+                    onSelect = { g -> graph.fetch { graph.messages.selectGroup(g) } },
+                )
+            }
+
+            when (val s = msgState) {
+                is ListState.FirstLoad -> item(key = "msg-loading") { StatusHint("正在取得消息…") }
+
+                is ListState.Failed -> item(key = "msg-failed") {
+                    StatusError(title = "取不到消息", detail = s.error.userText)
+                }
+
+                is ListState.Content -> {
+                    val items = s.items
+                    if (items.isEmpty()) {
+                        item(key = "msg-empty") { StatusHint("没有消息。") }
+                    } else {
+                        // 一條一張卡會讓同一個板塊看起來像十個獨立入口；
+                        // 收成一張分組卡，掃讀時眼睛只需認一次邊界。
+                        // 全部列出（不再 take(5)）：既然沒有「全部」頁，少畫的那幾條就真丢了。
+                        item(key = "msg-card") { MessageGroup(items, onOpenUrl, onRead) }
+                        // 门户一次只回 10 条（rows 写死），没有这个入口，第 11 条之后
+                        // 在界面上根本走不到 —— 而那一组有一百多条未读。
+                        if (msgMeta?.hasMore == true) {
+                            item(key = "msg-more") {
+                                MoreRow(
+                                    loading = msgMeta.loadingMore,
+                                    onClick = { graph.fetch { graph.messages.loadMore() } },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                else -> item(key = "msg-none") { StatusHint("没有消息。") }
+            }
+            }
+
+            if (filter == 0 || filter == 3) {
+
+            // ══════════ 新聞 ══════════
+            item(key = "news-header") {
+                // 同样不放「更多 ›」：它以前把新闻跳到 cjh52 的「日常通知」，
+                // 那是另一个系统、另一份数据（审查 2026-10-21）。没有正确的目的地就不画入口。
+                GroupHead(
+                    name = "新闻",
+                    count = newsCount ?: 0,
+                    // 新闻一次取 8 条（门户 NEWS_PAGE_SIZE）。只报 8 会让人以为校园新闻只有 8 条。
+                    note = when {
+                        newsCount == null -> "—"
+                        newsMeta?.hasMore == true -> "$newsCount 条 · 还有更多"
+                        else -> ""
+                    },
+                )
+            }
+
+            when (val s = newsState) {
+                is ListState.FirstLoad -> item(key = "news-loading") { StatusHint("正在取得新闻…") }
+
+                is ListState.Failed -> item(key = "news-failed") {
+                    StatusError(title = "取不到新闻", detail = s.error.userText)
+                }
+
+                is ListState.Content -> {
+                    val items = s.items
+                    if (items.isEmpty()) {
+                        item(key = "news-empty") { StatusHint("暂时没有新闻。") }
+                    } else {
+                        item(key = "news-card") { NewsGroup(items) }
+                        if (newsMeta?.hasMore == true) {
+                            item(key = "news-more") {
+                                MoreRow(
+                                    loading = newsMeta.loadingMore,
+                                    onClick = { graph.fetch { graph.news.loadMore() } },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                else -> item(key = "news-none") { StatusHint("暂时没有新闻。") }
+            }
+            }
         }
     }
 

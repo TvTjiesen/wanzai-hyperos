@@ -226,6 +226,15 @@ interface PortalNewsRepository {
     suspend fun refreshGroups()
     suspend fun selectGroup(group: PortalNewsGroup)
     suspend fun loadMore()
+
+    /**
+     * 下拉刷新：重取当前这一组的第一页，不清空已有内容。
+     *
+     * 与 selectGroup 只差一件事，但用户看得见：它走 startRefresh，
+     * 已经有内容时列表原地不动、只把 refreshing 置起来；
+     * selectGroup 会先把列表清成 FirstLoad，界面一闪成「正在取得新闻…」再冒出来。
+     */
+    suspend fun refreshKeepingContent()
 }
 
 /**
@@ -291,6 +300,25 @@ class LivePortalNewsRepository(
         )
     }
 
+    override suspend fun refreshKeepingContent() {
+        val group = _selected.value ?: return
+        val cataId = group.dataId ?: return
+        val token = guard.begin()
+        reachedEnd = false
+        _news.value = _news.value.startRefresh()
+
+        val result = runCatching { api.fetchNewsList(cataId = cataId, page = 1, pageSize = pageSize) }
+        if (!guard.isCurrent(token)) return
+        _news.value = result.fold(
+            onSuccess = { response ->
+                val items = PortalParsers.parseNewsList(response.raw)
+                reachedEnd = !PortalParsers.hasMoreByReturnedCount(items.size, pageSize)
+                _news.value.settleFirstPage(items, clock()) { it.id }.withHasMore(!reachedEnd)
+            },
+            onFailure = { _news.value.failWith(it.asPortalException()) },
+        )
+    }
+
     override suspend fun loadMore() {
         ioMutex.withLock {
             val content = _news.value
@@ -329,6 +357,14 @@ interface PortalMessageRepository {
     suspend fun selectGroup(group: PortalMessageGroup)
     suspend fun refreshMessages()
     suspend fun loadMore()
+
+    /**
+     * 下拉刷新：重取当前这一组的第一页，不清空已有内容（走 startRefresh）。
+     *
+     * 与 refreshMessages 的区别就是刷新时列表会不会闪一下：
+     * refreshMessages 转手给 selectGroup，会先把列表清成 FirstLoad。
+     */
+    suspend fun refreshKeepingContent()
 
     /**
      * 把一条标成已读。
@@ -424,6 +460,26 @@ class LivePortalMessageRepository(
     override suspend fun refreshMessages() {
         val group = _selected.value ?: return
         selectGroup(group)
+    }
+
+    override suspend fun refreshKeepingContent() {
+        val group = _selected.value ?: return
+        val token = guard.begin()
+        reachedEnd = false
+        _messages.value = _messages.value.startRefresh()
+
+        val result = runCatching {
+            api.fetchMessages(group = group.name, page = 1, pageSize = pageSize)
+        }
+        if (!guard.isCurrent(token)) return
+        _messages.value = result.fold(
+            onSuccess = { response ->
+                val items = PortalParsers.parseMessageRows(response.raw)
+                reachedEnd = !PortalParsers.hasMoreByReturnedCount(items.size, pageSize)
+                _messages.value.settleFirstPage(items, clock()) { it.id }.withHasMore(!reachedEnd)
+            },
+            onFailure = { _messages.value.failWith(it.asPortalException()) },
+        )
     }
 
     override suspend fun loadMore() {
