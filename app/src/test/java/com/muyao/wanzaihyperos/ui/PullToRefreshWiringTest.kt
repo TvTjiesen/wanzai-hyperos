@@ -19,6 +19,7 @@ class PullToRefreshWiringTest {
         .let { run -> val parent = run.parentFile; if (parent != null && File(parent, "app/src/main/java").isDirectory) parent else run }
     private val page = File(repo, "app/src/main/java/com/muyao/wanzaihyperos/ui/main/pages/NotifySectionPage.kt")
     private val repositories = File(repo, "app/src/main/java/com/muyao/wanzaihyperos/data/portal/PortalRepositories.kt")
+    private val home = File(repo, "app/src/main/java/com/muyao/wanzaihyperos/ui/main/pages/HomeSectionPage.kt")
 
     private fun text(file: File): String = file.readText()
 
@@ -48,6 +49,21 @@ class PullToRefreshWiringTest {
         val block = s.substring(start, end)
         assertFalse("下拉刷新里用了 refreshMessages（会清空列表闪一下）", block.contains("refreshMessages()"))
         assertFalse("下拉刷新里用了 selectGroup（会清空列表闪一下）", block.contains("selectGroup("))
+    }
+
+    @Test
+    fun `首页也能下拉刷新，四份数据都要重取`() {
+        val s = text(home)
+        assertTrue("首页没有下拉刷新容器", s.contains("PullToRefresh("))
+        val start = s.indexOf("PullToRefresh(")
+        val end = s.indexOf("LazyColumn(", start)
+        assertTrue("找不到被包住的列表", end > start)
+        val block = s.substring(start, end)
+        assertTrue("下拉没刷新课表", block.contains("graph.schedule.refresh()"))
+        assertTrue("下拉没刷新待办", block.contains("graph.todoBoard.refresh()"))
+        assertTrue("下拉没刷新签到", block.contains("graph.rollcall.refresh()"))
+        assertTrue("下拉没刷新未读", block.contains("graph.unread.refresh(force = true)"))
+        assertTrue("下拉刷新没换掉英文气泡文案", block.contains("下拉刷新"))
     }
 
     @Test

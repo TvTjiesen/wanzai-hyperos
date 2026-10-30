@@ -30,8 +30,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.PullToRefresh
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -191,6 +195,10 @@ fun HomeSectionPage(
     // 120dp 走完：大日期沉到栏下，顶栏接手「首页」小标题与纱。
     // 只让在场那一页写 progress —— 切换过渡期间离场页还在组合里。
     val listState = rememberLazyListState()
+    // 下拉刷新：首页四份数据（签到 / 待办 / 课表 / 未读）一次重取。
+    // 走仓库自己的 refresh —— 它们都是「有内容就原地保留」，不会把卡片闪成骨架。
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val chrome = LocalPageChrome.current
     val pageActive = LocalPageActive.current
     // ★ 第 9 轮审计必修 4：把"列表正在滚"报给玻璃层（滚动期降采样；见 `PageChrome.scrolling`）。
@@ -391,97 +399,121 @@ fun HomeSectionPage(
             .firstOrNull { it.isAfter(nowTime) }
 
         Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            state = listState,
+        // 下拉刷新：四份数据各发一发，谁失败都不影响其他（runCatching 各自兜住）。
+        // contentPadding 只挪下拉指示器，不给内容加 padding —— 内容 inset 仍由 LazyColumn 自己消费。
+        PullToRefresh(
+            isRefreshing = refreshing,
+            onRefresh = {
+                refreshing = true
+                scope.launch {
+                    try {
+                        // 教务那份要那只隐藏 WebView 在才发（同首刷的判据）；没挂载就不发，别白失败。
+                        if (graph.jwEngine.isAttached) { runCatching { graph.jwTimetable.refresh() } }
+                        runCatching { graph.schedule.refresh() }
+                        runCatching { graph.todoBoard.refresh() }
+                        runCatching { graph.rollcall.refresh() }
+                        runCatching { graph.unread.refresh(force = true) }
+                    } finally {
+                        refreshing = false
+                    }
+                }
+            },
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = Dims.screenH,
-                end = Dims.screenH,
-                // 顶栏是悬浮的：大日期从它下面开始，不能压在搜索钮上。
-                top = iosHeaderInset() + 2.dp,
-                bottom = pageBottomInsetDp(LocalNavBarVisible.current) + 24.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(
-                if (compact) Dims.cardGap - 4.dp else Dims.cardGap,
-            ),
+            contentPadding = PaddingValues(top = statusBarTopPadding()),
+            refreshTexts = listOf("下拉刷新", "松开手就刷", "正在刷新…", "刷完了"),
         ) {
-            item(key = "hero") {
-                HomeSkyHeader(
-                    now = now,
-                    look = look,
-                    remainingCount = remainingCount,
-                    nextStart = nextStart,
-                    loading = loading,
-                    compact = compact,
-                    failure = shownFailure,
-                    slotSource = slotPick.source,
-                    jwVerdict = slotPick.jwVerdict,
-                    jwIsStale = (jwTimetableState as? ListState.Content)?.meta?.stale == true,
-                    ballState = ballState,
-                )
-            }
-
-            if ("courses" in UiPrefs.homeModules) {
-                item(key = "focus") {
-                    FocusGlassCard(
-                        backdrop = skyBackdrop,
-                        plan = plan,
-                        focus = focus,
-                        loading = loading,
-                        // 同一条规矩：这一屏画得出课就不说「没取到」（三张卡共用 shownFailure）。
-                        shownFailure = shownFailure,
-                        week = week,
-                        now = now,
-                        // 字色按**卡面实际铺出来的亮度**算（天空 + 这一档的垫色），
-                        // 不再是"主题墨色 or 天空墨色"二选一 —— 见 `FocusGlassCard` 上面那段。
-                        look = look,
-                        skyIsPhoto = preset == SkyPreset.ALBUM,
-                        photoStats = if (preset == SkyPreset.ALBUM) photoStats else null,
-                        openRollcall = openRollcall,
-                        onClick = onOpenTimetable,
-                        onOpenRollcall = onOpenRollcall,
-                    )
-                }
-
-                item(key = "timeline") {
-                    TodayTimelineCard(
-                        slots = todaySlots,
-                        week = week,
-                        now = now,
-                        times = times,
-                        plan = plan,
-                        loading = loading,
-                        // 同一条规矩：这一屏画得出课就不说「没取到」（三张卡共用 shownFailure）。
-                        failure = shownFailure,
-                        onOpenTimetable = onOpenTimetable,
-                    )
-                }
-            }
-
-            // 有课板块时「去签到」已经在「此刻」卡里，不再重复一张横幅；
-            // 只有他把「今日课程」模块关掉时，这里才单独兜住签到入口。
-            if ("rollcall" in UiPrefs.homeModules && openRollcall != null &&
-                "courses" !in UiPrefs.homeModules
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = Dims.screenH,
+                    end = Dims.screenH,
+                    // 顶栏是悬浮的：大日期从它下面开始，不能压在搜索钮上。
+                    top = iosHeaderInset() + 2.dp,
+                    bottom = pageBottomInsetDp(LocalNavBarVisible.current) + 24.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(
+                    if (compact) Dims.cardGap - 4.dp else Dims.cardGap,
+                ),
             ) {
-                item(key = "rollcall-open") {
-                    RollcallBanner(
-                        title = openRollcall.title,
-                        deadline = openRollcall.endTime,
-                        onClick = onOpenRollcall,
+                item(key = "hero") {
+                    HomeSkyHeader(
+                        now = now,
+                        look = look,
+                        remainingCount = remainingCount,
+                        nextStart = nextStart,
+                        loading = loading,
+                        compact = compact,
+                        failure = shownFailure,
+                        slotSource = slotPick.source,
+                        jwVerdict = slotPick.jwVerdict,
+                        jwIsStale = (jwTimetableState as? ListState.Content)?.meta?.stale == true,
+                        ballState = ballState,
                     )
                 }
-            }
 
-            if ("todos" in UiPrefs.homeModules) {
-                item(key = "todos") {
-                    TodoSummaryCard(state = todoState, onClick = onOpenTodos)
+                if ("courses" in UiPrefs.homeModules) {
+                    item(key = "focus") {
+                        FocusGlassCard(
+                            backdrop = skyBackdrop,
+                            plan = plan,
+                            focus = focus,
+                            loading = loading,
+                            // 同一条规矩：这一屏画得出课就不说「没取到」（三张卡共用 shownFailure）。
+                            shownFailure = shownFailure,
+                            week = week,
+                            now = now,
+                            // 字色按**卡面实际铺出来的亮度**算（天空 + 这一档的垫色），
+                            // 不再是"主题墨色 or 天空墨色"二选一 —— 见 `FocusGlassCard` 上面那段。
+                            look = look,
+                            skyIsPhoto = preset == SkyPreset.ALBUM,
+                            photoStats = if (preset == SkyPreset.ALBUM) photoStats else null,
+                            openRollcall = openRollcall,
+                            onClick = onOpenTimetable,
+                            onOpenRollcall = onOpenRollcall,
+                        )
+                    }
+
+                    item(key = "timeline") {
+                        TodayTimelineCard(
+                            slots = todaySlots,
+                            week = week,
+                            now = now,
+                            times = times,
+                            plan = plan,
+                            loading = loading,
+                            // 同一条规矩：这一屏画得出课就不说「没取到」（三张卡共用 shownFailure）。
+                            failure = shownFailure,
+                            onOpenTimetable = onOpenTimetable,
+                        )
+                    }
                 }
+
+                // 有课板块时「去签到」已经在「此刻」卡里，不再重复一张横幅；
+                // 只有他把「今日课程」模块关掉时，这里才单独兜住签到入口。
+                if ("rollcall" in UiPrefs.homeModules && openRollcall != null &&
+                    "courses" !in UiPrefs.homeModules
+                ) {
+                    item(key = "rollcall-open") {
+                        RollcallBanner(
+                            title = openRollcall.title,
+                            deadline = openRollcall.endTime,
+                            onClick = onOpenRollcall,
+                        )
+                    }
+                }
+
+                if ("todos" in UiPrefs.homeModules) {
+                    item(key = "todos") {
+                        TodoSummaryCard(state = todoState, onClick = onOpenTodos)
+                    }
+                }
+
+                // 板子：课表 / 消息 / 应用交给底栏，首页不再重复一排快捷入口。
+                // 签到入口在「此刻」卡里（有签到才出现），待办在「要处理」里。
+
+                item(key = "tail") { Spacer(Modifier.height(8.dp)) }
             }
-
-            // 板子：课表 / 消息 / 应用交给底栏，首页不再重复一排快捷入口。
-            // 签到入口在「此刻」卡里（有签到才出现），待办在「要处理」里。
-
-            item(key = "tail") { Spacer(Modifier.height(8.dp)) }
         }
 
         // 顶栏那一行：左「玩在城院」，右「第 N 周」（搜索钮由顶栏自己画在最右）。
