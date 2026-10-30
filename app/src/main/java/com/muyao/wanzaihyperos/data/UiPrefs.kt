@@ -2,6 +2,7 @@ package com.muyao.wanzaihyperos.data
 
 import android.content.Context
 import androidx.compose.runtime.getValue
+import com.muyao.wanzaihyperos.data.reminder.ClassReminderPlan
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
@@ -37,6 +38,14 @@ object UiPrefs {
     private const val KEY_REDUCE_TRANSPARENCY = "reduce_transparency"
     private const val KEY_PERIOD_TIMES = "period_times"
     private const val KEY_WEEK_ANCHOR = "week_anchor"
+
+    // ── 上课提醒 ────────────────────────────────────────────────────
+    // 三件：开关、提前几分钟、上一次真排上了几条。
+    // 闹钟清单本身不在偏好里（那是派生快照，见 `ReminderStore`）；
+    // 这里只存「他的选择」和「算完的结果条数」。
+    private const val KEY_CLASS_REMINDER = "class_reminder"
+    private const val KEY_REMINDER_LEAD = "reminder_lead"
+    private const val KEY_REMINDER_COUNT = "reminder_count"
 
     // ── 外观 / 首页（v2）─────────────────────────────────────────────
     private const val KEY_WALLPAPER_PRESET = "wallpaper_preset"
@@ -88,6 +97,21 @@ object UiPrefs {
      *   編一個默認值就是造數據 —— 所以沒填之前課表左列只標節次號，填了才顯示時間。
      */
     var periodTimes by mutableStateOf<List<Pair<String, String>>>(emptyList())
+        private set
+
+    /** 上课前提醒。**默认关** —— 没经他同意就弹通知，是替他做决定。 */
+    var classReminderEnabled by mutableStateOf(false)
+        private set
+
+    /**
+     * 提前几分钟。只认 [ClassReminderPlan.LEAD_CHOICES]；盘里是别的数（旧版本或手改）
+     * 就退回默认 —— 不把一个实际不生效的分钟数显示在界面上。
+     */
+    var classReminderLeadMinutes by mutableStateOf(ClassReminderPlan.DEFAULT_LEAD_MINUTES)
+        private set
+
+    /** 上一次真排上了几条（**-1 = 还没排过**）。只用来照实回答，不参与任何判断。 */
+    var reminderPlannedCount by mutableStateOf(-1)
         private set
 
     // ── 首页外观（v2「外观」子页）───────────────────────────────────
@@ -229,6 +253,10 @@ object UiPrefs {
         themeModeName = p.getString(KEY_THEME, "System") ?: "System"
         timetableGrid = p.getBoolean(KEY_TIMETABLE_GRID, false)
         reduceTransparency = p.getBoolean(KEY_REDUCE_TRANSPARENCY, false)
+        classReminderEnabled = p.getBoolean(KEY_CLASS_REMINDER, false)
+        classReminderLeadMinutes = p.getInt(KEY_REMINDER_LEAD, ClassReminderPlan.DEFAULT_LEAD_MINUTES)
+            .takeIf { it in ClassReminderPlan.LEAD_CHOICES } ?: ClassReminderPlan.DEFAULT_LEAD_MINUTES
+        reminderPlannedCount = p.getInt(KEY_REMINDER_COUNT, -1)
         periodTimes = (p.getString(KEY_PERIOD_TIMES, "") ?: "")
             .split("|")
             .mapNotNull { row ->
@@ -335,6 +363,25 @@ object UiPrefs {
             KEY_PERIOD_TIMES,
             rows.joinToString("|") { "${it.first},${it.second}" },
         )?.apply()
+    }
+
+    fun saveClassReminderEnabled(on: Boolean) {
+        classReminderEnabled = on
+        // 关掉时「已排几条」也退回未知：留着旧数会在关掉的下一刻还写着「已排 6 条」。
+        if (!on) reminderPlannedCount = -1
+        prefs()?.edit()?.putBoolean(KEY_CLASS_REMINDER, on)?.apply()
+    }
+
+    fun saveReminderLead(minutes: Int) {
+        val v = minutes.takeIf { it in ClassReminderPlan.LEAD_CHOICES }
+            ?: ClassReminderPlan.DEFAULT_LEAD_MINUTES
+        classReminderLeadMinutes = v
+        prefs()?.edit()?.putInt(KEY_REMINDER_LEAD, v)?.apply()
+    }
+
+    fun saveReminderCount(count: Int) {
+        reminderPlannedCount = count
+        prefs()?.edit()?.putInt(KEY_REMINDER_COUNT, count)?.apply()
     }
 
     // ── 外观 / 首页 ─────────────────────────────────────────────────

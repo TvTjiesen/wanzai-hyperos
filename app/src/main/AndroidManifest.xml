@@ -19,6 +19,27 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!--
+      通知：上课前提醒要弹一条。Android 13 起这是运行时权限，用户不给就一条也弹不出来 ——
+      设置页那颗开关打开时会当场申请一次，被拒就把开关退回「关」，不留一个假的已开。
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      精确闹钟：8:00 的课要在 7:50 响。不精确的窗口闹钟会被系统攒到一起，
+      2026-10-30 真机实测：只有 SCHEDULE_EXACT_ALARM 时 dumpsys alarm 记的是
+      window=+1h0m0s，也就是「一小时内随便什么时候响」—— 课前提醒迟到一小时等于没有。
+      所以再加 USE_EXACT_ALARM（系统直接给，不需要用户去设置里点一次；
+      「日历 / 闹钟」正是它设计的场景）。两条都留着：
+      USE_EXACT_ALARM 不认的老系统还能回落 SCHEDULE_EXACT_ALARM。
+      真排不上精确闹钟时 ReminderScheduler 退回不精确闹钟，不崩。
+    -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!-- 重启后重建闹钟：AlarmManager 的闹钟重启就全没了，清单在 ReminderStore。 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
       ★ 不寫 `<uses-feature android:name="android.hardware.camera" android:required="true">`：
       那會讓「沒有相機的設備」在應用商店裡看不到這個 App。
       相機只是其中一個功能，不該成為安裝的前提。
@@ -74,6 +95,23 @@
                     android:pathPrefix="/mob/" />
             </intent-filter>
         </activity>
+
+        <!--
+          上课提醒的闹钟接收器。exported=false：只有本 App 自己的 PendingIntent 能触发它。
+        -->
+        <receiver
+            android:name=".data.reminder.ClassReminderReceiver"
+            android:exported="false" />
+
+        <!-- 开机 / 覆盖安装后照清单把闹钟重挂一遍（这两条广播是系统发的，必须 exported）。 -->
+        <receiver
+            android:name=".data.reminder.ReminderBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

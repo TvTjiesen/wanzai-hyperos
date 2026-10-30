@@ -29,5 +29,10 @@
             android:exported="true"
             android:label="门户联调台(仅测试)"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
+            android:name=".dev.ReminderLabActivity"
+            android:exported="true"
+            android:label="闹钟口径联调台(仅测试)"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
     </application>
 </manifest>

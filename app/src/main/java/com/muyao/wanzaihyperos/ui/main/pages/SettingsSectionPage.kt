@@ -6,7 +6,22 @@ import com.muyao.wanzaihyperos.ui.design.liquid.rememberPageChromePilot
 import com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp
 import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
 import com.muyao.wanzaihyperos.ui.design.ai.AiBall
+import android.Manifest
+import android.content.pm.PackageManager
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.core.content.ContextCompat
+import com.muyao.wanzaihyperos.data.reminder.ClassReminderPlan
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -119,6 +134,17 @@ fun SettingsSectionPage(
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
     var showPeriods by remember { mutableStateOf(false) }
+
+    // 通知权限：Android 13 起是运行时权限。打开开关时当场要一次，
+    // **被拒就把开关退回「关」** —— 留一个「已开」却没有通知权限的开关，等于骗他。
+    val notifPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        UiPrefs.saveClassReminderEnabled(granted)
+        if (!granted) {
+            Toast.makeText(context, "系统没给通知权限，提醒发不出来", Toast.LENGTH_LONG).show()
+        }
+    }
     // 订阅 MotionPrefs.version：`reduceTransparency` 是普通 @Volatile 字段，
     // 直接读不会触发重组 —— 开关会「动了但不变」（Motion.kt 档头写过的坑）。
     val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
@@ -272,6 +298,38 @@ fun SettingsSectionPage(
                     onClick = { showPeriods = !showPeriods },
                     trailing = { Text(text = if (showPeriods) "▾" else "›", fontSize = Type.title, color = colors.onSurfaceVariantSummary) },
                 )
+                SettingRow(
+                    icon = SettingIcon.Alarm,
+                    tint = if (UiPrefs.classReminderEnabled) Tone.ok else Tone.quiet,
+                    title = "上课提醒",
+                    subtitle = reminderSubtitle(context),
+                    trailing = {
+                        PillSwitch(
+                            checked = UiPrefs.classReminderEnabled,
+                            label = "上课提醒",
+                        ) {
+                            val on = !UiPrefs.classReminderEnabled
+                            val already = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (on && !already) {
+                                // 先把开关落成开，权限回调立刻把真实结果写回来；
+                                // 不先落的话，权限框弹出去那一瞬界面还写着「关」，看着像没点上。
+                                UiPrefs.saveClassReminderEnabled(true)
+                                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                UiPrefs.saveClassReminderEnabled(on)
+                            }
+                        }
+                    },
+                )
+                if (UiPrefs.classReminderEnabled) {
+                    ReminderLeadPicker(
+                        selected = UiPrefs.classReminderLeadMinutes,
+                        onSelect = { UiPrefs.saveReminderLead(it) },
+                    )
+                }
             }
         }
         item(key = "period-editor") {
@@ -361,6 +419,89 @@ fun SettingsSectionPage(
                             }
                         },
                         trailingChevron = true,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 「上课提醒」那行的副标题：说清**排上了几条**，而不是只说「已开启」。
+ *
+ * 为什么要说条数：开关打开但一条也没排上（没课表、没周次锚点、提前量比离上课还久）
+ * 在这个开关上看不出任何区别 —— 他会以为开着就会响，然后不响。
+ * `-1` = 还没排过（冷启动后还没走到调度那一步），这时候**不编条数**。
+ */
+private fun reminderSubtitle(context: android.content.Context): String {
+    if (!UiPrefs.classReminderEnabled) return "课前提醒：哪门课、几点、哪间教室"
+    val lead = UiPrefs.classReminderLeadMinutes
+    val count = UiPrefs.reminderPlannedCount
+    val head = if (lead == 0) "上课时提醒" else "提前 $lead 分钟提醒"
+    // 系统关掉精确闹钟时，闹钟变成「一小时内随便什么时候响」。这件事必须写在
+    // 这一行上 —— 只写「已排 N 条」等于向他保证一件系统没答应的事。
+    val late = !com.muyao.wanzaihyperos.data.reminder.ReminderScheduler.canBeExact(context)
+    return when {
+        count < 0 -> "$head · 还没排上（开一次课表页）"
+        count == 0 -> "$head · 这七天没有要提醒的课"
+        late -> "$head · 已排 $count 条（系统没给精确闹钟，可能晚到）"
+        else -> "$head · 已排 $count 条"
+    }
+}
+
+/**
+ * 提前量三选一（5 / 10 / 15 分钟）。只在开关打开时才出现。
+ *
+ * 为什么不做滑杆：滑杆能拖到 1 分钟（来不及）或 60 分钟（上一节课还在上就响），
+ * 这两头都是坏选择，而滑杆的每一格都得由他自己判断对不对 —— 给三个能用的就够。
+ */
+@Composable
+private fun ReminderLeadPicker(selected: Int, onSelect: (Int) -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    val isDark = com.muyao.wanzaihyperos.ui.design.liquid.isInDarkTheme()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "提前",
+            fontSize = Type.caption,
+            color = colors.onSurfaceVariantSummary,
+        )
+        Spacer(Modifier.width(10.dp))
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(Dims.chipCorner))
+                .background(colors.onBackground.copy(alpha = 0.045f))
+                .padding(1.8.dp),
+        ) {
+            ClassReminderPlan.LEAD_CHOICES.forEach { minutes ->
+                val on = minutes == selected
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(Dims.chipCorner))
+                        .background(
+                            if (on) {
+                                if (isDark) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.66f)
+                            } else {
+                                Color.Transparent
+                            },
+                        )
+                        // 选中**不换字重**：加粗让字变宽，整排会横抖（外观页 Segmented 同一条规矩）。
+                        .clickable(onClickLabel = "提前 $minutes 分钟") { onSelect(minutes) }
+                        .padding(vertical = 4.4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "$minutes 分钟",
+                        fontSize = Type.caption,
+                        fontWeight = Type.weightBody,
+                        color = if (on) colors.onBackground else colors.onSurfaceVariantSummary,
+                        maxLines = 1,
                     )
                 }
             }

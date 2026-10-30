@@ -83,6 +83,15 @@ enum class SettingIcon {
 
     /** 智云课堂：一块带播放三角的屏幕（它的登录态在网页里，只能开页面）。 */
     Screen,
+
+    /**
+     * 上课提醒：一只铃铛 + 铃舌。
+     *
+     * 为什么不用 `Clock`：设置页里「节次时间表」已经占了表盘，同一屏两行一个图形
+     * 会读成同一件事（这条规矩在 `Contrast` 那枚上已经立过一次）。
+     * 铃铛画法是「顶上的小圆 + 一段钟形弧 + 底边 + 下面一颗铃舌」，四笔都能落在 20dp 里。
+     */
+    Alarm,
 }
 
 @Composable
@@ -210,6 +219,15 @@ fun SettingGlyph(icon: SettingIcon, tint: Color, modifier: Modifier = Modifier) 
                     drawPath(roof, c, style = Stroke(width = stroke, cap = StrokeCap.Round))
                     rr(s * 0.22f, s * 0.46f, s * 0.78f, s * 0.88f, stroke, c)
                     line(s * 0.5f, s * 0.88f, s * 0.5f, s * 0.64f, stroke, c)
+                }
+
+                SettingIcon.Alarm -> {
+                    // 钟形：顶上小圆 + 两侧竖边 + 底边，再挂一颗铃舌。
+                    dot(s * 0.5f, s * 0.2f, stroke * 0.5f, c)
+                    line(s * 0.26f, s * 0.6f, s * 0.26f, s * 0.4f, stroke, c)
+                    line(s * 0.74f, s * 0.6f, s * 0.74f, s * 0.4f, stroke, c)
+                    line(s * 0.26f, s * 0.6f, s * 0.74f, s * 0.6f, stroke, c)
+                    line(s * 0.5f, s * 0.6f, s * 0.5f, s * 0.82f, stroke, c)
                 }
 
                 SettingIcon.Screen -> {

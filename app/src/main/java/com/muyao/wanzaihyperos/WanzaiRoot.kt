@@ -422,6 +422,50 @@ fun WanzaiApp(
         val unreadState by app.unread.state.collectAsState()
         val unreadCount = (unreadState.value as? CountValue.Known)?.value
 
+
+        // ── 上课提醒 ────────────────────────────────────────────────────
+        //
+        // 三件事：读开关 → 用 [ReminderBrain] 把课表算成一串提醒 → 交给
+        // [ReminderScheduler] 挂成系统闹钟。
+        //
+        // ★ 为什么不在「设置页打开开关」那一刻就排：那一刻 likely 两个课表来源都还是
+        //   FirstLoad，plan 会返回 null（不知道），排出来是空的。真正的排程点是
+        //   **课表状态变了**，所以这里盯的是两个仓库的 state，而不是开关本身。
+        val reminderOn = com.muyao.wanzaihyperos.data.UiPrefs.classReminderEnabled
+        val reminderLead = com.muyao.wanzaihyperos.data.UiPrefs.classReminderLeadMinutes
+        val reminderJwState by app.jwTimetable.state.collectAsState()
+        val reminderTronState by app.schedule.state.collectAsState()
+        val reminderJwCrawling = app.jwTimetable.isCrawling.value
+        LaunchedEffect(app, reminderOn, reminderLead, reminderJwState, reminderTronState, reminderJwCrawling) {
+            if (!reminderOn) {
+                // 关掉就该真的不响：不清的话，之前排上的那些还会在今天继续弹。
+                withContext(Dispatchers.IO) {
+                    runCatching { com.muyao.wanzaihyperos.data.reminder.ReminderScheduler.clear(context) }
+                }
+                return@LaunchedEffect
+            }
+            val planned = withContext(Dispatchers.IO) {
+                runCatching {
+                    com.muyao.wanzaihyperos.data.reminder.ReminderBrain.plan(
+                        jwState = reminderJwState,
+                        jwCrawling = reminderJwCrawling,
+                        tronState = reminderTronState,
+                        times = com.muyao.wanzaihyperos.data.UiPrefs.periodTimes,
+                        now = java.time.LocalDateTime.now(),
+                        leadMinutes = reminderLead,
+                        // 第几周只认锚点推算：算不出就 null，整段不排（不猜单双周）。
+                        weekOf = { date -> com.muyao.wanzaihyperos.data.UiPrefs.weekFromAnchor(date.toEpochDay()) },
+                    )
+                }.getOrNull()
+            }
+            // null = 这次还不知道（还在取 / 取失败）：**保留已排的那些**，一条都不动。
+            if (planned == null) return@LaunchedEffect
+            withContext(Dispatchers.IO) {
+                runCatching { com.muyao.wanzaihyperos.data.reminder.ReminderScheduler.sync(context, planned) }
+            }
+            com.muyao.wanzaihyperos.data.UiPrefs.saveReminderCount(planned.size)
+        }
+
         LaunchedEffect(app, uiState.loggedIn) {
             if (uiState.loggedIn) {
                 // force = false：自动刷新受 15 分钟下限约束；全 App 没有轮询定时器。
