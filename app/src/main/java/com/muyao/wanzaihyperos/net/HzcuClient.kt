@@ -273,6 +273,20 @@ class HzcuClient private constructor(
      */
     var debugForceExpire: (() -> Boolean)? = null
 
+    /**
+     * 调试出口：把服务端**原样**回的正文落盘。
+     *
+     * ★ 它是为什么来的（2026-10-30）：「标已读」点完，界面上的未读点立刻消失，杀进程重开
+     *   又全回来，看起来像服务端没记住。于是加这个钩子看服务端原话，而不是靠猜。
+     *   钩子给出的答案是 **服务端记住了** —— `setmessageread/{id}` 回
+     *   `{"code":200,"success":true,"message":"","data":"ok"}`，随后同一进程再取同一分组，
+     *   那条的 `isread` 已经是 1（dev/PortalLabActivity 一次跑完「标 → 再取」，排除了两处
+     *   读法不同的可能）。真正让界面看起来回退的是**分组顺序会变**：门户前后两次把
+     *   「讲座通知」和「活动通知」排在第一位，同一个 y 坐标上已经是另一条消息。
+     *   默认 null = 生产路径完全不变。
+     */
+    var debugDump: ((String, String) -> Unit)? = null
+
     private suspend fun portalPostOnce(
         path: String,
         fields: Map<String, String>?,
@@ -316,6 +330,11 @@ class HzcuClient private constructor(
         }
 
         val raw = send(request, context = context, maxAttempts = maxAttempts)
+        // 调试版才装：服务端原样回了什么（含写操作，例如「标已读」到底成没成）。
+        debugDump?.invoke(
+            path.trim('/').replace('/', '_').ifEmpty { "root" },
+            "HTTP " + raw.statusCode + "\n" + raw.body,
+        )
         return unwrap(raw, context = context, path = path)
     }
 

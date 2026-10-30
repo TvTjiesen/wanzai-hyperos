@@ -334,6 +334,13 @@ class AppGraph private constructor(
                         java.io.File(appContext.filesDir, "tron_raw_$name.txt").writeText(content)
                     }
                 }
+                // 门户侧的同款钩子（2026-10-30：消息标已读要验证服务端到底回了什么）。
+                // 取法：adb shell run-as com.muyao.wanzaihyperos cat files/portal_raw_<路径>.txt
+                client.debugDump = { name, content ->
+                    runCatching {
+                        java.io.File(appContext.filesDir, "portal_raw_$name.txt").writeText(content)
+                    }
+                }
             }
             // 所以提出區域變數讓兩處指向同一實例。
             val billsRepo = LivePortalBillRepository(api)
