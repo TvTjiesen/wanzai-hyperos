@@ -145,6 +145,13 @@ fun WanzaiMainShell(
      * 那是根導航（WanzaiRoot）的職責；頁面只管把 id 報上來。
      */
     onReadMessage: (String) -> Unit = {},
+    /**
+     * 「消息」那颗 tab 上的未读数。0 = 不画角标。
+     *
+     * 只收一个 Int 而不是 CountValue：底栏的职责就是画一个数，
+     * 「未知」在根导航那一层已经折成 0 了（不画 0 也不画问号）。
+     */
+    unreadCount: Int = 0,
     /** 返回栈深度：设置页的账号聚合行要按它重算（见 `SettingsSectionPage.refreshKey`）。 */
     navDepth: Int = 0,
     modifier: Modifier = Modifier,
@@ -217,7 +224,16 @@ fun WanzaiMainShell(
     // 頂欄那條紗會一直掛著，看起來像首頁壞了。
     LaunchedEffect(section) { chrome.progress = 0f }
 
-    val barItems = remember { MainSection.entries.map { GlassNavItem(it.label, it.iconRes) } }
+    // 未读角标只挂在「消息」那颗上（MainSection.Notify），其余恒 0。
+    val barItems = remember(unreadCount) {
+        MainSection.entries.map {
+            GlassNavItem(
+                label = it.label,
+                iconRes = it.iconRes,
+                badge = if (it == MainSection.Notify) unreadCount else 0,
+            )
+        }
+    }
 
     // ★★★ 独立审计（v3 #12 第 2 轮 P0#1）：这层 `GlassTheme {}` **不传 material**，
     //   而它内部把 `LocalBarMaterial` 交出去时用的是 `material ?: BarMaterial.LIQUID`

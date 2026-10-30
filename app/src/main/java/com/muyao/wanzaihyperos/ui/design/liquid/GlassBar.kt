@@ -38,7 +38,17 @@ import top.yukonga.miuix.kmp.blur.LayerBackdrop
  *  - 磨砂（refractsGlass = false）=> 仍透光 + 糊，但 lensDp = 0，折射量归零；
  *  - 液态 => 透光 + 糊 + 折射。
  */
-data class GlassNavItem(val label: String, @DrawableRes val iconRes: Int)
+data class GlassNavItem(
+    val label: String,
+    @DrawableRes val iconRes: Int,
+    /**
+     * 右上角未读角标的数字。0 = 不画。
+     *
+     * 「不知道未读数」也传 0：宁可不画，也不要画一个 0 或问号冒充数字
+     * （与首页「此刻」卡对 CountValue.Unknown 的处置同一条口径）。
+     */
+    val badge: Int = 0,
+)
 
 @Composable
 fun GlassNavBar(
@@ -61,6 +71,7 @@ fun GlassNavBar(
         isBlurActive = live,
         blurDp = blurDp,
         lensDp = if (motion.refractsGlass) lensDp else 0f,
+        badges = items.map { it.badge },
         modifier = modifier
             .padding(start = 6.dp, end = 6.dp, bottom = 4.dp)
             .fillMaxWidth(),

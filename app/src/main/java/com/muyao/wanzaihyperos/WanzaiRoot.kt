@@ -659,6 +659,9 @@ fun WanzaiApp(
                     //
                     // 為什麼重取而不是本地減一：服務端 getmessagenoreadcount 的口徑未知
                     // （只知它是標量），本地算術會長期越偏 —— 越用越不準比不更新更糟。
+                    // 底欄「消息」那顆 tab 的未讀角標。未知（CountValue.Unknown）時傳 0
+                    // —— 不畫 0 也不畫問號，與「此刻」卡對未知數的處置同一條口徑。
+                    unreadCount = unreadCount ?: 0,
                     onReadMessage = { id ->
                         scope.launch {
                             val ok = runCatching { app.messages.markRead(id) }.getOrDefault(false)

@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -61,6 +63,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -160,6 +163,18 @@ internal fun rememberGravityRotatedHighlight(
     }
 }
 
+/**
+ * 角标上画的那个字：99 以上折成 99+（三位数会把 14dp 的圆撑破）。
+ */
+private fun badgeLabel(n: Int): String = if (n > 99) "99+" else "$n"
+
+/**
+ * 角标给读屏念的话。
+ *
+ * 与 [badgeLabel] 分开：屏幕上写「99+」，读屏要念「99 条以上未读」而不是「九九加」。
+ */
+private fun badgeSpoken(n: Int): String = if (n > 99) "99 条以上未读" else "$n 条未读"
+
 @Composable
 internal fun IosLiquidGlassNavigationBar(
     items: List<NavigationItem>,
@@ -169,12 +184,23 @@ internal fun IosLiquidGlassNavigationBar(
     isBlurActive: Boolean,
     blurDp: Float = GlassTuning.BAR_DEFAULT_DP,
     lensDp: Float = GlassTuning.LENS_DEFAULT_DP,
+    /**
+     * 每个 tab 右上角那颗角标的数字，0 或越界一律不画。
+     *
+     * 为什么单开一支 list 而不是塞进 NavigationItem：那是 Miuix 的类型，
+     * 加字段就得 fork 它；角标是我们自己的东西，留在自己的边界内。
+     */
+    badges: List<Int> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val isDark = isInDarkTheme()
     val pillShape = remember { CircleShape }
     val accentColor = MiuixTheme.colorScheme.primary
     val tabContentColor = MiuixTheme.colorScheme.onSurface
+    // 角标面色取 error：深浅两档都被主题管着，不会出现「深色档看不见」。
+    // 不新造令牌 —— 角标是底栏玻璃上的一颗点，不是第五套配色。
+    val badgeFace = MiuixTheme.colorScheme.error
+    val badgeInk = MiuixTheme.colorScheme.surface
     val surfaceContainer = MiuixTheme.colorScheme.surfaceContainer
     // ★ 同一道闸也管容器本体（下面 `effects` 里那三处 lens 用的是 `refract`）。
     // 磨砂 = 糊加重 + tint 更实 + 不折射（与 `glass/BarOptics.kt` 那条唯一的材质语义同一份配比；
@@ -404,12 +430,41 @@ internal fun IosLiquidGlassNavigationBar(
                     verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically),
                     horizontalAlignment = CenterHorizontally,
                 ) {
-                    Icon(
-                        modifier = Modifier.size(22.dp),
-                        imageVector = item.icon,
-                        // Decorative: the adjacent label names the item; avoids TalkBack double-read.
-                        contentDescription = null,
-                    )
+                    val badge = badges.getOrElse(index) { 0 }
+                    // 外层不给 size：给了 22dp 就等于把角标的可用宽度也钉在 22dp，
+                    // 「99+」比这宽，会被静默裁成「99」（2026-10-30 真机帧上抓到的）。
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            modifier = Modifier.size(22.dp),
+                            imageVector = item.icon,
+                            // Decorative: the adjacent label names the item; avoids TalkBack double-read.
+                            contentDescription = null,
+                        )
+                        // 未读角标。**0 就不画**（不知道未读数时上层传 0，不画 0 也不画问号）。
+                        if (badge > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    // 往图标右上角外面挪一点：压在图标身上会把图形咬掉一块。
+                                    .offset(x = 6.dp, y = (-4).dp)
+                                    .height(14.dp)
+                                    .widthIn(min = 14.dp)
+                                    .clip(CircleShape)
+                                    .background(badgeFace)
+                                    .padding(horizontal = 3.dp)
+                                    .clearAndSetSemantics { contentDescription = badgeSpoken(badge) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = badgeLabel(badge),
+                                    fontSize = Type.micro,
+                                    fontWeight = FontWeight.Normal,
+                                    color = badgeInk,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = item.label,
                         // 业主 2026-10-22：「字都很小」=> 11sp->12sp。
