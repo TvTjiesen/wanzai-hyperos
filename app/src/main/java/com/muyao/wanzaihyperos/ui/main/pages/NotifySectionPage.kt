@@ -173,6 +173,7 @@ fun NotifySectionPage(
         is ListState.Empty -> 0
         else -> null
     }
+    val newsMeta = (newsNow as? ListState.Content)?.meta
     val newsCount: Int? = when (newsNow) {
         is ListState.Content -> newsNow.items.size
         is ListState.Empty -> 0
@@ -354,7 +355,16 @@ fun NotifySectionPage(
         item(key = "news-header") {
             // 同样不放「更多 ›」：它以前把新闻跳到 cjh52 的「日常通知」，
             // 那是另一个系统、另一份数据（审查 2026-10-21）。没有正确的目的地就不画入口。
-            GroupHead(name = "新闻", count = newsCount ?: 0, note = if (newsCount == null) "—" else "")
+            GroupHead(
+                name = "新闻",
+                count = newsCount ?: 0,
+                // 新闻一次取 8 条（门户 NEWS_PAGE_SIZE）。只报 8 会让人以为校园新闻只有 8 条。
+                note = when {
+                    newsCount == null -> "—"
+                    newsMeta?.hasMore == true -> "$newsCount 条 · 还有更多"
+                    else -> ""
+                },
+            )
         }
 
         when (val s = newsState) {
@@ -370,6 +380,14 @@ fun NotifySectionPage(
                     item(key = "news-empty") { StatusHint("暂时没有新闻。") }
                 } else {
                     item(key = "news-card") { NewsGroup(items) }
+                    if (newsMeta?.hasMore == true) {
+                        item(key = "news-more") {
+                            MoreRow(
+                                loading = newsMeta.loadingMore,
+                                onClick = { graph.fetch { graph.news.loadMore() } },
+                            )
+                        }
+                    }
                 }
             }
 
