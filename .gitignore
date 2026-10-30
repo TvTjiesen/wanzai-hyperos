@@ -41,3 +41,10 @@ verify/**/*.raw
 # JVM 崩溃现场（本机 16 GB 曾被 Gradle+Kotlin 守护进程打满留下过 hs_err/replay）
 hs_err_pid*.log
 replay_pid*.log
+
+# ---- 簽名材料（第四期）：只在本機，永不入庫 ---------------------------------
+# keystore 本體放在 C:/Users/<user>/.wz-secret/，這些是保險絲。
+keystore.properties
+*.jks
+*.keystore
+*.p12

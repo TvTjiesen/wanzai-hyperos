@@ -1,3 +1,6 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     // 注意：AGP 9.0+ 内置 Kotlin 支持，**不能**再加 `org.jetbrains.kotlin.android`
@@ -34,6 +37,33 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // 簽名配置（第四期準備）：key 與口令**都不在倉庫裡**
+            //   - keystore：C:/Users/<user>/.wz-secret/wanzai-release.jks
+            //   - 口令：keystore.properties（已被 .gitignore 擋住），或環境變數 WZ_KEYSTORE_PROPS
+            //
+            // 檔案不存在 ⇒ 這段跳過，release 產出**未簽名包**，assembleDebug 完全不受影響；
+            // 不能因為缺簽名讓日常構建炸掉（這條是給下一個接手的人看的）。
+            //
+            // ⚠️ 這裡必須用文件頂部 import 進來的 Properties/File，**不能**寫 `java.util.Properties`：
+            //    android{} 裡 `java` 指的是 JavaPluginExtension，會被解析過去而編譯失敗
+            //    （2026-10-30 現場踩到：10 errors，全是 Cannot infer type / Unresolved reference 'io'）。
+            val propsPath = System.getenv("WZ_KEYSTORE_PROPS")?.takeIf { it.isNotBlank() }
+                ?: rootProject.file("keystore.properties").absolutePath
+            val propsFile = File(propsPath)
+            if (propsFile.isFile) {
+                val props = Properties()
+                // ⚠️ 必须用 Reader + UTF-8：Properties.load(InputStream) 按 ISO-8859-1 解，
+                //    路径里的中文用户名（C:/Users/owner/…）会被解成乱码，报
+                //    「Keystore file 'C:\Users\owner\.wz-secret\…' not found」（2026-10-30 现场踩到）。
+                propsFile.reader(Charsets.UTF_8).use { props.load(it) }
+                signingConfig = signingConfigs.create("release") {
+                    storeFile = props.getProperty("storeFile")?.let { File(it) }
+                    storePassword = props.getProperty("storePassword")
+                    keyAlias = props.getProperty("keyAlias")
+                    keyPassword = props.getProperty("keyPassword")
+                }
+            }
+
         }
     }
 
