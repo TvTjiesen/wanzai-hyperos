@@ -70,7 +70,8 @@ class RollcallWriteOnceTest {
 
     @Test
     fun `成功路径只发一条PUT且打在正确的端点上`() = runTest {
-        server.enqueue(status = 200, body = """{"status":true}""")
+        // 官方成功判據（1154.js 逐字）：HTTP 200 **且** data.status == "on_call"。
+        server.enqueue(status = 200, body = """{"data":{"status":"on_call"}}""")
         val r = repository.answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
         assertTrue("成功响应应判 ok=true（消息=${r.message}）", r.ok)
 
@@ -83,6 +84,9 @@ class RollcallWriteOnceTest {
             w[0].path,
         )
         assertTrue("包体应带扫到的原文", "SCAN-PAYLOAD" in w[0].body)
+        assertTrue("包体字段必须是 data（官方 1154.js：{ data: r.data }）", "\"data\":" in w[0].body)
+        assertTrue("包体必须带 deviceId（官方 1154.js：{ deviceId: D.Z.deviceId }）", "\"deviceId\":" in w[0].body)
+        assertTrue("旧的错字段 code_str 不许再出现", "code_str" !in w[0].body)
     }
 
     @Test
@@ -112,5 +116,24 @@ class RollcallWriteOnceTest {
         listOf("请重试", "网络异常", "稍后再试").forEach { invented ->
             assertFalse("不许用 App 自造文案 `$invented` 顶替服务端原话：${r.message}", invented in r.message)
         }
+    }
+    @Test
+    fun `HTTP 200 但状态不是 on_call 必须判失败`() = runTest {
+        // 官方判据是 `200 === o.status && "on_call" === o.data?.status`（1154.js 逐字）。
+        // 只看 HTTP 200 会把「服务端收到了但没算签到」说成成功 —— 那是替学校撒谎。
+        server.enqueue(status = 200, body = """{"data":{"status":"absent"}}""")
+        val r = repository.answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
+        assertFalse("状态不是 on_call 就不能说签到成功：${r.message}", r.ok)
+        assertEquals("仍然只发一条", 1, writes().size)
+    }
+
+    @Test
+    fun `服务端的 error_code 也要翻成人话`() = runTest {
+        // 服务端错误码键是带下划线的 `error_code`（axios 拦截器里逐字读过），
+        // 只认 message/msg/error 会让「二维码过期」变成一个空兜底。
+        server.enqueue(status = 400, body = """{"error_code":"qr_code_expired"}""")
+        val r = repository.answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
+        assertFalse("过期必须判失败", r.ok)
+        assertTrue("error_code 要翻成人话，实际是：${r.message}", "过期" in r.message)
     }
 }

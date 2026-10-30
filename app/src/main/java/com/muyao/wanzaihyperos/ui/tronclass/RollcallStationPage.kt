@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind
 import com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult
+import com.muyao.wanzaihyperos.data.tronclass.RollcallQrCode
 import com.muyao.wanzaihyperos.data.tronclass.RollcallRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronRollcall
 import com.muyao.wanzaihyperos.ui.common.PageState
@@ -246,7 +247,7 @@ fun RollcallBody(
                     target is ScanTarget.Row -> {
                         // 行内扫码：目标是他自己点开的那一行。**但码照样不替他交出去** ——
                         // 挂到同一张选择卡上，提交那一键由他按（审计红线：签到是写操作）。
-                        pending = ScanPending(payload, target.id)
+                        pending = ScanPending(payload, target.id, RollcallQrCode.parse(raw))
                     }
 
                     else -> {
@@ -265,7 +266,7 @@ fun RollcallBody(
                             },
                             onBusy = setBusy,
                             onNotice = showNotice,
-                            onNeedPick = { pending = ScanPending(it, null) },
+                            onNeedPick = { pending = ScanPending(it, null, RollcallQrCode.parse(raw)) },
                         )
                     }
                 }
@@ -304,11 +305,11 @@ fun RollcallBody(
                         //   扫到的码**不直接提交**：先刷新清单、把候选摆出来，再由他按确认。
                         text = if (qrOpen > 0) {
                             "对着老师屏幕上的码扫一下（我这边看到 $qrOpen 项在进行）。" +
-                                "扫完我会先问你一句是哪一次，提交由你按。"
+                                "扫完我会先问一句是哪一次，提交由你按。"
                         } else {
-                            "清单里现在没有进行中的签到。扫码按钮仍然给你点 ——" +
-                                "老师发起后它就会出现在清单里；扫到的码只用来选是哪一次，" +
-                                "没法凭一个码凭空找出一条签到（这台服务器没有那种接口，实测 404）。"
+                            "清单里现在没有进行中的签到，但扫码按钮照样能用 ——" +
+                                "学校的签到码里自带签到编号，扫完不用等它出现在清单里。" +
+                                "提交仍然由你按。"
                         },
                         style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = Type.tabular),
                         color = colors.onSurfaceVariantSummary,
@@ -342,7 +343,7 @@ fun RollcallBody(
                                     },
                                     onBusy = setBusy,
                                     onNotice = showNotice,
-                                    onNeedPick = { pending = ScanPending(it, null) },
+                                    onNeedPick = { pending = ScanPending(it, null, RollcallQrCode.parse(text)) },
                                 )
                             }
                         },
@@ -354,18 +355,16 @@ fun RollcallBody(
         // ── 扫到了、要确认（或挑）是哪门课 ───────────────────────────
         pending?.let { p ->
             item {
-                // 行内扫码 = 他已经选好了那一行；顶部/粘贴 = 按"需扫码 + 未签"筛
-                val candidates = if (p.targetId != null) {
-                    items.filter { it.id == p.targetId }
-                } else {
-                    items.filter { it.needsCamera && it.unanswered }
-                }
+                val candidates = pendingCandidates(items, p.targetId, p.code)
                 AppCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(Dims.cardPadding)) {
                         Text(
                             // 一条时是"确认"，多条时是"挑"—— 两种都不能由我们替他决定
                             text = when {
                                 candidates.isEmpty() -> "这条签到已经不在了（清单刚刷新过）。"
+                                p.code?.rollcallId != null && p.targetId == null ->
+                                    "扫到了。码里自带签到编号（第 ${p.code.rollcallId} 号），" +
+                                        "不用等它出现在清单里；确认后由你按下面这一键。"
                                 candidates.size == 1 -> "扫到了。是这一次吗？确认后由你按下面这一键。"
                                 else -> "有几门课正在扫码签到，是哪一门？"
                             },
@@ -427,8 +426,8 @@ fun RollcallBody(
                     // 不是「簽到功能不可用」。
                     if (pageState == PageState.Empty)
                         "清单里暂时没有进行中的签到（老师发起后才会出现在这里）。" +
-                            "这台教务服务器没有“凭码找签到”的接口（实测 404），" +
-                            "所以真要在课上签：等它出现在这份清单里，从那一行点进去扫。"
+                            "手上已经有码的话，上面那颗扫码键照样能用 ——" +
+                            "学校的签到码里自带签到编号，扫完直接就能签，不用等它出现在清单里。"
                     else "签到没有取到，请稍后重试。",
                 )
             }
@@ -494,7 +493,48 @@ private sealed interface ScanTarget {
  *
  * 它只是**待确认的意向**，不含任何"已提交"的语义；唯一的写入口是卡片上那颗按钮。
  */
-private data class ScanPending(val payload: String, val targetId: Int?)
+/**
+ * 待确认卡上该列哪一条。
+ *
+ * 优先级（2026-10-30 定）：行内扫码（他点了那一行）> 码里自带的签到编号 >
+ * 清单里"需扫码 + 未签"的那几条。
+ *
+ * 第二条是关键：学校的签到码 `/j?p=` 里第 4 段就是 rollcallId，
+ * 所以扫到码**不必等它出现在「进行中」清单里**。清单里没有时合成一条占位，
+ * 标题写明"扫到的这次签到（编号 N）"，提交仍然由他按。
+ */
+internal fun pendingCandidates(
+    items: List<TronRollcall>,
+    targetId: Int?,
+    code: RollcallQrCode.Payload?,
+): List<TronRollcall> {
+    if (targetId != null) return items.filter { it.id == targetId }
+    val fromCode = code?.rollcallId?.let { id ->
+        items.firstOrNull { it.id == id } ?: TronRollcall(
+            id = id,
+            courseId = code.courseId ?: 0,
+            title = "扫到的这次签到（编号 $id）",
+            source = "qr",
+            status = "in_progress",
+            expired = false,
+            rollcallTime = "",
+            endTime = "",
+            numberCode = "",
+            myStatus = "unanswered",
+        )
+    }
+    if (fromCode != null) return listOf(fromCode)
+    return items.filter { it.needsCamera && it.unanswered }
+}
+
+private data class ScanPending(
+    /** 要交出去的原文（客户端会再解一次，取出码里的 data）。 */
+    val payload: String,
+    /** 行内扫码时他选定的那一行；顶部/粘贴是 null。 */
+    val targetId: Int?,
+    /** 码解码出来的东西（rollcallId / courseId / data）。解不出是 null。 */
+    val code: RollcallQrCode.Payload? = null,
+)
 
 /** 一次簽到後的提示（默認是「沒有提示」）。 */
 private data class Notice(val ok: Boolean = false, val text: String? = null)
@@ -610,8 +650,16 @@ private fun pickScanTarget(
         // 端点事实（阶段 1 已定案）：签到码落到 `PUT /api/rollcall/{id}/answer_qr_rollcall`
         // （官方 H5 包 `answerQRRollcall` 那一行），**必须带那条签到自己的 id**；
         // 包里没有"码 → id"的接口，所以先只读刷新一次再按"需扫码 + 未签"重挑。
+        // ★ 2026-10-30 更正：那个 id **就写在码里**（`/j?p=` 的 4 号段，36 进制），
+        //   所以扫到码根本不必等它出现在「进行中」清单里 —— 直接挂待确认，
+        //   由他按确认键。清单匹配只是解不出编号时的兜底。
         if (com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning.debugLog) {
             android.util.Log.i("wz-rollcall", "scan raw len=${code.length} head=${code.take(80)}")
+        }
+        if (RollcallQrCode.parse(code)?.rollcallId != null) {
+            onNeedPick(code)
+            onBusy(null)
+            return@launch
         }
         val candidates = runCatching { refreshCandidates() }.getOrDefault(emptyList())
         when (val plan = scanPlan(candidates)) {

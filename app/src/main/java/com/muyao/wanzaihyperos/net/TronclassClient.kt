@@ -74,7 +74,17 @@ class TronclassClient(
      * 回傳續期後的新 accessToken；續不了回 null（呼叫方據此報「請重新登入」）。
      */
     private val refreshAccessToken: suspend () -> String? = { null },
+    /**
+     * 這台設備的 `deviceId`（簽到包體裡要帶）。
+     *
+     * 生產由 [com.muyao.wanzaihyperos.session.TronclassSession.deviceId] 提供
+     * （加密存儲裡永久保留同一個值）。給不出值時退回 [fallbackDeviceId]。
+     */
+    private val deviceIdProvider: () -> String? = { null },
 ) {
+
+    /** `deviceIdProvider` 給不出值時的兜底：同一支 client 內穩定，換進程會變。 */
+    private val fallbackDeviceId: String = java.util.UUID.randomUUID().toString()
 
     /**
      * 拿一個可用的 sessionID：優先复用快取的，沒有就去換一枚。
@@ -477,26 +487,85 @@ class TronclassClient(
             com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.PLAIN ->
                 "/api/rollcall/$rollcallId/answer?api_version=1.76"
         }
-        // 數字簽到的包體欄位是 `number_code`（源碼模型欄位名），
-        // 掃碼那條帶的是掃到的原始字串。
+        // 包體照官方 H5，不是猜的：
+        //   數字簽到 -> {"number_code":"..."}
+        //   掃碼簽到 -> {"data":"<码里的 3 号段>","deviceId":"<设备 uuid>"}
+        // `mobile.hzcu.edu.cn/js/1154.08a25277.js` 的 `re` 函數逐字：
+        //   n = { data: r.data, deviceId: D.Z.deviceId }
+        //   [4, p.Z.answerQRRollcall(r.rollcallId, n)]
+        // 舊的 `{"code_str":...}` 是**錯的**（官方包裡 code_str 一次都沒出現），
+        // 服務端只會回 no_request_data。
         val bodyJson = when (kind) {
             com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.NUMBER ->
                 """{"number_code":${jsonString(code.orEmpty())}}"""
-            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.QR ->
-                """{"code_str":${jsonString(code.orEmpty())}}"""
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.QR -> {
+                val data = com.muyao.wanzaihyperos.data.tronclass.RollcallQrCode.submissionData(code)
+                val device = deviceIdProvider()?.takeIf { it.isNotBlank() } ?: fallbackDeviceId
+                """{"data":${jsonString(data)},"deviceId":${jsonString(device)}}"""
+            }
             else -> "{}"
         }
         // 只给可调试构建：把他自己按下提交那一次真正发出去的包体留下（业主 2026-10-28 第⑤条）。
         // 没有这一条，签到码只能靠猜；有了它，服务端收到什么就是一串可查的原文。
         debugDump?.invoke("answer_" + kind.name.lowercase(), bodyJson)
         val (status, text) = rawRequest(path, "PUT", bodyJson)
+        // 響應原文也留一份（只給可調試構建）：判斷「到底簽上了沒有」靠的就是它。
+        debugDump?.invoke("answer_" + kind.name.lowercase() + "_resp", text)
+        // 成功判據照官方：**HTTP 200 且 data.status == "on_call"**
+        // （`200===o.status && "on_call"===(o.data?.status)`，同一份 re 函數）。
+        // 只看 200 會把「送到了但沒簽上」說成成功 —— 那是替他撒謊。
+        val onCall = runCatching {
+            val root = Json.parseToJsonElement(text) as? JsonObject
+            val body = root?.get("data") as? JsonObject
+            body?.get("status").asStringOrNull() == "on_call"
+        }.getOrDefault(false)
         return com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult(
-            ok = status == 200,
+            ok = status == 200 && onCall,
             httpStatus = status,
             // 服務端原話（校驗失敗時它會說「位置不對」「二維碼過期」等）。
             // ⚠️ 只保留短消息，且**不帶請求內容**。
-            message = extractMessage(text, fallback = "签到未成功（服务端未说明原因）"),
+            message = answerMessage(text = text, status = status, onCall = onCall),
         )
+    }
+
+    /**
+     * 把簽到響應翻成一句能給他看的話。
+     *
+     * 服務端的可讀消息在 `message` / `msg` / `error` 裡；校驗失敗時常常**只有**
+     * `error_code`（例如 `qr_code_expired`），所以這裡兩邊都認。
+     * 只吐短句，且**絕不寫日誌**（響應是外部文字）。
+     */
+    private fun answerMessage(text: String, status: Int, onCall: Boolean): String {
+        val obj = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+        val raw = obj?.get("message").asStringOrNull()
+            ?: obj?.get("msg").asStringOrNull()
+            ?: obj?.get("error").asStringOrNull()
+        val human = obj?.get("error_code").asStringOrNull()?.let { rollcallErrorText(it) }
+        val fallback = when {
+            status != 200 -> "签到未成功（服务端未说明原因）"
+            onCall -> "已签到"
+            else -> "服务端收到了，但没确认签到（状态不是 on_call）"
+        }
+        return listOf(raw?.take(120)?.takeIf { it.isNotBlank() }, human)
+            .filterNotNull()
+            .joinToString(" · ")
+            .ifBlank { fallback }
+    }
+
+    /** 官方錯誤碼 -> 一句中文（碼表逐字來自 mobile.hzcu.edu.cn 的錯誤碼枚舉）。 */
+    private fun rollcallErrorText(code: String): String? = when (code) {
+        "wrong_number_code" -> "数字不对"
+        "rollcall_unknown_student" -> "你不在这次签到的名单里"
+        "rollcall_already_closed" -> "这次签到已经结束"
+        "not_found_qr_rollcall" -> "服务端找不到这次签到"
+        "no_request_data" -> "签到包体没被认出来（缺 data 或 deviceId）"
+        "invalid_qr_create_time" -> "二维码的时间戳不对"
+        "invalid_create_time_hash" -> "二维码校验不通过（不是这台服务器发的码？）"
+        "qr_code_expired" -> "二维码已过期（这个码有时效，得现扫现签）"
+        "invalid_ip_address" -> "IP 不在允许范围（要连校园网）"
+        "rollcall_device_already_in_use" -> "这台手机已经被别人用于这次签到"
+        "rollcall_position_invalid" -> "位置不对（不在签到范围内）"
+        else -> null
     }
 
     // -------------------------------------------------------------------------

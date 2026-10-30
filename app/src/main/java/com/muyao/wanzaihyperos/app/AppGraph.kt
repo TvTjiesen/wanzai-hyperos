@@ -293,6 +293,8 @@ class AppGraph private constructor(
                 accessTokenProvider = { tronSession.accessToken() },
                 onSessionId = { sid -> tronSession.saveXSessionId(sid) },
                 cachedSessionId = { tronSession.xSessionId() },
+            // 簽到包體要 `deviceId`（官方 1154.js 的 n={data,deviceId}）。同一台機器永遠同一個值。
+            deviceIdProvider = { tronSession.deviceId() },
                 // ★ 續期：待辦看板不經過「打開學在城院磁貼」那條會續期的路，
                 //   token 過期時必須在這裡自己補救（否則界面只顯示「取數失敗」）。
                 refreshAccessToken = {

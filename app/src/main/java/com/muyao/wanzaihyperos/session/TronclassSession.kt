@@ -73,6 +73,15 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
          */
         const val KEY_X_SESSION_ID = KEY_SESSION_ID
 
+        /**
+         * 這台設備的穩定標識（簽到包體裡的 `deviceId`）。
+         *
+         * 官方 H5 送的是 Capacitor 的 `Device.getInfo().uuid`
+         * （`mobile.hzcu.edu.cn/js/1154.*.js`：`n={data:r.data,deviceId:D.Z.deviceId}`）。
+         * 它**不是憑據**（只是設備指紋），所以 [clear] 不清它 —— 換賬號不等於換手機。
+         */
+        const val KEY_DEVICE_ID = "tronclass_device_id"
+
         /** token 对所在的域。**JWT 只允许拼到这个 host**（见 TronclassBoot）。 */
         const val TARGET_HOST = "mobile.hzcu.edu.cn"
 
@@ -144,6 +153,10 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
     @Volatile
     private var xSessionIdValue: String? = null
 
+    /** 這台設備的簽到 `deviceId`。不是憑據，清了會讓服務端把同一台手機當成新設備。 */
+    @Volatile
+    private var deviceIdValue: String? = null
+
     /**
      * 讀快取的 `X-SESSION-ID`。
      *
@@ -161,6 +174,24 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
         xSessionIdValue = sid
         store.write(KEY_X_SESSION_ID, sid)
         markLoaded()
+    }
+
+    /**
+     * 這台設備的簽到 `deviceId`（第一次用時生成並落加密存儲，之後一直是同一個）。
+     *
+     * 為什麼要它：官方掃碼簽到的包體是 `{"data":…,"deviceId":…}`
+     * （`mobile.hzcu.edu.cn/js/1154.*.js` 的 `re` 函數逐字）。缺了它服務端回
+     * `no_request_data`。生成後**永久保留**，換賬號也不換（那是同一台手機）。
+     */
+    fun deviceId(): String {
+        deviceIdValue?.let { return it }
+        synchronized(lock) {
+            deviceIdValue?.let { return it }
+            val stored = store.read(KEY_DEVICE_ID)?.trim()?.takeIf { it.isNotEmpty() }
+            val value = stored ?: java.util.UUID.randomUUID().toString().also { store.write(KEY_DEVICE_ID, it) }
+            deviceIdValue = value
+            return value
+        }
     }
 
     /** access_token。**这是凭据**，调用方只允许把它拼进目标 URL，禁止打印/记录。 */
