@@ -304,6 +304,11 @@ fun HomeSectionPage(
     }
     // 画得出课就不说"没取到"：同一屏不能一边说没取到、一边画出他下一节课。
     val shownFailure = if (daySlots.isEmpty()) failure else null
+    // 今天真没课时，时间线卡能说的只有「今天没有课」和「下一节：周一…」——
+    // 这两句「此刻」卡已经说过了（2026-10-31 真机 dump 里两处逐字相同）。
+    // 同一屏讲两遍同一件事，读起来像两个不同的结论；整周入口还在「看课表」和底栏课表页上。
+    val timelineHasNothingToSay = !loading && shownFailure == null &&
+        week != null && todaySlots.isEmpty()
 
     GlassBackdropHost(
         modifier = modifier.fillMaxSize(),
@@ -452,6 +457,7 @@ fun HomeSectionPage(
                         now = now,
                         look = look,
                         remainingCount = remainingCount,
+                        todayCount = todaySlots.size,
                         nextStart = nextStart,
                         loading = loading,
                         compact = compact,
@@ -485,13 +491,12 @@ fun HomeSectionPage(
                         )
                     }
 
-                    item(key = "timeline") {
+                    if (!timelineHasNothingToSay) item(key = "timeline") {
                         TodayTimelineCard(
                             slots = todaySlots,
                             week = week,
                             now = now,
                             times = times,
-                            plan = plan,
                             loading = loading,
                             // 同一条规矩：这一屏画得出课就不说「没取到」（三张卡共用 shownFailure）。
                             failure = shownFailure,
@@ -596,6 +601,8 @@ private fun HomeSkyHeader(
     now: LocalDateTime,
     look: SkyLook,
     remainingCount: Int,
+    /** 今天一共有几节课（不是「还剩几节」）。0 与「都上完了」是两件事，副行必须分开说。 */
+    todayCount: Int,
     nextStart: LocalTime?,
     loading: Boolean,
     failure: String?,
@@ -618,6 +625,10 @@ private fun HomeSkyHeader(
         //   而下面算出来的 `failure` 已经带了名分（"学在城院那份没取到：…" / "教务那份…"），
         //   却一个字都没上屏 ⇒ 那句注释是假的。现在真把带名分的那句画出来。
         failure != null -> failure
+        // ★ 2026-10-31 真机：周六（今天一节没有）副行写「今天的课上完了」——
+        //   remainingCount 为 0 既可能是「全上完了」也可能是「今天压根没课」，
+        //   这两件事对读的人完全不同：前者值得恭喜，后者是一句空话。分开说。
+        todayCount == 0 -> "今天没有课"
         remainingCount == 0 -> "今天的课上完了"
         nextStart != null -> "还有 $remainingCount 节课 · 下一节 ${nextStart.format(TIME_HM)}"
         else -> "还有 $remainingCount 节课"
@@ -1118,7 +1129,6 @@ private fun TodayTimelineCard(
     week: Int?,
     now: LocalDateTime,
     times: List<Pair<String, String>>,
-    plan: TodayPlan?,
     loading: Boolean,
     failure: String?,
     onOpenTimetable: () -> Unit,
@@ -1166,14 +1176,6 @@ private fun TodayTimelineCard(
             if (week == null) {
                 Text(
                     text = "还不知道目前是第几教学周，先看整周课表。",
-                    fontSize = Type.secondary,
-                    color = colors.onSurfaceVariantSummary,
-                )
-                return@Column
-            }
-            if (slots.isEmpty()) {
-                Text(
-                    text = plan?.detail ?: "今天没有课。",
                     fontSize = Type.secondary,
                     color = colors.onSurfaceVariantSummary,
                 )
