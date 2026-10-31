@@ -34,5 +34,10 @@
             android:exported="true"
             android:label="闹钟口径联调台(仅测试)"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
+            android:name=".dev.SztyLabActivity"
+            android:exported="true"
+            android:label="数智体育联调台(仅测试)"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
     </application>
 </manifest>

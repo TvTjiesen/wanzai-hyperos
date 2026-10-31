@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -93,6 +94,44 @@ fun SztyPage(
     var inputError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
+    val context = LocalContext.current
+
+    /**
+     * 一键把剪贴板里的 token 与 userId 填进来。
+     *
+     * ### ★ 为什么非得有这个按钮
+     *
+     * token 是 54 个字符、里面带 `+` `/` `=` `_`。让用户在手机上照着敲，
+     * 敲错一个字符服务端只会回一条「token 失效」，谁也不知道错在哪。
+     * 而这两个值在抓包里本来就挨在一起（请求头那一行 + 请求体里的 `userId`），
+     * 所以这里不要求「只复制 token」—— 整段粘进来，用正则把两样捞出来。
+     *
+     * ⚠️ 只在用户主动点按这一刻读剪贴板，读到的东西除了这两样之外不落任何地方。
+     */
+    fun pasteFromClipboard() {
+        val clip = runCatching {
+            context.getSystemService(android.content.ClipboardManager::class.java)
+                ?.primaryClip?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)?.coerceToText(context)?.toString()
+        }.getOrNull()
+        if (clip.isNullOrBlank()) {
+            inputError = "剪贴板是空的。请先在抓包里复制带 token 的那一段。"
+            return
+        }
+        val pasted = com.muyao.wanzaihyperos.data.szty.parseSztyPaste(clip)
+        if (pasted.isEmpty) {
+            inputError = "没认出 token。数智体育的 token 以 SPORT_API_ 开头，请连前缀一起复制。"
+            return
+        }
+        pasted.token?.let { tokenInput = it }
+        pasted.userId?.let { userIdInput = it.toString() }
+        inputError = when {
+            pasted.token == null -> "认出了 userId = ${pasted.userId}，但没看到 token（要以 SPORT_API_ 开头）。"
+            pasted.userId == null -> "认出了 token，但没看到 userId（'userId' 后面那一串短数字），请单独填一下。"
+            else -> null
+        }
+    }
+
     val state by repository.state.collectAsState()
 
     LaunchedEffect(hasCredential) {
@@ -160,6 +199,14 @@ fun SztyPage(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
+                    // ★ 一键粘贴：token 54 个字符带 + / = _，让用户在手机上照着敲
+                    // 等于让他把一个必然打错的东西打一遍，错了还只会回「token 失效」。
+                    item(key = "gate-paste") {
+                        Button(
+                            onClick = { pasteFromClipboard() },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("从剪贴板粘贴 token 和 userId") }
+                    }
                     item(key = "gate-save") {
                         Button(
                             onClick = {
@@ -168,7 +215,7 @@ fun SztyPage(
                                 when {
                                     token.isBlank() ->
                                         inputError = "token 是空的。请把 SPORT_API_ 开头那一串完整贴进来。"
-                                    !token.startsWith("SPORT_API_") ->
+                                    !token.startsWith(com.muyao.wanzaihyperos.data.szty.SPORT_TOKEN_PREFIX) ->
                                         inputError = "这一串不像 token。数智体育的 token 以 SPORT_API_ 开头。"
                                     userId == null || userId <= 0 ->
                                         inputError = "userId 得是正整数。学号（8 位）不是 userId，服务端会拒。"
@@ -381,7 +428,11 @@ private fun FitnessCard(year: SztyFitnessYear) {
             }
             year.items.forEach { item ->
                 // ★ 空串 = 未测，**不是 0**：服务端给 50 米 / 1000 米的 data 就是空串。
-                KeyValueRow(label = item.name, value = item.value ?: "未测")
+                KeyValueRow(
+                    label = item.name,
+                    value = item.value ?: "未测",
+                    labelWidth = Dims.labelColumnLong,
+                )
             }
         }
     }
