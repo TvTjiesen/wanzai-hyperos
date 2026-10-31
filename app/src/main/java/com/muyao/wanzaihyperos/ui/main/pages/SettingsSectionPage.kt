@@ -119,6 +119,7 @@ fun SettingsSectionPage(
     onOpenJw: () -> Unit = {},
     /** 「智慧公寓」闸门页（只能他自己粘贴入口链接）。 */
     onOpenZhgy: () -> Unit = {},
+    onOpenSzty: () -> Unit = {},
     /** 「应用」板块：CJH52 的临时码要在那里打开一次网页才会激活。 */
     onOpenApps: () -> Unit = {},
     /** 关于 + 开源许可（B4-10）。 */
@@ -149,7 +150,7 @@ fun SettingsSectionPage(
     // 直接读不会触发重组 —— 开关会「动了但不变」（Motion.kt 档头写过的坑）。
     val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
 
-    // 六源快照。`ensureLoaded()` 会**同步碰加密存储**（Keystore 解密），所以整份快照
+    // 各源快照。`ensureLoaded()` 会**同步碰加密存储**（Keystore 解密），所以整份快照
     // 在 IO 线程算好再上屏 —— 放在 `remember` 里算就是把四次解密挂在设置页第一帧上
     // （v3 #8 复审计到过一次：`LaunchedEffect` 在组合之后才跑，`remember` 那次已经读完了）。
     var accountSources by remember { mutableStateOf<List<AccountSource>>(emptyList()) }
@@ -162,6 +163,7 @@ fun SettingsSectionPage(
                 jw = graph.jwSession,
                 cjh52 = graph.cjh52Session,
                 zhgy = graph.zhgySession,
+                szty = graph.sztySession,
             )
         }
     }

@@ -658,6 +658,7 @@ fun WanzaiApp(
                     onOpenLogin = { backStack.add(Route.Login) },
                     // 设置页「帐号」那一组：智慧公寓只能他自己粘入口链接（App 取不到码）。
                     onOpenZhgy = { backStack.add(Route.Zhgy) },
+                    onOpenSzty = { backStack.add(Route.Szty) },
                     // 消息裡點一條：門戶的 openurl 交給 WebView。
                     //
                     // ⚠️ 原樣交過去對 cjh52 是不行的（真機 2026-10-30 實測）：
@@ -746,6 +747,7 @@ fun WanzaiApp(
                     onOpenLogin = { backStack.add(Route.Login) },
                     onOpenJw = { backStack.add(Route.Jw) },
                     onOpenZhgy = { backStack.add(Route.Zhgy) },
+                    onOpenSzty = { backStack.add(Route.Szty) },
                     onOpenApps = { uiState.selectedTab = 3; backStack.removeLastOrNull() },
                     // 回到这一页时要重新取六源快照（见 AccountsPage 的 refreshKey 注释）
                     refreshKey = backStack.size,
@@ -1095,6 +1097,15 @@ fun WanzaiApp(
                 )
             }
 
+            // B20：數智體育（體測 / 校園跑 / 體育課簽到，只讀）。
+            // token 與數字 userId 在加密會話裡，不進導航狀態。
+            entry<Route.Szty> {
+                com.muyao.wanzaihyperos.ui.szty.SztyPage(
+                    repository = app.szty,
+                    session = app.sztySession,
+                    onExit = { backStack.removeLastOrNull() },
+                )
+            }
             entry<Route.Web> { route ->
                 WebShellPage(
                     title = route.title,

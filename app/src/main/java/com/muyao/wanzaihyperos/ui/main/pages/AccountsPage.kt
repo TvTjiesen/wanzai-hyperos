@@ -58,6 +58,7 @@ fun AccountsPage(
     onOpenLogin: () -> Unit = {},
     onOpenJw: () -> Unit = {},
     onOpenZhgy: () -> Unit = {},
+    onOpenSzty: () -> Unit = {},
     onOpenApps: () -> Unit = {},
     /**
      * 刷新键：**必须**随「回到这一页」变化。
@@ -83,6 +84,7 @@ fun AccountsPage(
                 jw = graph.jwSession,
                 cjh52 = graph.cjh52Session,
                 zhgy = graph.zhgySession,
+                szty = graph.sztySession,
             )
         }
     }
@@ -90,6 +92,7 @@ fun AccountsPage(
         AccountTarget.PortalLogin -> onOpenLogin()
         AccountTarget.JwPage -> onOpenJw()
         AccountTarget.ZhgyPage -> onOpenZhgy()
+        AccountTarget.SztyPage -> onOpenSzty()
         AccountTarget.AppsTab -> onOpenApps()
         AccountTarget.None -> Unit
     }
@@ -120,9 +123,9 @@ fun AccountsPage(
         val anySignedIn = sources.any { it.status == AccountStatus.LoggedIn }
         Text(
             text = if (anySignedIn && uiState.displayAccount.isNotBlank()) {
-                "当前身份 ${uiState.displayAccount} · 六套登录态互不牵连，哪一项掉了只影响它自己"
+                "当前身份 ${uiState.displayAccount} · 各系统登录态互不牵连，哪一项掉了只影响它自己"
             } else {
-                "六套登录态互不牵连：哪一项掉了只影响它自己"
+                "各系统登录态互不牵连：哪一项掉了只影响它自己"
             },
             fontSize = Type.caption,
             color = colors.onSurfaceVariantSummary,
@@ -222,13 +225,14 @@ internal fun AccountSourceRow(source: AccountSource, onClick: (() -> Unit)?) {
     )
 }
 
-/** 六源六枚图形，**一行一枚**：共用图形就等于告诉用户「这两行是一回事」。 */
+/** 每源一枚图形，**一行一枚**：共用图形就等于告诉用户「这两行是一回事」。 */
 private fun glyphFor(source: AccountSource): SettingIcon = when (source.id) {
     "portal" -> SettingIcon.Shield
     "tronclass" -> SettingIcon.Cap
     "jw" -> SettingIcon.Doc
     "cjh52" -> SettingIcon.Badge
     "zhgy" -> SettingIcon.House
+    "szty" -> SettingIcon.Dumbbell
     else -> SettingIcon.Screen
 }
 

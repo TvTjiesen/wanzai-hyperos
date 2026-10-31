@@ -214,4 +214,15 @@ sealed interface Route : NavKey {
      */
     @Serializable
     data class ZyReplay(val url: String, val title: String) : Route
+    /**
+     * B20：**數智體育**（`ty.hzcu.edu.cn`）—— 體測、校園跑、體育課簽到，**只讀**。
+     *
+     * **不帶參數** —— token 與數字 userId 存在加密會話裡，不該進導航狀態
+     *（導航狀態會被系統序列化保存/恢復，憑據放進去等於讓它出現在可能被 dump 的地方）。
+     *
+     * 為什麼要 userId：服務端**不按 token 認人，按請求體裡的數字 userId 認人**
+     *（實測 `{userId:80000}` 成功、`{userId:32500000}`（學號）失敗、漏填回 HTTP 500）。
+     */
+    @Serializable
+    data object Szty : Route
 }

@@ -141,6 +141,10 @@ class AppGraph private constructor(
     val zyEngine: com.muyao.wanzaihyperos.data.zy.ZyEngine,
     /** B19：智雲課堂倉庫（週課表 + 回放）。 */
     val zy: com.muyao.wanzaihyperos.data.zy.ZyRepository,
+    /** B20：数智体育的会话（用户粘贴的 token + 服务端认人用的数字 userId）。 */
+    val sztySession: com.muyao.wanzaihyperos.session.SztySession,
+    /** B20：数智体育仓库（体测 / 校园跑 / 体育课签到，全只读）。 */
+    val szty: com.muyao.wanzaihyperos.data.szty.SztyRepository,
 ) {
 
     /**
@@ -349,6 +353,8 @@ class AppGraph private constructor(
             val jwEngineInstance = com.muyao.wanzaihyperos.data.jw.JwEngine()
             // B19：智雲課堂。同樣**只能建一份** —— WebView 裡那份會話就在引擎裡。
             val zyEngineInstance = com.muyao.wanzaihyperos.data.zy.ZyEngine()
+            // B20：數智體育的會話。**只建一份** —— 倉庫每次取數都問它拿 token 與 userId。
+            val sztySessionInstance = com.muyao.wanzaihyperos.session.SztySession(store)
             return AppGraph(
                 appContext = appContext,
                 client = client,
@@ -405,6 +411,12 @@ class AppGraph private constructor(
                 ),
                 zyEngine = zyEngineInstance,
                 zy = com.muyao.wanzaihyperos.data.zy.LiveZyRepository(zyEngineInstance),
+                // B20：數智體育。會話與倉庫共用同一份 —— 倉庫每次取數都要問它拿 token 與 userId。
+                sztySession = sztySessionInstance,
+                szty = com.muyao.wanzaihyperos.data.szty.LiveSztyRepository(
+                    com.muyao.wanzaihyperos.net.SztyClient(),
+                    sztySessionInstance,
+                ),
             )
         }
     }

@@ -5,6 +5,7 @@ import com.muyao.wanzaihyperos.session.FailingSecureStore
 import com.muyao.wanzaihyperos.session.InMemorySecureStore
 import com.muyao.wanzaihyperos.session.JwSession
 import com.muyao.wanzaihyperos.session.PortalSession
+import com.muyao.wanzaihyperos.session.SztySession
 import com.muyao.wanzaihyperos.session.TronclassSession
 import com.muyao.wanzaihyperos.session.ZhgySession
 import org.junit.Assert.assertEquals
@@ -39,17 +40,18 @@ class AccountSourcesTest {
         jw: JwSession = JwSession(InMemorySecureStore()),
         cjh52: Cjh52Session = Cjh52Session(InMemorySecureStore()),
         zhgy: ZhgySession = ZhgySession(InMemorySecureStore()),
-    ) = snapshotAccountSources(portal, tronclass, jw, cjh52, zhgy)
+        szty: SztySession = SztySession(InMemorySecureStore()),
+    ) = snapshotAccountSources(portal, tronclass, jw, cjh52, zhgy, szty)
 
     private fun List<AccountSource>.byId(id: String): AccountSource = first { it.id == id }
 
-    /** 五个真会话（智云课堂那行是常量，不参与存储）。 */
-    private val trackedIds = listOf("portal", "tronclass", "jw", "cjh52", "zhgy")
+    /** 六个真会话（智云课堂那行是常量，不参与存储）。 */
+    private val trackedIds = listOf("portal", "tronclass", "jw", "cjh52", "zhgy", "szty")
 
     @Test
-    fun `六源齐全且顺序稳定`() {
+    fun `七源齐全且顺序稳定`() {
         assertEquals(
-            listOf("portal", "tronclass", "jw", "cjh52", "zhgy", "zy"),
+            listOf("portal", "tronclass", "jw", "cjh52", "zhgy", "szty", "zy"),
             sourcesOf().map { it.id },
         )
     }
@@ -129,9 +131,10 @@ class AccountSourcesTest {
             jw = JwSession(FailingSecureStore()),
             cjh52 = Cjh52Session(FailingSecureStore()),
             zhgy = ZhgySession(FailingSecureStore()),
+            szty = SztySession(FailingSecureStore()),
         )
         val tracked = sources.filter { it.id in trackedIds }
-        assertEquals(5, tracked.size)
+        assertEquals(6, tracked.size)
         assertTrue(tracked.all { it.status == AccountStatus.Unknown })
         assertTrue(
             "「未知」被渲染成「未登录」就是替服务器撒谎（他明明登录着）",
@@ -220,7 +223,7 @@ class AccountSourcesTest {
     @Test
     fun `每源的时刻语义不同不许统一写成登录`() {
         assertEquals(
-            listOf("认证", "换票", "登录", "取码", "存码"),
+            listOf("认证", "换票", "登录", "取码", "存码", "粘贴"),
             sourcesOf().mapNotNull { it.timeLabel },
         )
     }

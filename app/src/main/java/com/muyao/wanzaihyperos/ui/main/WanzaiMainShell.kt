@@ -132,6 +132,8 @@ fun WanzaiMainShell(
     onOpenLogin: () -> Unit = {},
     /** 设置页「智慧公寓」那一行：跳到它自己的闸门页（只能他自己粘贴入口链接）。 */
     onOpenZhgy: () -> Unit = {},
+    /** 设置页「数智体育」那一行：跳到它自己的闸门页（粘 token + 数字 userId）。 */
+    onOpenSzty: () -> Unit = {},
     /** 设置页「关于」那一行：关于 + 开源许可页（B4-10）。 */
     onOpenAbout: () -> Unit = {},
     /** B4-06：设置页「账号」二级页。 */
@@ -409,6 +411,7 @@ fun WanzaiMainShell(
                                 onOpenAppearance = { showAppearance = true },
                                 onOpenJw = onOpenJw,
                                 onOpenZhgy = onOpenZhgy,
+                                onOpenSzty = onOpenSzty,
                                 // CJH52 的临时码要「在应用里打开一次网页」才激活，
                                 // 所以那一行的「去哪登」就是切到应用板块。
                                 onOpenApps = { uiState.selectedTab = MainSection.Apps.ordinal },

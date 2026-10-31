@@ -92,6 +92,14 @@ enum class SettingIcon {
      * 铃铛画法是「顶上的小圆 + 一段钟形弧 + 底边 + 下面一颗铃舌」，四笔都能落在 20dp 里。
      */
     Alarm,
+
+    /**
+     * 数智体育：一副**杠铃**（左右两片 + 中间横杠）。
+     *
+     * 为什么不用秒表 / 跑道：表盘已经被「节次时间表」的 `Clock` 占了，
+     * 而徽章式的「环 + 中心点」是 `Badge`；杠铃三笔落在 20dp 里还不与任何一枚撞。
+     */
+    Dumbbell,
 }
 
 @Composable
@@ -228,6 +236,12 @@ fun SettingGlyph(icon: SettingIcon, tint: Color, modifier: Modifier = Modifier) 
                     line(s * 0.74f, s * 0.6f, s * 0.74f, s * 0.4f, stroke, c)
                     line(s * 0.26f, s * 0.6f, s * 0.74f, s * 0.6f, stroke, c)
                     line(s * 0.5f, s * 0.6f, s * 0.5f, s * 0.82f, stroke, c)
+                }
+
+                SettingIcon.Dumbbell -> {
+                    line(s * 0.3f, s * 0.5f, s * 0.7f, s * 0.5f, stroke, c)
+                    rr(s * 0.08f, s * 0.26f, s * 0.3f, s * 0.74f, stroke, c)
+                    rr(s * 0.7f, s * 0.26f, s * 0.92f, s * 0.74f, stroke, c)
                 }
 
                 SettingIcon.Screen -> {

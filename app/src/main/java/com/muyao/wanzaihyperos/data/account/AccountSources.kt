@@ -4,6 +4,7 @@ import com.muyao.wanzaihyperos.session.Cjh52Session
 import com.muyao.wanzaihyperos.session.JwSession
 import com.muyao.wanzaihyperos.session.PortalSession
 import com.muyao.wanzaihyperos.session.SessionState
+import com.muyao.wanzaihyperos.session.SztySession
 import com.muyao.wanzaihyperos.session.TronclassSession
 import com.muyao.wanzaihyperos.session.ZhgySession
 import java.time.Instant
@@ -55,6 +56,9 @@ enum class AccountTarget {
 
     /** 「智慧公寓」闸门页（粘贴入口链接）。 */
     ZhgyPage,
+
+    /** 「数智体育」闸门页（粘贴 token + 数字 userId）。 */
+    SztyPage,
 
     /** 「应用」板块：CJH52 的码与智云课堂的会话都要在那里打开一次网页。 */
     AppsTab,
@@ -163,12 +167,14 @@ fun snapshotAccountSources(
     jw: JwSession,
     cjh52: Cjh52Session,
     zhgy: ZhgySession,
+    szty: SztySession,
 ): List<AccountSource> {
     portal.ensureLoaded()
     tronclass.ensureLoaded()
     jw.ensureLoaded()
     cjh52.ensureLoaded()
     zhgy.ensureLoaded()
+    szty.ensureLoaded()
     val cjh52Status = when {
         statusOf(cjh52.state) != AccountStatus.LoggedIn -> statusOf(cjh52.state)
         cjh52.isUsable -> AccountStatus.LoggedIn
@@ -224,6 +230,19 @@ fun snapshotAccountSources(
             timeLabel = "存码",
             whereToLogin = "只能自己粘链接",
             target = AccountTarget.ZhgyPage,
+        ),
+        // 数智体育：**没有可用的账密登录**（真学号+真密码与乱写密码回一字不差的同一条错，
+        // 它把账密丢给学校统一身份认证而那一跳一律拒），所以走「粘 token + 数字 userId」。
+        // 时刻标签写「粘贴」——它不是我们换来的票，是用户手动给的。
+        AccountSource(
+            id = "szty",
+            name = "数智体育",
+            provides = "体测、校园跑、签到",
+            status = statusOf(szty.state),
+            credentialAtMillis = szty.savedAtMillis(),
+            timeLabel = "粘贴",
+            whereToLogin = "粘 token 和编号",
+            target = AccountTarget.SztyPage,
         ),
         // 智云课堂：`data/zy/ZyRepository.kt` 档头写明它「沿用统一身份认证会话」，
         // 但那枚 cookie 在 WebView 里（`ZyEngine` 读 `localStorage.yjUserInfo`），
