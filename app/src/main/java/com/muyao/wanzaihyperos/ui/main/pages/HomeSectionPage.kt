@@ -64,10 +64,13 @@ import com.muyao.wanzaihyperos.data.schedule.PeriodClock
 import com.muyao.wanzaihyperos.data.schedule.TodayPlan
 import com.muyao.wanzaihyperos.data.schedule.jwVerdictOf
 import com.muyao.wanzaihyperos.data.schedule.pickSlots
+import com.muyao.wanzaihyperos.data.szty.SztyRun
+import com.muyao.wanzaihyperos.data.szty.SztySnapshot
 import com.muyao.wanzaihyperos.data.todo.TodoBoard
 import com.muyao.wanzaihyperos.data.todo.TodoNext
 import com.muyao.wanzaihyperos.data.tronclass.TronRollcall
 import com.muyao.wanzaihyperos.data.tronclass.TronScheduleSlot
+import com.muyao.wanzaihyperos.ui.common.kmText
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.ai.AiBall
@@ -140,6 +143,8 @@ fun HomeSectionPage(
     onOpenRollcall: () -> Unit = {},
     /** 「外觀」：壁紙、柔化、暗度、玻璃、首頁模組。 */
     onOpenAppearance: () -> Unit = {},
+    /** 「校園跑」卡：點一下進數智體育整頁（那也是接 token 的閘門頁）。 */
+    onOpenSzty: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -149,6 +154,7 @@ fun HomeSectionPage(
     val todoState by graph.todoBoard.state.collectAsState()
     val scheduleState by graph.schedule.state.collectAsState()
     val jwTimetableState by graph.jwTimetable.state.collectAsState()
+    val sztyState by graph.szty.state.collectAsState()
     // 在途取数计数（第 0 期「球场」要它说「正在处理」）。壳里每开一笔 fetch 就 +1。
     val inFlight by graph.inFlight.collectAsState()
 
@@ -221,6 +227,9 @@ fun HomeSectionPage(
         graph.fetch { graph.rollcall.refresh() }
         graph.fetch { graph.todoBoard.refresh() }
         graph.fetch { graph.schedule.refresh() }
+        // 校園跑：沒接過數智體育時 refresh 會直接落 Empty（不打網、不佔節流閘門），
+        // 所以不必先在這兒判憑據 —— 那一發正是把「還沒接」從「正在取」裡分出來的動作。
+        graph.fetch { graph.szty.refresh() }
         // ★ 教务那份的取数以前**只在课表页发起**（独立审计 v3 #4 第 1 轮 A-3）。
         //   冷启动第一帧落在的是首页 —— 首页于是永远停在 FirstLoad，
         //   判据「第一帧起就是教务那份」在他人人都会看到的那一屏上根本不成立。
@@ -413,6 +422,7 @@ fun HomeSectionPage(
                         runCatching { graph.schedule.refresh() }
                         runCatching { graph.todoBoard.refresh() }
                         runCatching { graph.rollcall.refresh() }
+                        runCatching { graph.szty.refresh() }
                         runCatching { graph.unread.refresh(force = true) }
                     } finally {
                         refreshing = false
@@ -507,6 +517,12 @@ fun HomeSectionPage(
                 if ("todos" in UiPrefs.homeModules) {
                     item(key = "todos") {
                         TodoSummaryCard(state = todoState, onClick = onOpenTodos)
+                    }
+                }
+
+                if ("szty" in UiPrefs.homeModules) {
+                    item(key = "szty") {
+                        RunSummaryCard(state = sztyState, onClick = onOpenSzty)
                     }
                 }
 
@@ -1496,6 +1512,115 @@ private fun TodoSummaryCard(
                 }
             }
     }
+}
+
+/**
+ * 校园跑：首页只放「跑了多少 / 还差多少」这一件事。
+ *
+ * 为什么体育课签到不一起搬上来：签到是**有课才看**的低频块（而且「此刻」卡里
+ * 已经有去签到的入口），校园跑是**每个星期都在变**的那个数 —— 它才该出现在第一屏。
+ * 整页（体测九项、逐次签到）点一下进数智体育。
+ *
+ * 未知不得当成 0（data/ListState.kt 的红线）：取不到就写取不到，不画 0.0 公里。
+ */
+@Composable
+private fun RunSummaryCard(
+    state: ListState<SztySnapshot>,
+    onClick: () -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    val snapshot = (state as? ListState.Content)?.items?.firstOrNull()
+    val run = snapshot?.run
+    val stale = (state as? ListState.Content)?.meta?.stale == true
+    val loading = state is ListState.FirstLoad
+    val expired = state is ListState.SessionExpired
+    val error = (state as? ListState.Failed)?.error?.userText
+    val km = run?.runKm
+    val target = run?.runTargetKm
+    val status = when {
+        loading -> "正在取校园跑…"
+        expired -> "登录已失效，校园跑取不到。"
+        error != null -> "校园跑那份没取到：" + error
+        // Empty 有两个来源（没接过数智体育 / 接上了但一块都没取到），对人来说下一步一样：进去接。
+        run == null -> "还没接上数智体育 · 点一下去接"
+        km == null -> "这份汇总里没有公里数字"
+        else -> runRequirementText(run) + if (stale) " · 这是上次存的" else ""
+    }
+    AppCard(onClick = onClick) {
+        Column(Modifier.fillMaxWidth().padding(Dims.cardPadding)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(Dims.chipCorner))
+                        .background(colors.primary.copy(alpha = 0.13f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    TileGlyph(TileIcon.Run, colors.primary, Modifier.size(21.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "校园跑",
+                        fontSize = Type.body,
+                        fontWeight = Type.weightBody,
+                        color = colors.onBackground,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = status,
+                        fontSize = Type.caption,
+                        color = if (error != null || expired) colors.error else colors.onSurfaceVariantSummary,
+                        maxLines = 2,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (km == null) "—" else kmText(km),
+                    style = MiuixTheme.textStyles.title2.copy(fontFeatureSettings = Type.tabular),
+                    color = colors.primary,
+                    maxLines = 1,
+                )
+                Text(
+                    text = " 公里",
+                    fontSize = Type.caption,
+                    color = colors.onSurfaceVariantSummary,
+                )
+            }
+            // 进度条只在「公里与目标都真有」时画：目标为 0 或不知道时画一条空槽，
+            // 等于替服务器编了一个目标值（与上面「未知不当 0」是同一条规矩）。
+            if (km != null && target != null && target > 0) {
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(colors.dividerLine),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth((km / target).toFloat().coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .background(colors.primary),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 卡片副行：只说「要求多少 / 几次」。
+ *
+ * 为什么不重用数智体育页那句「已跑 X 公里 · 要求 Y 公里 · N 次」：
+ * 这里的公里数已经是右边那个大字，副行再念一遍「已跑 16.8 公里」是同一句话说两次。
+ */
+private fun runRequirementText(run: SztyRun): String {
+    val parts = mutableListOf<String>()
+    run.runTargetKm?.let { parts += "要求 " + kmText(it) + " 公里" }
+    run.runCount?.let { parts += it.toString() + " 次" }
+    return if (parts.isEmpty()) "点一下看完整记录" else parts.joinToString(" · ")
 }
 
 /** 「此刻」要讲的那一节课：正在上（含剩余时间）或下一节（含距上课时间）。 */

@@ -339,6 +339,9 @@ fun HomeTile(
 enum class TileIcon {
     Timetable, Todo, Messages, Rollcall, Calendar, Apps,
 
+    /** 校园跑：跑道的两条同心圈 + 圈上一个点（见 TileGlyph 的 Run 分支）。 */
+    Run,
+
     /**
      * 文件/作业图形。板上「要处理」那三格是**两种**：
      * `.task .badge` = accent-soft 底 + 勾（普通待办），`.badge.warm` = 暖底 + 文件（作业）。
@@ -411,6 +414,14 @@ fun TileGlyph(icon: TileIcon, tint: Color, modifier: Modifier = Modifier) {
                 rr(l + w * 0.12f, t, l + w * 0.88f, t + h, stroke, tint)
                 line(l + w * 0.30f, t + h * 0.38f, l + w * 0.70f, t + h * 0.38f, stroke, tint)
                 line(l + w * 0.30f, t + h * 0.62f, l + w * 0.58f, t + h * 0.62f, stroke, tint)
+            }
+
+            TileIcon.Run -> {
+                // 跑道：两条同心的「跑道形」圈 + 外圈上一个点（板 .run 那格画的是操场）。
+                // 不画跑步的人：21dp 下头和手脚只会糊成一团，圈还认得出是操场。
+                rr(l, t + h * 0.22f, l + w, t + h * 0.78f, stroke, tint, radiusFrac = 0.5f)
+                rr(l + w * 0.18f, t + h * 0.35f, l + w * 0.82f, t + h * 0.65f, stroke, tint, radiusFrac = 0.5f)
+                dot(l + w * 0.30f, t + h * 0.5f, w * 0.075f, tint)
             }
         }
         }

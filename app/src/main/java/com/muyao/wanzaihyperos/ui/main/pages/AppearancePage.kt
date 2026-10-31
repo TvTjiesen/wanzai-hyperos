@@ -638,6 +638,7 @@ fun AppearancePage(
                         ModuleChip("今日课程", "courses")
                         ModuleChip("签到", "rollcall")
                         ModuleChip("待办", "todos")
+                        ModuleChip("校园跑", "szty")
                     }
                 }
             }

@@ -37,6 +37,7 @@ import com.muyao.wanzaihyperos.data.szty.SztyRun
 import com.muyao.wanzaihyperos.data.szty.SztySnapshot
 import com.muyao.wanzaihyperos.session.SztySession
 import com.muyao.wanzaihyperos.ui.common.FreshnessNote
+import com.muyao.wanzaihyperos.ui.common.kmText
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.AppList
 import com.muyao.wanzaihyperos.ui.design.Dims
@@ -549,14 +550,4 @@ private fun attendanceColor(status: String) = when {
     status.contains("已签到") -> MiuixTheme.colorScheme.primary
     status.contains("请假") -> Tone.quiet
     else -> Tone.warn
-}
-
-/** 公里数：一位小数，整数去掉 .0，免得「已跑 4.0 公里」看着像精度丢失。 */
-private fun kmText(v: Double): String {
-    val rounded = Math.round(v * 10.0) / 10.0
-    return if (rounded == Math.floor(rounded)) {
-        rounded.toInt().toString()
-    } else {
-        String.format("%.1f", rounded)
-    }
 }

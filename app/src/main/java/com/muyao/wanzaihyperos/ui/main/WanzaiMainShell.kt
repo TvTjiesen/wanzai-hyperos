@@ -379,6 +379,7 @@ fun WanzaiMainShell(
                                 onOpenMessages = onOpenMessages,
                                 onOpenRollcall = onOpenRollcall,
                                 onOpenAppearance = { showAppearance = true },
+                                onOpenSzty = onOpenSzty,
                             )
 
                             MainSection.Timetable -> TimetableSectionPage(

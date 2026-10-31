@@ -83,6 +83,21 @@ fun FreshnessNote(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
+ * 公里数：一位小数，整数去掉 .0，免得「已跑 4.0 公里」看着像精度丢失。
+ *
+ * 住在 ui/common 而不是 ui/szty：首页那张「校园跑」卡与数智体育整页写的是同一个数，
+ * 两处各留一份实现的话，迟早一边改成 .0 一边不改。
+ */
+fun kmText(v: Double): String {
+    val rounded = Math.round(v * 10.0) / 10.0
+    return if (rounded == Math.floor(rounded)) {
+        rounded.toInt().toString()
+    } else {
+        String.format("%.1f", rounded)
+    }
+}
+
+/**
  * 页面级状态视图：加载中 / 空 / 错误 / 离线 / 登录失效 / 数据过期。
  *
  * 方案要求「必须覆盖 加载中 / 空 / 错误 / 离线 / 数据过期 / 登录失效」，

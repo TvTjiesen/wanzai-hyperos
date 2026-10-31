@@ -61,6 +61,18 @@ object UiPrefs {
     private const val KEY_HOME_DENSITY = "home_density"
     private const val KEY_GLASS_MODE = "glass_mode"
     private const val KEY_HOME_MODULES = "home_modules"
+
+    /**
+     * 首页模块表的**版本号**（2026-11-01 加「校园跑」时引入）。
+     *
+     * 这张表的语义是「列出来的就是开着的」，所以新增一个模块**不会**自动出现在旧机器上。
+     * 屋主那台盤裡還是 `courses,rollcall,todos,shortcuts` —— 不補這一步，他升級完
+     * 打開首頁看不到新卡，等於沒做。版本號讓「補一次」與「他自己關掉」不衝突。
+     */
+    private const val KEY_HOME_MODULES_REV = "home_modules_rev"
+
+    /** 首页模块表的当前版本（见 [KEY_HOME_MODULES_REV]）。 */
+    private const val HOME_MODULES_REV = 2
     private const val KEY_APPS_WEB_COLLAPSED = "apps_web_collapsed"
     // v3 #7：常用那一排的"可自定义"两半 —— 他自己钉的 id，与本 App 记的打开次数。
     private const val KEY_COMMON_PINNED = "common_pinned"
@@ -127,7 +139,15 @@ object UiPrefs {
      * 拨了它什么都不会变 —— 那就是个假开关。补消费分支等于顺手加需求，所以按口径删掉，
      * 由 `AppearanceOneStopTest` 守着「每个 id 在首页必须有读点」。
      */
-    private val HOME_MODULES = listOf("courses", "rollcall", "todos")
+    private val HOME_MODULES = listOf("courses", "rollcall", "todos", "szty")
+
+    /**
+     * 各版本新加的模組 id（遷移用，按版本往後追加）。
+     *
+     * 只補**新加的那幾個**，不是把整張表蓋回去 —— 否則他之前親手關掉的課程/待辦
+     * 會在升級後自己亮起來，那比不補更糟。
+     */
+    private val HOME_MODULES_ADDED_IN_V2 = listOf("szty")
 
     private val HOME_DENSITIES = listOf("comfortable", "compact")
     private val GLASS_MODES = listOf("liquid", "frost", "off")
@@ -290,7 +310,22 @@ object UiPrefs {
             ?.split(",")
             ?.filter { it.isNotBlank() }
             ?.toSet()
-        if (modules != null) homeModules = modules
+        // 模块表的版本迁移（见 KEY_HOME_MODULES_REV）：rev 1 ⇒ 2 补上「校园跑」。
+        // 只寫 rev 不寫表是錯的：下次冷啟動照舊盤讀回來，新模組又消失一次。
+        val modulesRev = p.getInt(KEY_HOME_MODULES_REV, 1)
+        if (modules != null) {
+            if (modulesRev < HOME_MODULES_REV) {
+                val merged = modules + HOME_MODULES_ADDED_IN_V2
+                homeModules = merged
+                // 落盤時按 HOME_MODULES 過一遍：盤裡那些已經刪掉的舊 id（例如 shortcuts）順手清掉。
+                p.edit()
+                    ?.putString(KEY_HOME_MODULES, HOME_MODULES.filter { it in merged }.joinToString(","))
+                    ?.putInt(KEY_HOME_MODULES_REV, HOME_MODULES_REV)
+                    ?.apply()
+            } else {
+                homeModules = modules
+            }
+        }
         appsWebCollapsed = p.getBoolean(KEY_APPS_WEB_COLLAPSED, false)
         commonPinned = (p.getString(KEY_COMMON_PINNED, null) ?: "")
             .split(",")
@@ -519,6 +554,7 @@ object UiPrefs {
             ?.putInt(KEY_WALLPAPER_SOFT, 26)
             ?.putString(KEY_HOME_DENSITY, "comfortable")
             ?.putString(KEY_HOME_MODULES, HOME_MODULES.joinToString(","))
+            ?.putInt(KEY_HOME_MODULES_REV, HOME_MODULES_REV)
             ?.putBoolean(KEY_REDUCE_TRANSPARENCY, false)
             ?.putString(KEY_GLASS_MODE, "liquid")
             ?.putBoolean(KEY_APPS_WEB_COLLAPSED, false)
