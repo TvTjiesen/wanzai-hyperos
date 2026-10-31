@@ -416,6 +416,8 @@ class AppGraph private constructor(
                 szty = com.muyao.wanzaihyperos.data.szty.LiveSztyRepository(
                     com.muyao.wanzaihyperos.net.SztyClient(),
                     sztySessionInstance,
+                    // 上次取到的六条原文放这儿：冷启动先用它画，别让首页「校园跑」空等十几秒。
+                    snapshotDir = appContext.filesDir,
                 ),
             )
         }

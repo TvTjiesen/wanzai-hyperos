@@ -1,6 +1,5 @@
 package com.muyao.wanzaihyperos.net
 
-import com.muyao.wanzaihyperos.data.szty.SztyParsers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -173,25 +172,26 @@ class SztyClient(
 
     // ---------------------------------------------------------------------
     // 六个只读查询。**没有第七个。**
+    //
+    // 它们返回的是服务端 obj 的**原文**，不是解析后的模型 —— 解析统一在仓库层做
+    //（com.muyao.wanzaihyperos.data.szty.SztyParsers）。这样仓库才能把原文存成磁盘快照，
+    // 冷启动读回来走同一个解析，不会出现「快照里和线上看到的不是一回事」。
     // ---------------------------------------------------------------------
 
     /** 体测成绩（按学年倒序）。 */
-    suspend fun fitness(token: String, userId: Int) =
+    suspend fun fitness(token: String, userId: Int): JsonElement? =
         query(token, "/tyapi/mobile/health/getMyGrade", buildJsonObject { put("userId", userId) }, "体测")
-            .let { SztyParsers.fitnessYears(it) }
 
     /** 校园跑 + 课外锻炼的学期汇总（服务端这一条不认 userId，靠 token 就行）。 */
-    suspend fun runSummary(token: String) =
+    suspend fun runSummary(token: String): JsonElement? =
         query(token, "/tyapi/mobile/exerciseRecord/getSemesterExerciseList", buildJsonObject { }, "校园跑")
-            .let { SztyParsers.run(it) }
 
     /** 学期清单，取 termId 最大的那个当当前学期。 */
-    suspend fun currentTermId(token: String, userId: Int) =
+    suspend fun currentTermId(token: String, userId: Int): JsonElement? =
         query(token, "/tyapi/mobile/exerciseRecord/getAssessmentYears", buildJsonObject { put("userId", userId) }, "学期")
-            .let { SztyParsers.currentTermId(it) }
 
     /** 体育课班级。 */
-    suspend fun peClass(token: String, userId: Int, termId: Int) =
+    suspend fun peClass(token: String, userId: Int, termId: Int): JsonElement? =
         query(
             token,
             "/tyapi/mobile/teaching/semesterStuEduClass",
@@ -200,10 +200,10 @@ class SztyClient(
                 put("userId", userId)
             },
             "体育课",
-        ).let { SztyParsers.peClass(it) }
+        )
 
     /** 逐次课的签到记录。 */
-    suspend fun attendance(token: String, userId: Int, eduClassId: Int) =
+    suspend fun attendance(token: String, userId: Int, eduClassId: Int): JsonElement? =
         query(
             token,
             "/tyapi/mobile/sign/stuAttendanceList",
@@ -212,10 +212,10 @@ class SztyClient(
                 put("eduClassId", eduClassId)
             },
             "签到记录",
-        ).let { SztyParsers.attendance(it) }
+        )
 
     /** 签到汇总（已签到 / 迟到 / 请假 / 旷课）。 */
-    suspend fun attendanceSummary(token: String, userId: Int, eduClassId: Int) =
+    suspend fun attendanceSummary(token: String, userId: Int, eduClassId: Int): JsonElement? =
         query(
             token,
             "/tyapi/mobile/sign/getSignClassHistory",
@@ -224,5 +224,5 @@ class SztyClient(
                 put("eduClassId", eduClassId)
             },
             "签到汇总",
-        ).let { SztyParsers.attendanceSummary(it) }
+        )
 }

@@ -7,12 +7,16 @@ import com.muyao.wanzaihyperos.data.repo.StaleGuard
 import com.muyao.wanzaihyperos.data.startRefresh
 import com.muyao.wanzaihyperos.net.HzcuException
 import com.muyao.wanzaihyperos.net.SztyClient
+import com.muyao.wanzaihyperos.net.asObjectOrNull
 import com.muyao.wanzaihyperos.session.SztySession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 /**
  * 数智体育的三块只读数据。
@@ -39,6 +43,14 @@ class LiveSztyRepository(
     private val client: SztyClient,
     private val session: SztySession,
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * 快照写在哪（App 私有目录）。
+     *
+     * 收**目录**而不是 Context：数据层到这一层为止没有任何 android 依赖，
+     * 单测就能拿 java.nio.file.Files.createTempDirectory 真跑一遍「写盘 → 冷启动读回」，
+     * 而不是把它当不可测的部分绕过去。默认 null ⇒ 不落盘（纯内存），单测不传即此。
+     */
+    private val snapshotDir: java.io.File? = null,
 ) : SztyRepository {
 
     private val guard = StaleGuard()
@@ -46,6 +58,17 @@ class LiveSztyRepository(
     override val state: StateFlow<ListState<SztySnapshot>> = _state.asStateFlow()
 
     private val inFlight = Mutex()
+
+    /**
+     * 构造时就播上一次的快照。
+     *
+     * ★ 为什么要这个：数智体育这六条请求之间有 1.8 秒硬节流，第一次取全要十几秒 ——
+     *   这段时间首页那张「校园跑」卡只能写「正在取校园跑…」。而那个数字通常是**昨天同一个数**，
+     *   先把它连同「这是上次存的」一起画出来，比画一行占位字诚实。
+     */
+    init {
+        seedFromSnapshot()
+    }
 
     override suspend fun refresh() {
         inFlight.withLock {
@@ -56,6 +79,9 @@ class LiveSztyRepository(
                 _state.value = ListState.Empty()
                 return
             }
+
+            // 冷启动时 init 已经播过；这里再兜一次（例如那次读盘刚好失败）。
+            if (_state.value is ListState.FirstLoad) seedFromSnapshot()
 
             val ticket = guard.begin()
             _state.value = _state.value.startRefresh()
@@ -93,78 +119,134 @@ class LiveSztyRepository(
      * 其它任何一条失败都只是记一句备注，继续问下一条。
      */
     private suspend fun fetch(token: String, userId: Int): SztySnapshot {
-        val notes = mutableListOf<String>()
+        val failureNotes = mutableListOf<String>()
         // 「一块都没取到」时要把第一条真实错误抛出去，不能变成空列表冒充成功。
         var firstError: Throwable? = null
         fun remember(what: String, error: Throwable) {
-            notes += error.note(what)
+            failureNotes += error.note(what)
             if (firstError == null) firstError = error
         }
 
-        var fitness = emptyList<SztyFitnessYear>()
+        var raw = SztyRaw()
         runCatching { client.fitness(token, userId) }
-            .onSuccess { fitness = it }
+            .onSuccess { raw = raw.copy(fitness = it) }
             .onFailure { remember("体测成绩", it) }
 
-        var run: SztyRun? = null
         runCatching { client.runSummary(token) }
-            .onSuccess { run = it }
+            .onSuccess { raw = raw.copy(run = it) }
             .onFailure { remember("校园跑", it) }
 
-        var termId: Int? = null
         runCatching { client.currentTermId(token, userId) }
-            .onSuccess { termId = it }
+            .onSuccess { raw = raw.copy(term = it) }
             .onFailure { remember("学期", it) }
 
-        var peClass: SztyPeClass? = null
-        var attendance = emptyList<SztyAttendance>()
-        var summary: SztyAttendanceSummary? = null
-
-        val term = termId
-        if (term == null) {
-            if (notes.none { it.startsWith("学期") }) {
-                notes += "学期的接口没回当前学期，体育课签到这次没查"
-            }
-        } else {
+        // 后两条要靠前面的返回值决定要不要问，所以这里先解析一次（纯函数、无副作用）。
+        // 与 [compose] 里的解析是**同一组** SztyParsers，不会分叉。
+        val term = SztyParsers.currentTermId(raw.term)
+        if (term != null) {
             runCatching { client.peClass(token, userId, term) }
-                .onSuccess { peClass = it }
+                .onSuccess { raw = raw.copy(peClass = it) }
                 .onFailure { remember("体育课", it) }
 
-            val classId = peClass?.classId
-            if (classId == null) {
-                if (notes.none { it.startsWith("体育课") }) {
-                    notes += "这学期没有体育课（服务端没给班级），所以没有签到要看"
-                }
-            } else {
+            val classId = SztyParsers.peClass(raw.peClass)?.classId
+            if (classId != null) {
                 runCatching { client.attendance(token, userId, classId) }
-                    .onSuccess { attendance = it }
+                    .onSuccess { raw = raw.copy(attendance = it) }
                     .onFailure { remember("签到记录", it) }
                 runCatching { client.attendanceSummary(token, userId, classId) }
-                    .onSuccess { summary = it }
+                    .onSuccess { raw = raw.copy(attendanceSummary = it) }
                     .onFailure { remember("签到汇总", it) }
             }
         }
 
         // 任何一块报 token 失效，整次就是失效 —— 那说明 token 真不能用了。
-        if (notes.any { it.contains(EXPIRED_MARK) }) {
+        if (failureNotes.any { it.contains(EXPIRED_MARK) }) {
             throw HzcuException.LoginExpired("数智体育的 token 已经不能用了")
         }
 
-        val snapshot = SztySnapshot(
-            fitness = fitness,
-            run = run,
-            peClass = peClass,
-            attendance = attendance,
-            attendanceSummary = summary,
-            notes = notes,
-        )
+        val snapshot = compose(raw, failureNotes)
 
         // 一块都没取到、而且确实有请求失败 ⇒ 这是**失败**，不是「服务端说没有」。
         // 少了这一条，页面上那句「正在取…」会永远停在屏幕里（Empty 与 FirstLoad 长得一样）。
         val problem = firstError
         if (!snapshot.hasAnyContent && problem != null) throw problem
 
+        // 只有真拿到东西才盖快照：照 Jw 那条纪律，一次失败不许把上一份好数据冲掉
+        //（2026-10-21 真机事故：失败的那次把快照写成了失败页，重启后还是失败页）。
+        if (snapshot.hasAnyContent) saveSnapshot(raw)
+
         return snapshot
+    }
+
+    /**
+     * 把六条接口的原文拼成界面上要的那一坨。
+     *
+     * 线上取数与冷启动读快照**走的是同一个函数** —— 两套拼装迟早分叉，
+     * 分叉的表现是「快照里和线上看到的不是一回事」。
+     *
+     * [extraNotes] 只有线上那条路会传（这次哪几条请求失败了）；读快照时不传，
+     * 因为「上次某条没取到」不是**现在**的事实，不该继续挂在界面上。
+     */
+    private fun compose(raw: SztyRaw, extraNotes: List<String>): SztySnapshot {
+        val notes = extraNotes.toMutableList()
+
+        var peClass: SztyPeClass? = null
+        var attendance = emptyList<SztyAttendance>()
+        var summary: SztyAttendanceSummary? = null
+
+        val term = SztyParsers.currentTermId(raw.term)
+        if (term == null) {
+            if (notes.none { it.startsWith("学期") }) {
+                notes += "学期的接口没回当前学期，体育课签到这次没查"
+            }
+        } else {
+            peClass = SztyParsers.peClass(raw.peClass)
+            val classId = peClass?.classId
+            if (classId == null) {
+                if (notes.none { it.startsWith("体育课") }) {
+                    notes += "这学期没有体育课（服务端没给班级），所以没有签到要看"
+                }
+            } else {
+                attendance = SztyParsers.attendance(raw.attendance)
+                summary = SztyParsers.attendanceSummary(raw.attendanceSummary)
+            }
+        }
+
+        return SztySnapshot(
+            fitness = SztyParsers.fitnessYears(raw.fitness),
+            run = SztyParsers.run(raw.run),
+            peClass = peClass,
+            attendance = attendance,
+            attendanceSummary = summary,
+            notes = notes,
+        )
+    }
+
+    private fun snapshotFile(): java.io.File? =
+        snapshotDir?.let { java.io.File(it, SNAPSHOT) }
+
+    /**
+     * 存**六条接口的原文**，不存解析后的模型。
+     *
+     * 理由是「两套解析迟早分叉」：存模型就得给每个模型写一套序列化、读回来再解一遍，
+     * 于是同一份数据有了两条解析路径。存原文则读回来走同一个 [compose]。
+     */
+    private fun saveSnapshot(raw: SztyRaw) {
+        val f = snapshotFile() ?: return
+        runCatching { f.writeText(raw.toJson()) }
+    }
+
+    /** 用快照立刻把界面填上（标 [ListMeta.stale]，界面会自己加「这是上次存的」）。 */
+    private fun seedFromSnapshot() {
+        val f = snapshotFile() ?: return
+        if (!f.isFile) return
+        val text = runCatching { f.readText() }.getOrNull()?.takeIf { it.isNotBlank() } ?: return
+        val raw = runCatching { SztyRaw.parse(text) }.getOrNull() ?: return
+        val snapshot = compose(raw, emptyList()).takeIf { it.hasAnyContent } ?: return
+        _state.value = ListState.Content(
+            items = listOf(snapshot),
+            meta = ListMeta(updatedAtMillis = f.lastModified(), stale = true),
+        )
     }
 
     /** 把一条失败翻成**人话**，并带上失败原因（原因里没有凭据，见各异常的注释）。 */
@@ -189,6 +271,52 @@ class LiveSztyRepository(
          *（另外两块的数据是好的，用户还是想看到），但**最后**必须整体判成失效。
          */
         const val EXPIRED_MARK = "token 已经不能用了"
+
+        /** 上次取到的六条原文（首屏拿它立刻画出来）。 */
+        const val SNAPSHOT = "szty_snapshot.json"
+    }
+}
+
+/**
+ * 六条查询的原文，一起进快照。
+ *
+ * 每条都可能为 null：null 既可能是「这次没问」（前一环没给出 termId / classId），
+ * 也可能是「问了但失败」——后者由 notes 说实话。
+ * 读快照时只有前者仍然成立，后者不该继续挂着（见 [LiveSztyRepository.compose] 的注释）。
+ */
+internal data class SztyRaw(
+    val fitness: JsonElement? = null,
+    val run: JsonElement? = null,
+    val term: JsonElement? = null,
+    val peClass: JsonElement? = null,
+    val attendance: JsonElement? = null,
+    val attendanceSummary: JsonElement? = null,
+) {
+    fun toJson(): String {
+        val fields = LinkedHashMap<String, JsonElement>()
+        fitness?.let { fields["fitness"] = it }
+        run?.let { fields["run"] = it }
+        term?.let { fields["term"] = it }
+        peClass?.let { fields["peClass"] = it }
+        attendance?.let { fields["attendance"] = it }
+        attendanceSummary?.let { fields["attendanceSummary"] = it }
+        return JsonObject(fields).toString()
+    }
+
+    companion object {
+        /** 读不懂就当空快照（宁可当作没有缓存，也不要让一次坏文件把启动搞崩）。 */
+        fun parse(text: String): SztyRaw {
+            val root = runCatching { Json.parseToJsonElement(text).asObjectOrNull() }.getOrNull()
+                ?: return SztyRaw()
+            return SztyRaw(
+                fitness = root["fitness"],
+                run = root["run"],
+                term = root["term"],
+                peClass = root["peClass"],
+                attendance = root["attendance"],
+                attendanceSummary = root["attendanceSummary"],
+            )
+        }
     }
 }
 
