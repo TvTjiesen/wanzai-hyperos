@@ -216,8 +216,16 @@ object SztyParsers {
             .maxOrNull()
     }
 
-    private fun JsonObject.eventName(): String? =
-        text("info.eventName") ?: text("eventName")
+    /**
+     * 赛事名既可能平铺在 `eventName`，也可能包在 `info` 里（真响应就是 `info.eventName`）。
+     *
+     * 不能写成 `text("info.eventName")` —— text() 是直接取键，不做路径解析，
+     * 那样写永远读到 null，两条汇总都被当成「没有」而界面显示 0 公里。
+     */
+    private fun JsonObject.eventName(): String? {
+        text("eventName")?.takeIf { it.isNotBlank() }?.let { return it }
+        return this["info"].asObjectOrNull()?.text("eventName")
+    }
 
     private fun JsonObject.text(key: String): String? = this[key].asStringOrNull()
 }
