@@ -300,7 +300,40 @@ private fun androidx.compose.foundation.lazy.LazyListScope.sztyContent(
     }
 
     item(key = "freshness") {
-        FreshnessNote(agoLabel(meta?.updatedAtMillis, System.currentTimeMillis()))
+        // ★ 三件事必须分开说（业主 2026-10-20 的纪律：快照与新鲜度提示是一件事的两半）：
+        //   刚成功取过 → 只有时间；这份是播种出来的 → 说明它是旧的；
+        //   正在重取 → 说明转圈去哪儿了。以前这里只画时间，于是「上次存的」和
+        //   「刚取的」在屏幕上长得一模一样 —— 后者是「他不知道自己在看三天前的数」。
+        FreshnessNote(
+            agoLabel(meta?.updatedAtMillis, System.currentTimeMillis()) +
+                when {
+                    meta?.refreshing == true -> " · 正在重新取"
+                    meta?.stale == true -> " · 这是上次存的"
+                    else -> ""
+                },
+        )
+    }
+
+    // ★ 有旧内容、但这一次刷新失败了，必须把原因写出来。
+    //   以前这里只画「N 分钟前更新」—— 那个时间停在上一次成功的那一刻，看起来一切正常，
+    //   而刚刚那次到底为什么失败（网络不通 / token 被顶下线 / 服务端 500）一个字都没有：
+    //   等于替服务端把失败藏了。内容还在，所以不整体降级成 Failed（那是别处的事），
+    //   这里只补一句真话。同一判据在课表页是 TimetableSectionPage.kt:1225 的 stale 分支。
+    meta?.lastRefreshError?.let { problem ->
+        item(key = "refresh-problem") {
+            // ★ 这里用 message 而不是 userText：userText 会把最深一层异常的类名与原文
+            //   （SocketTimeoutException: failed to connect to /127.x.x.x (port …) after 20000ms）
+            //   整段糊上来，真机实测占掉四行红字，读的人还得自己翻译。
+            //   仓库侧各条查询的 message 本来就是人话（「体测：连不上数智体育」/「HTTP 500 …」），
+            //   已经指明是哪一块、为什么。要更细的诊断去看 notes，不该塞在这句话里。
+            val why = problem.message?.takeIf { it.isNotBlank() } ?: problem.userText
+            Text(
+                text = "这次没取到：" + why + "（上面这些是上次取到的，下拉可以重试）",
+                fontSize = Type.caption,
+                color = MiuixTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = Dims.tight),
+            )
+        }
     }
 
     // ★ 哪一块没取到都要写出来，不能拿空白冒充「没有」。
