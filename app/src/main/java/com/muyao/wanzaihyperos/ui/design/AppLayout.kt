@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -215,7 +216,8 @@ fun InfoItem(
                     color = colors.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                    // fill = false：够就按自己的宽度放，不够才折 —— 短值的位置一点都不动
+            modifier = Modifier.weight(1f, fill = false),
                 )
                 if (!trailing.isNullOrBlank()) {
                     Spacer(Modifier.width(Dims.tight))
@@ -255,6 +257,10 @@ fun InfoItem(
  *
  * 標籤列寬用 [Dims.labelColumn] 固定 —— 這樣跨卡片、跨頁面的值都對齊。
  * 各頁自己寫寬度是「看起來就是歪的」的常見來源。
+ *
+ * 但只能是**下限**，不能是死寬度：死寬度會讓放不下的標籤自己折行，
+ * 於是「坐位體前屈」變成「坐位體 / 前屈」，同一張卡裡的值全被擠到第二行下面。
+ * 折行比不齊更糟 —— 字還在，行已經讀不出對應關係了。
  */
 @Composable
 fun KeyValueRow(
@@ -269,12 +275,13 @@ fun KeyValueRow(
             text = label,
             style = MiuixTheme.textStyles.body2,
             color = colors.onSurfaceVariantSummary,
-            modifier = Modifier.width(labelWidth),
+            modifier = Modifier.widthIn(min = labelWidth),
         )
         Text(
             text = value,
             style = MiuixTheme.textStyles.body1,
             color = colors.onSurface,
+            modifier = Modifier.weight(1f),
         )
     }
 }

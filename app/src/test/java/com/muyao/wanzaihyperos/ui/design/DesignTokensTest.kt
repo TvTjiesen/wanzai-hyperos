@@ -90,6 +90,15 @@ class DesignTokensTest {
     }
 
     @Test
+    fun `长标签列宽能容纳五到六个字`() {
+        // 體測項名（「坐位體前屈」實測 81.4dp）比一般的兩字標籤長得多。
+        // 這一級存在的唯一目的是讓同一張卡裡的標籤**都放得下** —— 折行會讓值錯行。
+        assertTrue("labelColumnLong 不该比 labelColumnWide 窄", Dims.labelColumnLong.value >= Dims.labelColumnWide.value)
+        assertTrue("labelColumnLong 过窄，五字标签仍会折行", Dims.labelColumnLong.value >= 80f)
+        assertTrue("labelColumnLong 过宽，会把值推得太远", Dims.labelColumnLong.value <= 104f)
+    }
+
+    @Test
     fun `动效时长为正且快慢有序`() {
         assertTrue(Motion.PRESS_MS > 0)
         assertTrue("FAST 必须短于 NORMAL", Motion.FAST_MS < Motion.NORMAL_MS)
