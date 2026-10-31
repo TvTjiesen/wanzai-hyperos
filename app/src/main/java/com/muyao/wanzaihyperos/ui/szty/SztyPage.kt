@@ -206,6 +206,7 @@ fun SztyPage(
         }
     }
 }
+
 /** 已填凭据之后的三块内容 + 各种失败形态。抽出来只为让上面那层 if 读得清。 */
 private fun androidx.compose.foundation.lazy.LazyListScope.sztyContent(
     state: ListState<SztySnapshot>,
@@ -239,7 +240,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.sztyContent(
     }
 
     if (snapshot == null) {
-        item(key = "loading") { HintText("正在取体测、校园跑与签到记录…（首次约需 3 秒）") }
+        // FirstLoad 与 Empty 在这里长得一样，但话不一样：
+        // Empty = 服务端每条都应了、却一条内容都没给（那是「没有」，不是「还在取」）。
+        if (state is ListState.Empty) {
+            item(key = "nothing") { HintText("服务端每条都应了，但一条内容都没给：体测还没录、没有校园跑记录、这学期也没有体育课。") }
+            item(key = "nothing-refresh") { HintText("下拉可以再取一次。") }
+        } else {
+            item(key = "loading") { HintText("正在取体测、校园跑与签到记录…（服务端要求两次请求隔 1.8 秒，首次要等十秒上下）") }
+        }
         return
     }
 
@@ -279,6 +287,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.sztyContent(
         )
     }
 }
+
 /** 校园跑。**「跑步」与「总目标」是两条不能相加的数**，分开画。 */
 @Composable
 private fun RunCard(run: SztyRun?) {
@@ -346,6 +355,7 @@ private fun runText(run: SztyRun): String {
     run.runCount?.let { parts += it.toString() + " 次" }
     return if (parts.isEmpty()) "这条汇总里没有公里数字" else parts.joinToString(" · ")
 }
+
 /** 一个学年的体测。grade 可能是「缺项」，原样显示 —— 那是学校还没录完，不是我们没取到。 */
 @Composable
 private fun FitnessCard(year: SztyFitnessYear) {

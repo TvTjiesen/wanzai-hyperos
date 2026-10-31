@@ -94,21 +94,27 @@ class LiveSztyRepository(
      */
     private suspend fun fetch(token: String, userId: Int): SztySnapshot {
         val notes = mutableListOf<String>()
+        // 「一块都没取到」时要把第一条真实错误抛出去，不能变成空列表冒充成功。
+        var firstError: Throwable? = null
+        fun remember(what: String, error: Throwable) {
+            notes += error.note(what)
+            if (firstError == null) firstError = error
+        }
 
         var fitness = emptyList<SztyFitnessYear>()
         runCatching { client.fitness(token, userId) }
             .onSuccess { fitness = it }
-            .onFailure { notes += it.note("体测成绩") }
+            .onFailure { remember("体测成绩", it) }
 
         var run: SztyRun? = null
         runCatching { client.runSummary(token) }
             .onSuccess { run = it }
-            .onFailure { notes += it.note("校园跑") }
+            .onFailure { remember("校园跑", it) }
 
         var termId: Int? = null
         runCatching { client.currentTermId(token, userId) }
             .onSuccess { termId = it }
-            .onFailure { notes += it.note("学期") }
+            .onFailure { remember("学期", it) }
 
         var peClass: SztyPeClass? = null
         var attendance = emptyList<SztyAttendance>()
@@ -122,7 +128,7 @@ class LiveSztyRepository(
         } else {
             runCatching { client.peClass(token, userId, term) }
                 .onSuccess { peClass = it }
-                .onFailure { notes += it.note("体育课") }
+                .onFailure { remember("体育课", it) }
 
             val classId = peClass?.classId
             if (classId == null) {
@@ -132,10 +138,10 @@ class LiveSztyRepository(
             } else {
                 runCatching { client.attendance(token, userId, classId) }
                     .onSuccess { attendance = it }
-                    .onFailure { notes += it.note("签到记录") }
+                    .onFailure { remember("签到记录", it) }
                 runCatching { client.attendanceSummary(token, userId, classId) }
                     .onSuccess { summary = it }
-                    .onFailure { notes += it.note("签到汇总") }
+                    .onFailure { remember("签到汇总", it) }
             }
         }
 
@@ -144,7 +150,7 @@ class LiveSztyRepository(
             throw HzcuException.LoginExpired("数智体育的 token 已经不能用了")
         }
 
-        return SztySnapshot(
+        val snapshot = SztySnapshot(
             fitness = fitness,
             run = run,
             peClass = peClass,
@@ -152,6 +158,13 @@ class LiveSztyRepository(
             attendanceSummary = summary,
             notes = notes,
         )
+
+        // 一块都没取到、而且确实有请求失败 ⇒ 这是**失败**，不是「服务端说没有」。
+        // 少了这一条，页面上那句「正在取…」会永远停在屏幕里（Empty 与 FirstLoad 长得一样）。
+        val problem = firstError
+        if (!snapshot.hasAnyContent && problem != null) throw problem
+
+        return snapshot
     }
 
     /** 把一条失败翻成**人话**，并带上失败原因（原因里没有凭据，见各异常的注释）。 */
