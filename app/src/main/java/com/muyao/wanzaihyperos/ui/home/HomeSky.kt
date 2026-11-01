@@ -67,6 +67,10 @@ enum class SkyPreset(
     MORNING("morning", "晨雾", "清早的淡金与雾蓝"),
     DUSK("dusk", "暮色", "傍晚的橘与靛"),
     NIGHT("night", "夜航", "深蓝、月亮与星"),
+    // 业主 2026-11-01「夜档天空两个都留」：夜航是蓝的，青灰是另一种夜。
+    // 它不能塞进 AUTO 的 23 点那一支 —— 与 20..22 那支色相差 23.8/32.1/57.0°，
+    // 换的是色相不是亮度（`NightSkyHueTest` 的 MAX_HUE_GAP = 8° 正是拦这个）。
+    SLATE("slate", "青灰", "青灰的夜，也有月亮与星"),
     ALBUM("album", "相册", "你自己的那张图"),
     ;
 
@@ -344,6 +348,18 @@ fun skyLookOf(preset: SkyPreset, hour: Int): SkyLook = when (preset) {
         bottom = Color(0xFF263252),
         ridgeFar = Color(0xFF111A30),
         ridgeNear = Color(0xFF070B16),
+        ink = Color.White,
+        lightIcons = true,
+    )
+
+    // 三站色相 200.0 / 197.5 / 193.3°，与夜航那支（222.9~224.0）差 23° 以上：
+    // 一眼分得出是两版夜，不是同一版调了亮度。白字最坏压最亮那站 11.79:1。
+    SkyPreset.SLATE -> SkyLook(
+        top = Color(0xFF131F25),
+        bottom = Color(0xFF2C3A3E),
+        mid = Color(0xFF22373C),
+        ridgeFar = Color(0xFF0D171B),
+        ridgeNear = Color(0xFF070D10),
         ink = Color.White,
         lightIcons = true,
     )
@@ -726,7 +742,9 @@ private fun DrawScope.drawSkyScene(
             skyBottom = skyBottom,
             compact = compact,
         )
-        if (preset == SkyPreset.NIGHT || (preset == SkyPreset.AUTO && look.lightIcons)) {
+        if (preset == SkyPreset.NIGHT || preset == SkyPreset.SLATE ||
+            (preset == SkyPreset.AUTO && look.lightIcons)
+        ) {
             drawStars(w = w, h = h, compact = compact)
         }
     }
@@ -992,7 +1010,7 @@ private fun DrawScope.drawCelestialBody(
             h * 0.052f * scale,
         )
 
-        SkyPreset.NIGHT -> {
+        SkyPreset.NIGHT, SkyPreset.SLATE -> {
             body(
                 w * 0.78f, h * 0.15f,
                 Color(0xFFEAF0FF), Color(0xFFCBD8FF),

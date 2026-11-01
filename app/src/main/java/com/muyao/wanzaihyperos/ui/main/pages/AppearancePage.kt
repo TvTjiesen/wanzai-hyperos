@@ -200,9 +200,12 @@ fun AppearancePage(
     var note by remember { mutableStateOf<String?>(null) }
     val rev = UiPrefs.wallpaperRev
     val preset = SkyPreset.of(UiPrefs.wallpaperPreset)
-    val wallpaper = remember(rev, preset) {
-        if (preset == SkyPreset.ALBUM) decodeWallpaper(wallpaperFile(context)) else null
-    }
+    // ★ 相册图**与当前选中哪一档无关**：网格里那格要一直画着「已存的那张长什么样」，
+    //   否则存过图的人看到的是一格「+」，与从没存过完全看不出区别。
+    //   原来这里带 `if (preset == SkyPreset.ALBUM)`，只有选中相册时才解码 —— 当时那格
+    //   只在选中时才有内容，看不出毛病；改成长驻缩略图之后它就变成「明明存过却显示 +」。
+    //   现在只有 rev 变（存/删/换图）才重解，选中态只影响描边。
+    val wallpaper = remember(rev) { decodeWallpaper(wallpaperFile(context)) }
     // 選了相冊但檔案不在：畫面要照實說，不能拿一片自動天空冒充「你的圖」。
     val albumMissing = preset == SkyPreset.ALBUM && wallpaper == null
     val effectivePreset = if (albumMissing) SkyPreset.AUTO else preset
@@ -539,8 +542,21 @@ fun AppearancePage(
                 )
             }
 
+            item(key = "privacy") {
+                Text(
+                    text = "壁纸只保存在这台手机的应用私有目录（files/home_wallpaper.img），" +
+                        "不会上传到任何服务器；外观偏好与账号凭据分开存放。",
+                    fontSize = Type.micro,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+            }
+
             // ---- 壁紙 ----------------------------------------------------
-            item(key = "wallpaper-label") { SubSection("壁纸", "内置 4 张 · 相册") }
+            //
+            // 业主 2026-11-01「外观与壁纸界面壁纸的选项移到最下面」：壁纸是「看」的东西，
+            // 排在外观页的最后。上面那些（主题 / 背景 / 柔化 / 暗度 / 玻璃 / 密度 / 模块）都是「调」。
+            item(key = "wallpaper-label") { SubSection("壁纸", "内置 5 张 · 相册") }
             item(key = "wallpaper-presets") {
                 // 板 `.wps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 18px}`
                 // + `.wp{border-radius:13px;aspect-ratio:1/.92;border:1.5px solid transparent}`
@@ -548,99 +564,60 @@ fun AppearancePage(
                 //   `.wp span{position:absolute;left:0;right:0;bottom:0;padding:10px 5px 4px;
                 //    font-size:7px;font-weight:650;color:#fff;text-align:center;
                 //    background:linear-gradient(transparent,rgba(0,0,0,.38))}`
-                // ⇒ × 0.886：四列、格间距 7dp、圆角 11.5dp、宽:高 = 1:0.92、
+                // ⇒ × 0.886：格间距 7dp、圆角 11.5dp、宽:高 = 1:0.92、
                 //   选中是 1.3dp accent 边框 + 外面 2.7dp 的 accent-soft 圈，
                 //   **名字写在格子里**（底边一条压暗渐变上），不是格子下面一行字。
                 // 外面不再套 AppCard：板上这一排是直接铺在纸面上的。
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    listOf(
-                        "跟随时刻" to SkyPreset.AUTO,
-                        "晨雾" to SkyPreset.MORNING,
-                        "暮色" to SkyPreset.DUSK,
-                        "夜航" to SkyPreset.NIGHT,
-                    ).forEach { (name, value) ->
-                        WallpaperTile(
-                            name = name,
-                            preset = value,
-                            wallpaper = null,
-                            dim = UiPrefs.wallpaperDim,
-                            soft = UiPrefs.wallpaperSoft,
-                            on = effectivePreset == value,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            UiPrefs.saveWallpaperPreset(value.id)
-                            note = null
-                        }
-                    }
-                }
-            }
-
-
-            item(key = "wallpaper-album") {
-                // 板 `.wp.plus` 就是 `.wps` 那 4 列网格里的**第五格**（虚线 + 「+」，
-                // 名字在格子正下方）。上一版我把它撑成一个大方块 + 右侧一整行说明，
-                // 于是壁纸区的节奏被切断（复评 2026-10-21）。
-                val on = preset == SkyPreset.ALBUM
-                Row {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 7.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f / 0.92f)
-                                .clip(RoundedCornerShape(Dims.wallpaperTileCorner))
-                                .background(colors.onBackground.copy(alpha = 0.04f))
-                                .border(
-                                    1.dp,
-                                    if (isDark) Color.White.copy(alpha = 0.18f)
-                                    else Tone.ink.copy(alpha = 0.16f),
-                                    RoundedCornerShape(Dims.wallpaperTileCorner),
-                                )
-                                .clickable(onClickLabel = "从相册选择壁纸") {
-                                    // 已经在用相册图 ⇒ 再点就是「换一张」，直接开系统选择器；
-                                    // 有图但当前用的是预设 ⇒ 这一点先把那张图切回来，不打断他重选。
-                                    if (on || wallpaper == null) {
-                                        pickPhoto()
-                                    } else {
-                                        UiPrefs.saveWallpaperPreset(SkyPreset.ALBUM.id)
+                //
+                // ★ 列数从板上那 4 列改成 3 列（业主 2026-11-01「夜档天空两个都留」之后）：
+                //   板上这一排是 4 张内置天空；加完青灰是 **5 张 + 相册 1 格 = 6 格**，
+                //   4 列会排成「4 + 2」，第二行右边空一半，看着像没加载完。
+                //   6 ÷ 3 正好两行铺满，每格还更宽 —— 名字压在压暗条上，不靠字号取胜。
+                val skyTiles: List<Pair<String, SkyPreset?>> = listOf(
+                    "跟随时刻" to SkyPreset.AUTO,
+                    "晨雾" to SkyPreset.MORNING,
+                    "暮色" to SkyPreset.DUSK,
+                    "夜航" to SkyPreset.NIGHT,
+                    "青灰" to SkyPreset.SLATE,
+                )
+                // 相册那格排在最后一行末位：它不是第 6 套天空，只是并排摆着的一格，
+                // 语义不同 —— 视线扫完五套天空再看它。
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    (skyTiles + ("相册" to null)).chunked(3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            row.forEach { (name, value) ->
+                                if (value == null) {
+                                    AlbumTile(
+                                        on = preset == SkyPreset.ALBUM,
+                                        wallpaper = wallpaper,
+                                        isDark = isDark,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        // 已经在用相册图 ⇒ 再点就是「换一张」，直接开系统选择器；
+                                        // 有图但当前用的是预设 ⇒ 这一点先把那张图切回来，不打断他重选。
+                                        if (preset == SkyPreset.ALBUM || wallpaper == null) {
+                                            pickPhoto()
+                                        } else {
+                                            UiPrefs.saveWallpaperPreset(SkyPreset.ALBUM.id)
+                                        }
                                     }
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (wallpaper != null && on) {
-                                Image(
-                                    bitmap = wallpaper,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            } else {
-                                Text(
-                                    // 板 `.plusmark{font-size:19px;font-weight:300;color:var(--faint)}` ⇒ 17sp
-                                    text = "+",
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    color = colors.onSurfaceVariantSummary,
-                                )
+                                } else {
+                                    WallpaperTile(
+                                        name = name,
+                                        preset = value,
+                                        wallpaper = null,
+                                        dim = UiPrefs.wallpaperDim,
+                                        soft = UiPrefs.wallpaperSoft,
+                                        on = effectivePreset == value,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        UiPrefs.saveWallpaperPreset(value.id)
+                                        note = null
+                                    }
+                                }
                             }
                         }
-                        Text(
-                            text = "相册",
-                            fontSize = Type.micro,
-                            color = if (on) colors.primary else colors.onSurfaceVariantSummary,
-                            maxLines = 1,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            modifier = Modifier
-                                .padding(top = 4.dp)
-                                .fillMaxWidth(),
-                        )
                     }
-                    // 板 `.wps{repeat(4,1fr)}`：第五格换行后右边三列在板上也是空的。
-                    // 说明文字挪回网格**下面一整行**（板 `.wphint` 的顺序），不塞进这一列。
-                    Spacer(Modifier.weight(3f))
                 }
                 // 已经存过一张图时，才给「换一张 / 移除」这两件真能做的事。
                 if (wallpaper != null) {
@@ -651,7 +628,7 @@ fun AppearancePage(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = if (on) "正在用相册那张 · 点一下换一张"
+                            text = if (preset == SkyPreset.ALBUM) "正在用相册那张 · 点一下换一张"
                             else "已存一张相册图 · 点一下切回去",
                             fontSize = Type.micro,
                             color = colors.onSurfaceVariantSummary,
@@ -708,16 +685,6 @@ fun AppearancePage(
                         },
                     )
                 }
-            }
-
-            item(key = "privacy") {
-                Text(
-                    text = "壁纸只保存在这台手机的应用私有目录（files/home_wallpaper.img），" +
-                        "不会上传到任何服务器；外观偏好与账号凭据分开存放。",
-                    fontSize = Type.micro,
-                    color = colors.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                )
             }
         }
 
@@ -1202,11 +1169,22 @@ private fun WallpaperTile(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(21.dp)
+                    // 压暗条为什么要比板上那条（`.wp span` 的 21px / 0.38）更狠：
+                    // 小样的底边是**真的淡到纸色**了（`SkyPreview` 走 `fadeTo = pageBg`），
+                    // 真机实测格内文字上方那片底是 (169~221 灰)，白字压上去只有 2.31:1 ——
+                    // 名字看着像被洗掉。板上那套 21px / 0.38 是给「底色本来就深」的皮肤写的，
+                    // 照抄到淡到纸色的小样上不成立。
+                    //
+                    // 34dp 高、四站：0 → 0.30 → 0.56 → 0.64。文字带（距底 3.5~17.5dp，即整条的
+                    // 48%~90% 那一段）落在 0.49 以上；叠在 221 的浅灰上合成 113，白字仍有 4.9:1。
+                    // 第一站之所以不是一上来就压满，是因为压满会在格子里切出一道硬边。
+                    .height(34.dp)
                     .background(
                         Brush.verticalGradient(
                             0f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.38f),
+                            0.30f to Color.Black.copy(alpha = 0.30f),
+                            0.55f to Color.Black.copy(alpha = 0.56f),
+                            1f to Color.Black.copy(alpha = 0.64f),
                         ),
                     ),
             )
@@ -1222,6 +1200,105 @@ private fun WallpaperTile(
                     .padding(bottom = 3.5.dp),
             )
         }
+    }
+}
+
+/**
+ * 相册那一格。和 [WallpaperTile] 同一枚格子（同宽高比、同圆角、同选中描边），
+ * 区别只有两处：里面装的是相册图的缩略图而不是天空预览；没存图时是一个「+」。
+ *
+ * ★ 存过图但当前用的是预设时，**照样把那张缩略图画出来**（原实现只在选中时画）。
+ *   现在是 3 列网格里的一格，画出来他才知道「已存的那张长什么样」，
+ *   否则一格「+」看不出与「从没存过」有什么区别。
+ */
+@Composable
+private fun AlbumTile(
+    on: Boolean,
+    wallpaper: androidx.compose.ui.graphics.ImageBitmap?,
+    isDark: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    val corner = RoundedCornerShape(Dims.wallpaperTileCorner)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(1f / 0.92f)
+            .clip(corner)
+            .then(
+                if (on) {
+                    Modifier.border(2.7.dp, colors.primary.copy(alpha = 0.11f), corner)
+                } else {
+                    Modifier
+                },
+            )
+            .then(
+                if (on) {
+                    Modifier.border(1.3.dp, colors.primary, corner)
+                } else {
+                    Modifier.border(
+                        1.dp,
+                        if (isDark) Color.White.copy(alpha = 0.18f) else Tone.ink.copy(alpha = 0.16f),
+                        corner,
+                    )
+                },
+            )
+            .background(colors.onBackground.copy(alpha = 0.04f))
+            .clickable(onClickLabel = "从相册选择壁纸") { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (wallpaper != null) {
+            Image(
+                bitmap = wallpaper,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(
+                // 板 `.plusmark{font-size:19px;font-weight:300;color:var(--faint)}` ⇒ 17sp
+                text = "+",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Normal,
+                color = colors.onSurfaceVariantSummary,
+            )
+        }
+        if (wallpaper != null) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    // 压暗条为什么要比板上那条（`.wp span` 的 21px / 0.38）更狠：
+                    // 小样的底边是**真的淡到纸色**了（`SkyPreview` 走 `fadeTo = pageBg`），
+                    // 真机实测格内文字上方那片底是 (169~221 灰)，白字压上去只有 2.31:1 ——
+                    // 名字看着像被洗掉。板上那套 21px / 0.38 是给「底色本来就深」的皮肤写的，
+                    // 照抄到淡到纸色的小样上不成立。
+                    //
+                    // 34dp 高、四站：0 → 0.30 → 0.56 → 0.64。文字带（距底 3.5~17.5dp，即整条的
+                    // 48%~90% 那一段）落在 0.49 以上；叠在 221 的浅灰上合成 113，白字仍有 4.9:1。
+                    // 第一站之所以不是一上来就压满，是因为压满会在格子里切出一道硬边。
+                    .height(34.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            0.30f to Color.Black.copy(alpha = 0.30f),
+                            0.55f to Color.Black.copy(alpha = 0.56f),
+                            1f to Color.Black.copy(alpha = 0.64f),
+                        ),
+                    ),
+            )
+        }
+        Text(
+            text = "相册",
+            fontSize = Type.micro,
+            fontWeight = Type.weightBody,
+            color = if (wallpaper != null) Color.White else colors.onSurfaceVariantSummary,
+            maxLines = 1,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 3.5.dp),
+        )
     }
 }
 
