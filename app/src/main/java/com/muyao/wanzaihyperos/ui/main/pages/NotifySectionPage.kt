@@ -417,7 +417,7 @@ fun NotifySectionPage(
                     if (items.isEmpty()) {
                         item(key = "news-empty") { StatusHint("暂时没有新闻。") }
                     } else {
-                        item(key = "news-card") { NewsGroup(items) }
+                        item(key = "news-card") { NewsGroup(items, onOpenUrl) }
                         if (newsMeta?.hasMore == true) {
                             item(key = "news-more") {
                                 MoreRow(
@@ -971,24 +971,36 @@ private fun UnreadMark(unread: Boolean) {
  * 不配縮略圖：門戶沒有穩定圖源，外鏈圖只會帶來加載失敗與版權風險。
  */
 @Composable
-private fun NewsGroup(items: List<PortalNewsItem>) {
+private fun NewsGroup(items: List<PortalNewsItem>, onOpenUrl: (String) -> Unit) {
     // 板上 `.newsrow` 之间**没有分隔线**（只有 6px 行距）：
     // 画上线就把「一列新闻」变成一张表格，和上面消息那种 hairline 列表撞成一类。
     Column(Modifier.fillMaxWidth()) {
         items.forEachIndexed { idx, n ->
             key("news-$idx-${n.id}") {
-                NewsRow(n)
+                NewsRow(n, onOpenUrl)
             }
         }
     }
 }
 
 @Composable
-private fun NewsRow(n: PortalNewsItem) {
+private fun NewsRow(n: PortalNewsItem, onOpenUrl: (String) -> Unit) {
     val colors = MiuixTheme.colorScheme
+    // ★ 新闻以前整行不可点（`PortalNewsItem` 里根本没有地址）。服务端一直有 `blink`
+    //   （校网正文页）与 `linktitle`（公众号版），只是解析时丢掉了 —— 2026-11-01 从
+    //   真机落盘的 listnewslist 原文核出（docs 里 A3 的表也早写着这两个字段）。
+    //   现在有地址的行给点也给 `›`；没有地址的行仍然什么都不给（不画死箭头）。
+    val openUrl = n.openUrl?.takeIf { it.isNotBlank() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (openUrl == null) {
+                    Modifier
+                } else {
+                    Modifier.clickable(onClickLabel = "打开这条新闻") { onOpenUrl(openUrl) }
+                }
+            )
             .padding(horizontal = 0.dp, vertical = 5.3.dp),
         horizontalArrangement = Arrangement.spacedBy(Dims.normal),
         verticalAlignment = Alignment.Top,
@@ -1014,6 +1026,13 @@ private fun NewsRow(n: PortalNewsItem) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.widthIn(max = 96.dp),
+            )
+        }
+        if (openUrl != null) {
+            Text(
+                text = "›",
+                fontSize = Type.summary,
+                color = colors.onSurfaceVariantSummary,
             )
         }
     }

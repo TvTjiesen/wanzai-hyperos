@@ -237,6 +237,9 @@ object PortalParsers {
                 id = item["id"].text() ?: title,
                 title = title,
                 createdDate = item["createdate"].text() ?: "",
+                // 正文页：`blink` 是校网正文，`linktitle` 是公众号版（部分为空）。
+                // 两个都读不到就留 null —— 让界面去决定「这行不给点」，不是编一个地址。
+                openUrl = item["blink"].text() ?: item["linktitle"].text(),
             )
         }
         return out

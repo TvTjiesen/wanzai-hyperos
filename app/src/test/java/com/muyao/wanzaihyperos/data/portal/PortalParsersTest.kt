@@ -261,6 +261,33 @@ class PortalParsersTest {
         assertEquals("2026-10-09", news[0].createdDate)
     }
 
+    /**
+     * 新闻正文地址：`blink` 优先，`linktitle` 兜底，都没有就是 null。
+     *
+     * ★ 2026-11-01 从真机落盘的 `listnewslist` 原文核出这两个字段。以前解析只取了
+     *   title/createdate/id ⇒ 新闻行整行不可点，一条只能读标题、读不到正文的新闻
+     *   等于一条标题。字段名写错这里会红（本文件的职责就是钉字段名）。
+     */
+    @Test
+    fun `新闻有正文地址，blink 优先 linktitle 兜底`() {
+        val json = """
+        {"code":200,"data":[
+          {"id":"338558","title":"射箭队","createdate":"2026-10-28 16:54:10",
+           "blink":"http://ccpo.hzcu.edu.cn/art/2026/10/28/art_101_338558.html",
+           "linktitle":"https://mp.weixin.qq.com/s/zUWxtTFge0gDZn3fZ-bTuQ"},
+          {"id":"338539","title":"学宪法","createdate":"2026-10-28 15:17:52",
+           "blink":"","linktitle":"https://mp.weixin.qq.com/s/6qslVCMMbtc6sTWemOg__A"},
+          {"id":"338518","title":"毕业大会","createdate":"2026-10-28 10:31:21",
+           "blink":"","linktitle":""}
+        ]}
+        """
+        val news = PortalParsers.parseNewsList(envelope(json))
+
+        assertEquals("blink 在的时候用 blink", "http://ccpo.hzcu.edu.cn/art/2026/10/28/art_101_338558.html", news[0].openUrl)
+        assertEquals("blink 是空串时用 linktitle", "https://mp.weixin.qq.com/s/6qslVCMMbtc6sTWemOg__A", news[1].openUrl)
+        assertNull("两个都没有就是没有，不许编一个地址", news[2].openUrl)
+    }
+
     /** 逐字来自门户 JS：`{ start: 8 * (e - 1) + 1, end: 8 * e }` —— 1 基闭区间。 */
     @Test
     fun `新闻分页是 1 基闭区间且页大小 8`() {

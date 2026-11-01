@@ -110,11 +110,20 @@ data class PortalNewsGroup(
     val dataId: Int? = null,
 )
 
-/** 新闻条目。服务端字段：`title` / `createdate` / `id`。 */
+/**
+ * 新闻条目。服务端字段：`title` / `createdate` / `id` / `blink` / `linktitle`。
+ *
+ * ★ 新闻**有原文地址**（2026-11-01 从真机落盘的 `listnewslist` 原文核出）：`blink` 是
+ *   校网上的正文页（`http://ccpo.hzcu.edu.cn/art/2026/10/28/art_101_338558.html`），
+ *   `linktitle` 是同一条的公众号版本（部分条目为空）。以前这一行点不动，是把这个字段
+ *   丢在了解析外面 —— 一条只能读标题、读不到正文的新闻，等于一条标题。
+ */
 data class PortalNewsItem(
     val id: String,
     val title: String,
     val createdDate: String,
+    /** 正文页地址：优先 `blink`，其次 `linktitle`；都没有就是 `null`（那一行不画 `›`、不给点）。 */
+    val openUrl: String? = null,
 )
 
 /**
