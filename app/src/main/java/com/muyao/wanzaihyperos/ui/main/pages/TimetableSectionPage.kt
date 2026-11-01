@@ -184,10 +184,13 @@ fun TimetableSectionPage(
     // 正負數 = 相對偏移。**不重新請求資料** —— 資料本來就含全學期。
     var weekOffset by remember { mutableIntStateOf(0) }
     /** 日程模式下看的是哪一天（1=周一…7=周日）。默认今天。 */
-    // ★ 第 5 轮审计必修 4：这一排只到周五，**初值先夹进 1..5**
-    //   （`WeekDateStrip` 内部还会再夹一次兜底），否则周六周日进来无高亮。
+    // ★ 2026-10-31：初值**不再夹进 1..5**。以前夹的理由是「周条只到周五，6/7 进来无高亮」，
+    //   代价是周六周日打开课表看到的是**周五的课表**：左边写着「周五」，而右边那颗
+    //   「今天」药丸按下去切的却是周六 —— 字和事对不上。
+    //   空的一天也是一条信息（见 `WeekLayout.columns`：「週三沒課」不能因為沒課就消失），
+    //   周六就该说「周六没有课。」。周条的高亮另治（见 `WeekDateStrip` 里 `isSelected`）。
     var selectedDay by remember {
-        mutableIntStateOf(LocalDate.now().dayOfWeek.value.coerceIn(1, 5))
+        mutableIntStateOf(LocalDate.now().dayOfWeek.value)
     }
     var picked by remember { mutableStateOf<TronScheduleSlot?>(null) }
     // 2026-10-28 业主「我想要那种点击放大的动画」：详情不再插进列表，而是从**被点那一格**
@@ -386,7 +389,6 @@ fun TimetableSectionPage(
             val dayCourses = daySlots
                 .map { if (it.courseId != 0) "id:${it.courseId}" else "name:${it.courseName}" }
                 .distinct().size
-            val isToday = weekOffset == 0 && selectedDay == today.dayOfWeek.value
             DayModeSwitch(
                 // 板 `.dayhead`：`h3{font-size:17px;font-weight:740}` + `.n{font-size:10.5px;color:var(--sub)}`
                 // × 0.886 ⇒ **周几 15sp 粗 + 日期与节数 9.3sp 淡**，两档。
@@ -417,7 +419,10 @@ fun TimetableSectionPage(
                         if (daySlots.isNotEmpty()) append(" · $dayCourses 门课")
                     }
                 },
-                firstLabel = if (isToday) "今天" else DAY_WEEK[selectedDay - 1],
+                // 药丸上的字**必须等于按下去会看到的那一天**：`onFirst` 把 `selectedDay`
+                // 设成**今天**，不是设成当前选中的那天。周六进这一页时以前写「周五」、
+                // 按下去却切到周六 —— 见 [dayPillLabel]。
+                firstLabel = dayPillLabel(today.dayOfWeek.value, weekOffset),
                 weekMode = uiState.timetableGrid,
                 onFirst = {
                     selectedDay = today.dayOfWeek.value
@@ -1990,7 +1995,10 @@ private fun WeekDateStrip(
         // 板子的周条只到周五（学校周六日无课）；有几节课就画几个点，最多 3 个。
         (1..5).forEach { day ->
             val date = monday.plusDays((day - 1).toLong())
-            val isSelected = day == sel
+            // ★ 高亮判**没有夹过的 `selected`**：这一排只到周五，周六周日不该有哪一格被点亮
+            //   （以前 `sel` 夹成 5 ⇒ 周六进来周五那格亮着，看着像「今天是周五」）。
+            //   手势那套判据仍然用夹过的 `sel`（定义域洞那条注释在上面），两者分工不同。
+            val isSelected = day == selected
             val isToday = day == today
             Column(
                 modifier = Modifier
@@ -2247,6 +2255,19 @@ private fun isOngoing(start: String?, end: String?): Boolean {
 private val DAY_LABELS = listOf("一", "二", "三", "四", "五", "六", "日")
 
 private val DAY_WEEK = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+/**
+ * 「回到今天」那颗药丸上的字。
+ *
+ * 判据只有一条：**药丸上的字必须等于按下去会看到的那一天**。
+ * 按下去的动是 `selectedDay = today.dayOfWeek.value`，所以结果永远是
+ * 「今天」（还在本周）或「今天这个星期几」（翻到别的周时，看到的是那一周的同一个星期几）。
+ *
+ * 2026-10-31 真机：周六进课表，`selectedDay` 被夹成 5，药丸上写「周五」，
+ * 按下去却切到周六（`today = 6`）—— 字和事对不上。标签跟着**动作**走，不跟着当前选中走。
+ */
+internal fun dayPillLabel(todayDow: Int, weekOffset: Int): String =
+    if (weekOffset == 0) "今天" else DAY_WEEK[todayDow.coerceIn(1, 7) - 1]
 
 /**
  * 一塊課上的「幾點」那行。
