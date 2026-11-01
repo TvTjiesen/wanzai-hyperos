@@ -133,13 +133,13 @@ class HomeSkyTest {
     @Test
     fun `天空几何三个停靠点的算式必须钉死`() {
         // 板上：`linear-gradient(180deg,#A9CBD8 0%,#C9DEE5 46%,#F1E9DC 100%)`（wz-v2.html:166），
-        // `.atmos{height:220px}`、天空画布 256dp（业主 2026-10-25 要求壁纸再往下）、非紧凑档 `skyBottom = 0.80h`。
-        val boxH = 256f * 3.5f                      // 真机 560dpi ⇒ 896px
-        // 问生产函数要底边，不再自己乘一遍：`skyBottomY` 会取整，自己乘会得到 716.8 这种不存在的像素。
-        val skyBottom = skyBottomY(boxH, compact = false)   // = 716
-        assertEquals("天空底边必须取整", 716f, skyBottom, 0f)
+        // `.atmos{height:220px}`、天空画布基线 288dp（业主 2026-11-01 要求壁纸范围再大一点）、非紧凑档 `skyBottom = 0.80h`。
+        val boxH = 288f * 3.5f                      // 真机 560dpi ⇒ 1008px
+        // 问生产函数要底边，不再自己乘一遍：`skyBottomY` 会取整，自己乘会得到 806.4 这种不存在的像素。
+        val skyBottom = skyBottomY(boxH, compact = false)   // = 806
+        assertEquals("天空底边必须取整", 806f, skyBottom, 0f)
         val midStop = SKY_MID_STOP * skyBottom
-        assertEquals("mid 那一站的像素位置 = 0.46 × 716", 329.36, midStop.toDouble(), 0.5)
+        assertEquals("mid 那一站的像素位置 = 0.46 × 806", 370.76, midStop.toDouble(), 0.5)
         // 第 5 轮那条"0.55 段"必须彻底不存在：0.55 站 = 385px 会造出一条 385 行的水平带
         assertTrue(0.55f * skyBottom > midStop)
         // cover 的 slack（第 6 轮 P0#2 修的是被除数）：四组输入都必须 ≥ 0 且等于解析式。

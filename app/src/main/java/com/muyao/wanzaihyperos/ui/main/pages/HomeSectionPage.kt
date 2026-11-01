@@ -36,9 +36,12 @@ import androidx.compose.runtime.snapshotFlow
 import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.Offset
@@ -206,6 +209,9 @@ fun HomeSectionPage(
     // 走仓库自己的 refresh —— 它们都是「有内容就原地保留」，不会把卡片闪成骨架。
     var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // 下拉量（px）。业主 2026-11-01「壁纸下拉过后就是一坨白色」—— 天空层要跟着这个数长高。
+    // 用 miuix 自己的 state，不自己截 nestedScroll：`dragOffset` 与内容真实位移同源。
+    val pullState = rememberPullToRefreshState()
     val chrome = LocalPageChrome.current
     val pageActive = LocalPageActive.current
     // ★ 第 9 轮审计必修 4：把"列表正在滚"报给玻璃层（滚动期降采样；见 `PageChrome.scrolling`）。
@@ -333,16 +339,33 @@ fun HomeSectionPage(
             //    （`0.9167` 来自 featherStops 的透明支在 t=0.88 处收 0，即第 11/12 站）。
             //    250dp 时它 = 0.78×875 = **682px**；真机逐列剖面 x=20 到 y≈680 就完全淡成纸色，
             //    对得上 —— 只压到卡高的 29%。
-            //    解 0.78h = 700 ⇒ h ≈ 897px ⇒ 取 **256dp**（= 896px 整，无小数像素）。
-            //    实际收 0 落 **698px**（差目标 2px，肉眼无差）。
-            //    只改这一个数，`0.80 / 0.24 / 0.9167` 三个比例一个没动。
-            // 「今日课程」开着时用 256dp；关着时这一屏没有那张卡，切线会从「要处理」那行中间
-            // 穿过去（复评 2026-10-21 量的就是这个），所以天空收到 hero 自己的底缘。
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(if ("courses" in UiPrefs.homeModules) 256.dp else 150.dp),
-            ) {
+            //    解 0.78h = 700 ⇒ h ≈ 897px ⇒ 当时取 256dp（896px），实际收 0 落 698px。
+            // ★ 业主 2026-11-01「壁纸的显示范围也可以大一点」⇒ 基线抬到 **288dp**（1008px）：
+            //   alpha 收 0 的行 = `0.78h` ≈ **785px**，「此刻」卡顶边 ≈737px ⇒ 卡的上半身仍压在
+            //   天空里（卡的玻璃采得到照片），照片可见面积比 256dp 多 112px。
+            //   三个比例 `0.80 / 0.24 / 0.9167` 一个没动 —— 改的只是画布高度。
+            // 「今日课程」开着时用 288dp；关着时这一屏没有那张卡，切线会从「要处理」那行中间            // 穿过去（复评 2026-10-21 量的就是这个），所以天空收到 hero 自己的底缘。
+            // 业主 2026-11-01 第 2 条：「壁纸做成实时模糊」+「壁纸的显示范围也可以大一点」+
+            // 「下拉过后就是一坨白色」。三件事在这里一起落：
+            //  ① 基线 256dp → **288dp**（1008px）：照片多露 112px，淡出带整体下移。
+            //  ② 下拉时盒高跟着 `dragOffset` 一起长，照片底边永远压在「此刻」卡的上面 ——
+            //     纸面不再从照片底下翻出来。盒变高不会拉伸照片：`drawCoverBitmap` 的 scale
+            //     由**宽度**定（1216/3024 = 0.402 远大于 1008/4032 = 0.25），加高只是多露下半部。
+            //  ③ 同一份下拉量驱动一层实时模糊：静止时半径 0，`Modifier.blur` 在 0dp 上不建 RenderEffect
+            //     ⇒ 不占 GPU；拉起来才模糊，松手自己回 0。
+            val skyBaseHeight = if ("courses" in UiPrefs.homeModules) 288.dp else 150.dp
+            // `0.80` 是 `skyBottomY` 的比例：画布长高 1px，照片底边只下移 0.8px，
+            // 所以补偿内容那一段位移要除以它（下拉 1px ⇒ 盒高 1/0.8 = 1.25px）。
+            val pullExtra = with(LocalDensity.current) {
+                (pullState.dragOffset * PULL_SKY_GAIN).toDp()
+            }.coerceIn(0.dp, PULL_SKY_MAX_EXTRA)
+            val skyBlur = pullExtra * PULL_BLUR_PER_DP
+            // 天空画一层还是两层：静止时只画一层（与改前逐像素相同）；
+            // 拉起来时**底下先铺一层不模糊的**，再把模糊那层压在上面。
+            // 理由（2026-11-01 真机实测）：模糊会把层的边缘抹成半透明，透出身后那层纸色
+            // （峰值帧左边 0..44px 亮度 150→81 的那圈白边、顶部整条 250 白都是它）。
+            // 铺一层不模糊的底，抹开的边露出来就是天空自己，边缘就没了；界面静止时这层不画。
+            val drawSky: @Composable (Modifier) -> Unit = { m ->
                 HomeSky(
                     preset = preset,
                     wallpaper = wallpaper,
@@ -354,8 +377,14 @@ fun HomeSectionPage(
                     zoom = UiPrefs.wallpaperZoom,
                     // 定稿板的天光只铺首屏上半段（到「此刻」卡底边），
                     // 下面「今天 / 要处理」落在暖米纸面上，不是整页都压着蓝天。
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = m,
                 )
+            }
+            Box(Modifier.fillMaxWidth().height(skyBaseHeight + pullExtra)) {
+                drawSky(Modifier.fillMaxSize())
+                if (skyBlur > 0.dp) {
+                    drawSky(Modifier.fillMaxSize().blur(skyBlur, BlurredEdgeTreatment.Unbounded))
+                }
                 if (colors.background.luminance() < 0.5f) {
                     Box(
                         Modifier
@@ -434,6 +463,7 @@ fun HomeSectionPage(
                     }
                 }
             },
+            pullToRefreshState = pullState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = statusBarTopPadding()),
             refreshTexts = listOf("下拉刷新", "松开手就刷", "正在刷新…", "刷完了"),
@@ -1548,65 +1578,52 @@ private fun RunSummaryCard(
         km == null -> "这份汇总里没有公里数字"
         else -> runRequirementText(run) + if (stale) " · 这是上次存的" else ""
     }
-    AppCard(onClick = onClick) {
-        Column(Modifier.fillMaxWidth().padding(Dims.cardPadding)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(Dims.chipCorner))
-                        .background(colors.primary.copy(alpha = 0.13f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    TileGlyph(TileIcon.Run, colors.primary, Modifier.size(21.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = "校园跑",
-                        fontSize = Type.body,
-                        fontWeight = Type.weightBody,
-                        color = colors.onBackground,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = status,
-                        fontSize = Type.caption,
-                        color = if (error != null || expired) colors.error else colors.onSurfaceVariantSummary,
-                        maxLines = 2,
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = if (km == null) "—" else kmText(km),
-                    style = MiuixTheme.textStyles.title2.copy(fontFeatureSettings = Type.tabular),
-                    color = colors.primary,
-                    maxLines = 1,
-                )
-                Text(
-                    text = " 公里",
-                    fontSize = Type.caption,
-                    color = colors.onSurfaceVariantSummary,
-                )
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClickLabel = "打开校园跑") { onClick() }
+            .padding(top = 2.dp, bottom = 2.dp),
+    ) {
+        // 与同页「要处理」「今天」同一套骨架：一句粗体小标题，右边一个跟着它的读数，再往下才是明细行。
+        // 改之前这里套着 AppCard、数字是 MiuixTheme 的 title2、底下还压一条 6dp 横条 —— 三样都是这一页
+        // 别处没有的构件，所以它看着像从别的页面搬来的卡（业主 2026-11-01 第 1 条）。
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "校园跑",
+                fontSize = Type.body,
+                fontWeight = Type.weightTitle,
+                color = colors.onBackground,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = if (km == null) "—" else kmText(km) + " 公里",
+                fontSize = Type.body,
+                fontWeight = Type.weightTitle,
+                color = colors.primary,
+                style = TextStyle(fontFeatureSettings = Type.tabular),
+                maxLines = 1,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(25.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.primary.copy(alpha = 0.11f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                TileGlyph(TileIcon.Run, colors.primary, Modifier.size(13.dp))
             }
-            // 进度条只在「公里与目标都真有」时画：目标为 0 或不知道时画一条空槽，
-            // 等于替服务器编了一个目标值（与上面「未知不当 0」是同一条规矩）。
-            if (km != null && target != null && target > 0) {
-                Spacer(Modifier.height(8.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(colors.dividerLine),
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth((km / target).toFloat().coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .background(colors.primary),
-                    )
-                }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = status,
+                    fontSize = Type.secondary,
+                    color = if (error != null || expired) colors.error else colors.onSurfaceVariantSummary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -1688,3 +1705,12 @@ private fun parseClock(raw: String?): LocalTime? {
 private val TIME_HM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 private val WEEKDAYS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+/** 下拉时天空最多再长这么高。再长就把整块画布推出屏幕，收益也不再有。 */
+private val PULL_SKY_MAX_EXTRA = 200.dp
+
+/** 画布长高的换算系数：照片底边按 `skyBottomY` 的 0.80 走 ⇒ 1 / 0.80 = 1.25。 */
+private const val PULL_SKY_GAIN = 1.25f
+
+/** 模糊半径 = 盒高增量 × 这个系数。200dp 拉满时 20dp 半径，松手跟着回 0。 */
+private const val PULL_BLUR_PER_DP = 0.10f

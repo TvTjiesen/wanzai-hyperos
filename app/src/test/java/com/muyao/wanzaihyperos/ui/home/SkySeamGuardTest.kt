@@ -25,13 +25,16 @@ import java.io.File
 class SkySeamGuardTest {
 
     /**
-     * 天空画布 256dp，560dpi（3.5x）⇒ **896px**。
+     * 天空画布基线 288dp，560dpi（3.5x）⇒ **1008px**。
      *
-     * 256dp 是业主 2026-10-25「首页壁纸的范围可以稍微靠下一点点，大概是卡片的上三分之一吧」
-     * 定下来的：天空 alpha 收 0 的行 = `0.78h`，真机卡顶 y=505、卡高 586 ⇒ 卡的上三分之一 = y≈700，
-     * 解 `0.78h = 700` ⇒ h ≈ 897 ⇒ 取整到 256dp（896px）⇒ 收 0 落 698px。
+     * 288dp 是业主 2026-11-01「壁纸的显示范围也可以大一点」定下来的（此前是 256dp / 896px，
+     * 来自 2026-10-25「壁纸的范围可以稍微靠下一点点，大概是卡片的上三分之一吧」）。
+     * 不变的是三个比例：天空 alpha 收 0 的行仍是 `0.78h` ⇒ 1008×0.78 ≈ 785px，
+     * 而真机「此刻」卡顶边 ≈737px ⇒ 卡的上半身仍压在天空里（这是 10-25 那条要求的本意）。
+     *
+     * 下标里的 px 数字**必须**是 288dp × 3.5 的派生值，不是手挑的。
      */
-    private val canvasPx = 896f
+    private val canvasPx = 1008f
 
     /** 560dpi ⇒ 1dp = 3.5px。 */
     private val density = 3.5f
@@ -79,15 +82,15 @@ class SkySeamGuardTest {
             "天空底边必须落在整像素（半像素会合成 1px 暗线）",
             skyBottom, skyBottom.toInt().toFloat(), 0f,
         )
-        assertEquals("普通档天空底边 = 0.80h ⇒ int(716.8) = 716", 716f, skyBottom, 0f)
-        assertEquals("小样档天空底边 = 0.86h ⇒ int(770.56) = 770", 770f, skyBottomY(canvasPx, compact = true), 0f)
+        assertEquals("普通档天空底边 = 0.80h ⇒ int(806.4) = 806", 806f, skyBottom, 0f)
+        assertEquals("小样档天空底边 = 0.86h ⇒ int(866.88) = 866", 866f, skyBottomY(canvasPx, compact = true), 0f)
 
         assertEquals("羽化带比例必须是 0.24h", 0.24f, SKY_FADE_SPAN, 0f)
 
         val fadeStart = skyFadeStartY(canvasPx, skyBottom)
         assertEquals("羽化带起点必须落在整像素", fadeStart, fadeStart.toInt().toFloat(), 0f)
-        // int(716 − 896×0.24) = int(500.96) = 500 ⇒ 带长 716 − 500 = 216
-        assertEquals("羽化带长度必须是 0.24h ⇒ 216px", 216f, skyBottom - fadeStart, 0f)
+        // int(806 − 1008×0.24) = int(564.08) = 564 ⇒ 带长 806 − 564 = 242
+        assertEquals("羽化带长度必须是 0.24h ⇒ 242px", 242f, skyBottom - fadeStart, 0f)
         assertTrue("羽化带必须结束在天空底边上", fadeStart < skyBottom)
     }
 
@@ -178,8 +181,8 @@ class SkySeamGuardTest {
     /**
      * **画布高度必须与调用点那个盒子同源**（业主 2026-10-25 第 1 条）。
      *
-     * 上面几条用的 `canvasPx = 896f` 是**测试自己写的常量**，生产里那个盒子
-     * 是 `HomeSectionPage.kt` 的 `height(256.dp)`。两边只要不一致，
+     * 上面几条用的 `canvasPx = 1008f` 是**测试自己写的常量**，生产里那个盒子
+     * 是 `HomeSectionPage.kt` 的 `skyBaseHeight`（基线 288dp，下拉时还会再长）。两边只要不一致，
      * 上面全绿而真机上是另一回事 —— 那正是「自报完成」。所以这里把 dp 值读出来对一遍：
      * 改生产数字不改这条，立刻红。
      */
@@ -190,9 +193,11 @@ class SkySeamGuardTest {
         val text = page.readText(Charsets.UTF_8)
             .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
             .replace(Regex("""//[^\n]*"""), "")
-        val m = Regex("""height\(if \("courses" in UiPrefs\.homeModules\) ([\d.]+)\.dp else ([\d.]+)\.dp\)""")
+        // 2026-11-01：下拉时盒高要跟着长，那行 height(if (…)) 拆成了 `val skyBaseHeight = if (…)`。
+        // 抓的仍是同两个数：基线 dp（= canvasPx / 3.5）与「今日课程」关着那一档。
+        val m = Regex("""if \("courses" in UiPrefs\.homeModules\) ([\d.]+)\.dp else ([\d.]+)\.dp""")
             .find(text)
-        assertTrue("HomeSectionPage 里找不到那句 height(if (\"courses\" …) N.dp else M.dp) —— 结构变了就同步改这条守卫", m != null)
+        assertTrue("HomeSectionPage 里找不到那句 if (\"courses\" …) N.dp else M.dp —— 结构变了就同步改这条守卫", m != null)
         val withCourses = m!!.groupValues[1].toFloat()
         assertEquals(
             "天空盒高度 ${withCourses}dp × 3.5 ≠ 测试里的 canvasPx ${canvasPx}px ⇒ 判据与生产脱节",

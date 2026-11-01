@@ -357,177 +357,6 @@ fun AppearancePage(
                 }
             }
 
-            // ---- 壁紙 ----------------------------------------------------
-            item(key = "wallpaper-label") { SubSection("壁纸", "内置 4 张 · 相册") }
-            item(key = "wallpaper-presets") {
-                // 板 `.wps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 18px}`
-                // + `.wp{border-radius:13px;aspect-ratio:1/.92;border:1.5px solid transparent}`
-                //   `.wp.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}`
-                //   `.wp span{position:absolute;left:0;right:0;bottom:0;padding:10px 5px 4px;
-                //    font-size:7px;font-weight:650;color:#fff;text-align:center;
-                //    background:linear-gradient(transparent,rgba(0,0,0,.38))}`
-                // ⇒ × 0.886：四列、格间距 7dp、圆角 11.5dp、宽:高 = 1:0.92、
-                //   选中是 1.3dp accent 边框 + 外面 2.7dp 的 accent-soft 圈，
-                //   **名字写在格子里**（底边一条压暗渐变上），不是格子下面一行字。
-                // 外面不再套 AppCard：板上这一排是直接铺在纸面上的。
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    listOf(
-                        "跟随时刻" to SkyPreset.AUTO,
-                        "晨雾" to SkyPreset.MORNING,
-                        "暮色" to SkyPreset.DUSK,
-                        "夜航" to SkyPreset.NIGHT,
-                    ).forEach { (name, value) ->
-                        WallpaperTile(
-                            name = name,
-                            preset = value,
-                            wallpaper = null,
-                            dim = UiPrefs.wallpaperDim,
-                            soft = UiPrefs.wallpaperSoft,
-                            on = effectivePreset == value,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            UiPrefs.saveWallpaperPreset(value.id)
-                            note = null
-                        }
-                    }
-                }
-            }
-
-
-            item(key = "wallpaper-album") {
-                // 板 `.wp.plus` 就是 `.wps` 那 4 列网格里的**第五格**（虚线 + 「+」，
-                // 名字在格子正下方）。上一版我把它撑成一个大方块 + 右侧一整行说明，
-                // 于是壁纸区的节奏被切断（复评 2026-10-21）。
-                val on = preset == SkyPreset.ALBUM
-                Row {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 7.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f / 0.92f)
-                                .clip(RoundedCornerShape(Dims.wallpaperTileCorner))
-                                .background(colors.onBackground.copy(alpha = 0.04f))
-                                .border(
-                                    1.dp,
-                                    if (isDark) Color.White.copy(alpha = 0.18f)
-                                    else Tone.ink.copy(alpha = 0.16f),
-                                    RoundedCornerShape(Dims.wallpaperTileCorner),
-                                )
-                                .clickable(onClickLabel = "从相册选择壁纸") {
-                                    // 已经在用相册图 ⇒ 再点就是「换一张」，直接开系统选择器；
-                                    // 有图但当前用的是预设 ⇒ 这一点先把那张图切回来，不打断他重选。
-                                    if (on || wallpaper == null) {
-                                        pickPhoto()
-                                    } else {
-                                        UiPrefs.saveWallpaperPreset(SkyPreset.ALBUM.id)
-                                    }
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (wallpaper != null && on) {
-                                Image(
-                                    bitmap = wallpaper,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            } else {
-                                Text(
-                                    // 板 `.plusmark{font-size:19px;font-weight:300;color:var(--faint)}` ⇒ 17sp
-                                    text = "+",
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    color = colors.onSurfaceVariantSummary,
-                                )
-                            }
-                        }
-                        Text(
-                            text = "相册",
-                            fontSize = Type.micro,
-                            color = if (on) colors.primary else colors.onSurfaceVariantSummary,
-                            maxLines = 1,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            modifier = Modifier
-                                .padding(top = 4.dp)
-                                .fillMaxWidth(),
-                        )
-                    }
-                    // 板 `.wps{repeat(4,1fr)}`：第五格换行后右边三列在板上也是空的。
-                    // 说明文字挪回网格**下面一整行**（板 `.wphint` 的顺序），不塞进这一列。
-                    Spacer(Modifier.weight(3f))
-                }
-                // 已经存过一张图时，才给「换一张 / 移除」这两件真能做的事。
-                if (wallpaper != null) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = if (on) "正在用相册那张 · 点一下换一张"
-                            else "已存一张相册图 · 点一下切回去",
-                            fontSize = Type.micro,
-                            color = colors.onSurfaceVariantSummary,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(Dims.chipCorner))
-                                .clickable(onClickLabel = "从相册选择壁纸") { pickPhoto() }
-                                .padding(vertical = 4.dp),
-                        )
-                        Text(
-                            text = "移除",
-                            fontSize = Type.micro,
-                            color = colors.error,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(Dims.chipCorner))
-                                .clickable(onClickLabel = "移除自定义壁纸") {
-                                    deleteWallpaper(context)
-                                    UiPrefs.bumpWallpaperRev()
-                                    UiPrefs.saveWallpaperPreset(SkyPreset.AUTO.id)
-                                    note = "已移除自定义壁纸。"
-                                }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                        )
-                    }
-                }
-            }
-
-            item(key = "wallpaper-hint") {
-                // 板 `.wphint{padding:7px 18px 0;font-size:8.5px;line-height:1.55;
-                // color:var(--faint)}` ⇒ 网格下面一整行，7.5sp（取 floor 8sp）。
-                Text(
-                    text = "天空会跟着时间换 · 相册那张只存在本机，重启后还在。",
-                    fontSize = Type.micro,
-                    color = colors.onSurfaceVariantSummary,
-                    lineHeight = 12.sp,
-                )
-            }
-
-            // ---- v3 #10：相册那张的取景（裁切）--------------------------------
-            //
-            // 只有真的选了相册图、并且当前就在用相册档时才出现 —— 内置天空没有可裁的东西，
-            // 摆一个拖了不动的框就是假开关（本工程栽过好几次）。
-            if (wallpaper != null && effectivePreset == SkyPreset.ALBUM) {
-                item(key = "wallpaper-crop") {
-                    WallpaperCropFrame(
-                        wallpaper = wallpaper,
-                        panX = UiPrefs.wallpaperPanX,
-                        panY = UiPrefs.wallpaperPanY,
-                        zoom = UiPrefs.wallpaperZoom,
-                        onCrop = { x, y, z -> UiPrefs.saveWallpaperCrop(x, y, z) },
-                        onReset = {
-                            UiPrefs.resetWallpaperCrop()
-                            note = "已回到居中裁满。"
-                        },
-                    )
-                }
-            }
-
             // ---- 三行控件（板 `.ctl` 一组，**不加「光感 / 材质」这种板上没有的分组头**）----
             //
             // 板上的顺序就是 柔化 → 暗度 → 玻璃（`wz-v2.html` 里那三条 `.ctl`），
@@ -708,6 +537,177 @@ fun AppearancePage(
                         }
                         .padding(vertical = 12.dp),
                 )
+            }
+
+            // ---- 壁紙 ----------------------------------------------------
+            item(key = "wallpaper-label") { SubSection("壁纸", "内置 4 张 · 相册") }
+            item(key = "wallpaper-presets") {
+                // 板 `.wps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 18px}`
+                // + `.wp{border-radius:13px;aspect-ratio:1/.92;border:1.5px solid transparent}`
+                //   `.wp.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}`
+                //   `.wp span{position:absolute;left:0;right:0;bottom:0;padding:10px 5px 4px;
+                //    font-size:7px;font-weight:650;color:#fff;text-align:center;
+                //    background:linear-gradient(transparent,rgba(0,0,0,.38))}`
+                // ⇒ × 0.886：四列、格间距 7dp、圆角 11.5dp、宽:高 = 1:0.92、
+                //   选中是 1.3dp accent 边框 + 外面 2.7dp 的 accent-soft 圈，
+                //   **名字写在格子里**（底边一条压暗渐变上），不是格子下面一行字。
+                // 外面不再套 AppCard：板上这一排是直接铺在纸面上的。
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    listOf(
+                        "跟随时刻" to SkyPreset.AUTO,
+                        "晨雾" to SkyPreset.MORNING,
+                        "暮色" to SkyPreset.DUSK,
+                        "夜航" to SkyPreset.NIGHT,
+                    ).forEach { (name, value) ->
+                        WallpaperTile(
+                            name = name,
+                            preset = value,
+                            wallpaper = null,
+                            dim = UiPrefs.wallpaperDim,
+                            soft = UiPrefs.wallpaperSoft,
+                            on = effectivePreset == value,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            UiPrefs.saveWallpaperPreset(value.id)
+                            note = null
+                        }
+                    }
+                }
+            }
+
+
+            item(key = "wallpaper-album") {
+                // 板 `.wp.plus` 就是 `.wps` 那 4 列网格里的**第五格**（虚线 + 「+」，
+                // 名字在格子正下方）。上一版我把它撑成一个大方块 + 右侧一整行说明，
+                // 于是壁纸区的节奏被切断（复评 2026-10-21）。
+                val on = preset == SkyPreset.ALBUM
+                Row {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 7.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f / 0.92f)
+                                .clip(RoundedCornerShape(Dims.wallpaperTileCorner))
+                                .background(colors.onBackground.copy(alpha = 0.04f))
+                                .border(
+                                    1.dp,
+                                    if (isDark) Color.White.copy(alpha = 0.18f)
+                                    else Tone.ink.copy(alpha = 0.16f),
+                                    RoundedCornerShape(Dims.wallpaperTileCorner),
+                                )
+                                .clickable(onClickLabel = "从相册选择壁纸") {
+                                    // 已经在用相册图 ⇒ 再点就是「换一张」，直接开系统选择器；
+                                    // 有图但当前用的是预设 ⇒ 这一点先把那张图切回来，不打断他重选。
+                                    if (on || wallpaper == null) {
+                                        pickPhoto()
+                                    } else {
+                                        UiPrefs.saveWallpaperPreset(SkyPreset.ALBUM.id)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (wallpaper != null && on) {
+                                Image(
+                                    bitmap = wallpaper,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            } else {
+                                Text(
+                                    // 板 `.plusmark{font-size:19px;font-weight:300;color:var(--faint)}` ⇒ 17sp
+                                    text = "+",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    color = colors.onSurfaceVariantSummary,
+                                )
+                            }
+                        }
+                        Text(
+                            text = "相册",
+                            fontSize = Type.micro,
+                            color = if (on) colors.primary else colors.onSurfaceVariantSummary,
+                            maxLines = 1,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .fillMaxWidth(),
+                        )
+                    }
+                    // 板 `.wps{repeat(4,1fr)}`：第五格换行后右边三列在板上也是空的。
+                    // 说明文字挪回网格**下面一整行**（板 `.wphint` 的顺序），不塞进这一列。
+                    Spacer(Modifier.weight(3f))
+                }
+                // 已经存过一张图时，才给「换一张 / 移除」这两件真能做的事。
+                if (wallpaper != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = if (on) "正在用相册那张 · 点一下换一张"
+                            else "已存一张相册图 · 点一下切回去",
+                            fontSize = Type.micro,
+                            color = colors.onSurfaceVariantSummary,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(Dims.chipCorner))
+                                .clickable(onClickLabel = "从相册选择壁纸") { pickPhoto() }
+                                .padding(vertical = 4.dp),
+                        )
+                        Text(
+                            text = "移除",
+                            fontSize = Type.micro,
+                            color = colors.error,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(Dims.chipCorner))
+                                .clickable(onClickLabel = "移除自定义壁纸") {
+                                    deleteWallpaper(context)
+                                    UiPrefs.bumpWallpaperRev()
+                                    UiPrefs.saveWallpaperPreset(SkyPreset.AUTO.id)
+                                    note = "已移除自定义壁纸。"
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
+
+            item(key = "wallpaper-hint") {
+                // 板 `.wphint{padding:7px 18px 0;font-size:8.5px;line-height:1.55;
+                // color:var(--faint)}` ⇒ 网格下面一整行，7.5sp（取 floor 8sp）。
+                Text(
+                    text = "天空会跟着时间换 · 相册那张只存在本机，重启后还在。",
+                    fontSize = Type.micro,
+                    color = colors.onSurfaceVariantSummary,
+                    lineHeight = 12.sp,
+                )
+            }
+
+            // ---- v3 #10：相册那张的取景（裁切）--------------------------------
+            //
+            // 只有真的选了相册图、并且当前就在用相册档时才出现 —— 内置天空没有可裁的东西，
+            // 摆一个拖了不动的框就是假开关（本工程栽过好几次）。
+            if (wallpaper != null && effectivePreset == SkyPreset.ALBUM) {
+                item(key = "wallpaper-crop") {
+                    WallpaperCropFrame(
+                        wallpaper = wallpaper,
+                        panX = UiPrefs.wallpaperPanX,
+                        panY = UiPrefs.wallpaperPanY,
+                        zoom = UiPrefs.wallpaperZoom,
+                        onCrop = { x, y, z -> UiPrefs.saveWallpaperCrop(x, y, z) },
+                        onReset = {
+                            UiPrefs.resetWallpaperCrop()
+                            note = "已回到居中裁满。"
+                        },
+                    )
+                }
             }
 
             item(key = "privacy") {
