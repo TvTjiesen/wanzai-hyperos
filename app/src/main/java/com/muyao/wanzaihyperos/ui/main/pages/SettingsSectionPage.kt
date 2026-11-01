@@ -220,7 +220,10 @@ fun SettingsSectionPage(
                         "正在读取各系统的登录状态"
                     } else {
                         val n = accountSources.count { it.status == AccountStatus.LoggedIn }
-                        "已登录 $n 项 / 共 ${accountSources.size} 项 · 逐项查看与重新登录"
+                        // ★ 副标题必须在一行内说完（2026-11-01 真机截图：「…逐项查看与重新
+                        //   登录」折出的第二行只有「登录」两个字，看着像排坏了）。
+                        //   真机量出的可写宽度约 229dp，Type.caption 11sp × 1.15 ⇒ 约 19 字。
+                        "已登录 $n / ${accountSources.size} 项 · 逐项查看"
                     },
                     onClick = onOpenAccounts,
                     trailingChevron = true,
@@ -238,7 +241,7 @@ fun SettingsSectionPage(
                     icon = SettingIcon.Glass,
                     tint = Tone.quiet,
                     title = "外观与壁纸",
-                    subtitle = "主题 · 壁纸 · 柔化 · 暗度 · 液态玻璃 · 首页模块",
+                    subtitle = "主题 · 壁纸 · 玻璃 · 首页模块",
                     onClick = onOpenAppearance,
                 )
                 SettingRow(

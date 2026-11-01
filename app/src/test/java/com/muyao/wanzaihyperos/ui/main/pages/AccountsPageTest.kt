@@ -45,7 +45,15 @@ class AccountsPageTest {
             "聚合入口必须真的算数量：缺 count{ status == LoggedIn }",
             Regex("""val n = accountSources\.count \{ it\.status == AccountStatus\.LoggedIn \}""").containsMatchIn(text),
         )
-        assertTrue("聚合入口必须显示「已登录 n 项 / 共 M 项」两截", "已登录 \$n 项 / 共 \${accountSources.size} 项" in text)
+        // ★ 2026-11-01：文案从「已登录 n 项 / 共 M 项 · 逐项查看与重新登录」缩成
+        //   「已登录 n / M 项 · 逐项查看」。真机截图（font_scale 1.15、可写宽约 229dp）上，
+        //   长版折出的第二行只剩「登录」两个字，看着像排坏了 ⇒ 副标题必须一行说完。
+        assertTrue("聚合入口必须显示「已登录 n / M 项」两截", "已登录 \$n / \${accountSources.size} 项" in text)
+        assertFalse(
+            "副标题又拖回「逐项查看与重新登录」那一截了 —— 真机上它会折出孤零零两个字",
+            // 用 code() 而不是原文：上面那条注释自己就写着这段旧文案。
+            "逐项查看与重新登录" in code(text),
+        )
     }
 
     @Test
