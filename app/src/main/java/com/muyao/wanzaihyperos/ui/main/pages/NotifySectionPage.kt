@@ -28,6 +28,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.muyao.wanzaihyperos.ui.design.RevealGate
+import com.muyao.wanzaihyperos.ui.design.rememberRevealGate
+import com.muyao.wanzaihyperos.ui.design.revealIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -150,6 +153,9 @@ fun NotifySectionPage(
     // 原本這一頁自己畫了一個「消息/應用/設定」的大字 —— 那就是雙標題的來源：
     // 頂欄已經會顯示板塊名，頁內再畫一個，兩處的字體/位置遲早不一致。
     val pilot = rememberPageChromePilot()
+    // 交错入场只在**页面打开后头 700ms** 内生效（见 revealIn 的 KDoc）：
+    // Lazy 里滚出视野的行会被丢弃、滚回来重新组合，只按序号算延迟会每滑一下重放整排。
+    val revealGate = rememberRevealGate()
 
     val openRollcalls = (rollState as? ListState.Content)
         ?.items?.filter { !it.expired }.orEmpty()
@@ -363,7 +369,7 @@ fun NotifySectionPage(
                         // 一條一張卡會讓同一個板塊看起來像十個獨立入口；
                         // 收成一張分組卡，掃讀時眼睛只需認一次邊界。
                         // 全部列出（不再 take(5)）：既然沒有「全部」頁，少畫的那幾條就真丢了。
-                        item(key = "msg-card") { MessageGroup(items, onOpenUrl, onRead) }
+                        item(key = "msg-card") { MessageGroup(items, onOpenUrl, onRead, revealGate) }
                         // 门户一次只回 10 条（rows 写死），没有这个入口，第 11 条之后
                         // 在界面上根本走不到 —— 而那一组有一百多条未读。
                         if (msgMeta?.hasMore == true) {
@@ -721,6 +727,7 @@ private fun MessageGroup(
     items: List<PortalMessageItem>,
     onOpenUrl: (String) -> Unit,
     onRead: (String) -> Unit,
+    gate: RevealGate,
 ) {
     // 板子：消息直接铺在纸上，只有行与行之间的发丝线，没有一整张白卡。
     //
@@ -740,7 +747,12 @@ private fun MessageGroup(
                 }
                 grp.forEachIndexed { idx, m ->
                     key("msg-$gi-$idx-${m.id}") {
-                        MessageRow(m, onOpenUrl, onRead)
+                        MessageRow(
+                            m = m,
+                            onOpenUrl = onOpenUrl,
+                            onRead = onRead,
+                            modifier = Modifier.revealIn(gate, gi * 4 + idx),
+                        )
                         if (idx != grp.lastIndex) ThinDivider()
                     }
                 }
@@ -851,6 +863,7 @@ private fun MessageRow(
     m: PortalMessageItem,
     onOpenUrl: (String) -> Unit,
     onRead: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
     // 門戶自己對 openurl 為空的行不給點也不畫箭頭，只 toast 一句
@@ -860,6 +873,7 @@ private fun MessageRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(modifier)
             .then(
                 if (openUrl == null) {
                     Modifier

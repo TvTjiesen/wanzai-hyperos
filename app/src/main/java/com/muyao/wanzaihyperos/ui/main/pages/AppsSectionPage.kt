@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.muyao.wanzaihyperos.ui.design.rememberRevealGate
+import com.muyao.wanzaihyperos.ui.design.revealIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -134,6 +136,8 @@ fun AppsSectionPage(
     // 原本这一页自己画了一个「消息/应用/设置」的大字 —— 那就是双标题的来源：
     // 顶栏已经会显示板块名，页内再画一个，两处的字体/位置迟早不一致。
     val pilot = rememberPageChromePilot()
+    // 交错入场只在页面打开后头 700ms 内生效（见 revealIn 的 KDoc）。
+    val revealGate = rememberRevealGate()
 
     // 小球跟着内容走（业主 2026-10-25「不要单独一个图层」）：挂在大标题左边，随列表滚。
     // 这一页唯一说得出口的状态就是应用清单本身：首次加载 / 失败 / 到手，
@@ -326,7 +330,9 @@ fun AppsSectionPage(
                                         val pinned = app.id in pinnedIds
                                         AppGridCell(
                                             app = app,
-                                            modifier = Modifier.weight(1f),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .revealIn(revealGate, rowIndex),
                                             web = !isNativeApp(app),
                                             featured = true,
                                             // 整理模式下把"已钉住"画成板上那种薄荷主格；
@@ -380,7 +386,9 @@ fun AppsSectionPage(
                                     rowApps.forEach { app ->
                                         AppGridCell(
                                             app = app,
-                                            modifier = Modifier.weight(1f),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .revealIn(revealGate, rowIndex),
                                             onClick = {
                                                 // ★ 独立审计（v3 #7 第 2 轮）抓到：整理模式下
                                                 //   这些非常用格子**照旧 recordAppOpen + 打开**，

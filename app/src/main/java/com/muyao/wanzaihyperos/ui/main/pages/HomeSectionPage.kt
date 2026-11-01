@@ -23,6 +23,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.muyao.wanzaihyperos.ui.design.pressSpring
+import com.muyao.wanzaihyperos.ui.design.OdometerText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -1119,6 +1122,9 @@ private fun FocusButton(
     // `.btn.ghost` 的描边是 **--line-strong**（rgba(26,25,23,.16)），
     // 不是「墨色 40%」—— 原来那条边在天空上重得像支笔勾过。
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
+    // 按下缩、松手过冲一点点再停（2026-11-01 抖音那条「PRESS SCALE」）。
+    // 同一枚 source 必须交给下面 clickable，否则这里收不到按下 —— 也就会与它抢手势。
+    val interaction = remember { MutableInteractionSource() }
     Text(
         text = label,
         fontSize = Type.summary,
@@ -1128,6 +1134,7 @@ private fun FocusButton(
         // 主按钮靠填色分主次，次按钮的字必须退到 --sub（复评 2026-10-22）。
         color = if (filled) onFilled else MiuixTheme.colorScheme.onSurfaceVariantSummary,
         modifier = Modifier
+            .pressSpring(interaction)
             .clip(shape)
             .background(if (filled) primary else Color.Transparent)
             .then(
@@ -1139,7 +1146,7 @@ private fun FocusButton(
                     shape,
                 )
             )
-            .clickable { onClick() }
+            .clickable(interactionSource = interaction, indication = null) { onClick() }
             .padding(horizontal = 11.5.dp, vertical = 7.dp),
     )
 }
@@ -1595,13 +1602,14 @@ private fun RunSummaryCard(
                 color = colors.onBackground,
                 modifier = Modifier.weight(1f),
             )
-            Text(
+            // 里程是这一页唯一「每次刷新都可能变」的数字 ⇒ 它走码表滚动，
+            // 变了能看见，而不是原地换一次字（2026-11-01 抖音那条的「滚动码表」）。
+            OdometerText(
                 text = if (km == null) "—" else kmText(km) + " 公里",
                 fontSize = Type.body,
                 fontWeight = Type.weightTitle,
                 color = colors.primary,
                 style = TextStyle(fontFeatureSettings = Type.tabular),
-                maxLines = 1,
             )
         }
         Spacer(Modifier.height(6.dp))

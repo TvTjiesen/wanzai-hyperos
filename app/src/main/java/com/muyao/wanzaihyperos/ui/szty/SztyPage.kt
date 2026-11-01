@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
+import com.muyao.wanzaihyperos.ui.design.OdometerText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -388,10 +389,14 @@ private fun RunCard(run: SztyRun?) {
             }
             val km = run.runKm
             val target = run.runTargetKm
-            Text(
+            // 这三个数是这一页唯一会「刷新后变」的东西 ⇒ 走码表滚动，
+            // 变了能看见（2026-11-01 抖音那条的「滚动码表」）。
+            OdometerText(
                 text = if (km == null) "跑步公里数未取到" else kmText(km) + " 公里",
-                style = MiuixTheme.textStyles.title2.copy(fontFeatureSettings = Type.tabular),
+                fontSize = MiuixTheme.textStyles.title2.fontSize,
+                fontWeight = MiuixTheme.textStyles.title2.fontWeight,
                 color = colors.primary,
+                style = MiuixTheme.textStyles.title2.copy(fontFeatureSettings = Type.tabular),
             )
             if (km != null && target != null && target > 0) {
                 // 进度条：项目里没有现成的线性进度条，用两层 Box 画
