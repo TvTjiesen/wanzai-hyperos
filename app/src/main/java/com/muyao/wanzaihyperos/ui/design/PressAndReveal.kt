@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,7 +31,9 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Text
 
 /**
@@ -155,10 +158,34 @@ object RevealMotion {
     fun delayOf(index: Int): Long = STEP_MS * index.coerceIn(0, MAX_STEPS)
 }
 
-/** 交错入场的闸门：页面刚打开时是开的，[holdMs] 之后自己关上。 */
-class RevealGate internal constructor() {
+/**
+ * 交错入场的闸门。
+ *
+ * ## 计时从**第一项真的出现**开始，不是从页面打开开始
+ *
+ * 头一版是从页面打开算 700ms。真机录下来是错的：消息页、应用页的内容都要等网络，
+ * 「正在取得消息…」往往要好几秒 —— 等列表终于组装出来，闸门早关了，
+ * 于是整排静悄悄地出现，那段动画等于**根本没接**（代码有、跑不到，最难查的那种）。
+ * 所以改成第一项调用 [arm] 的那一刻才开始计时。
+ */
+class RevealGate internal constructor(
+    private val scope: CoroutineScope,
+    private val holdMs: Long,
+) {
+    private var armed = false
+
     internal var open = true
         private set
+
+    /** 第一项出现时调用一次；之后进来的项不再改计时。 */
+    internal fun arm() {
+        if (armed || !open) return
+        armed = true
+        scope.launch {
+            delay(holdMs)
+            open = false
+        }
+    }
 
     internal fun close() {
         open = false
@@ -173,16 +200,11 @@ class RevealGate internal constructor() {
  */
 @Composable
 fun rememberRevealGate(holdMs: Long = 700L): RevealGate {
-    val gate = remember { RevealGate() }
+    val scope = rememberCoroutineScope()
     val motion = rememberMotion()
-    LaunchedEffect(Unit) {
-        if (!motion.canMove) {
-            gate.close()
-            return@LaunchedEffect
-        }
-        delay(holdMs)
-        gate.close()
-    }
+    val gate = remember(scope, holdMs) { RevealGate(scope, holdMs) }
+    // 关了动画的人不该看到任何入场动画：闸门一开始就是关的。
+    if (!motion.canMove) gate.close()
     return gate
 }
 
@@ -197,6 +219,8 @@ fun Modifier.revealIn(gate: RevealGate, index: Int): Modifier {
     val motion = rememberMotion()
     val animate = gate.open && motion.canMove
     if (!animate) return this
+    // 计时从「这一项真的出现」开始（见 RevealGate 的 KDoc）。
+    LaunchedEffect(Unit) { gate.arm() }
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(RevealMotion.delayOf(index))
