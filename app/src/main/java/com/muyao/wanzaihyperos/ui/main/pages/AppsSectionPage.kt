@@ -94,7 +94,8 @@ fun AppsSectionPage(
     /** 全局扫一扫：搜索行右边那颗方形钮。扫到网址开网页，扫到签到码带去签到页。 */
     onOpenScan: () -> Unit = {},
     // 「整理」不在这一页里画：板上它是**顶栏**那颗（`.topbar .meta .tidybtn`），
-    // 由壳直接调 `showAppearance`，见本文件的 [AppsTidyButton]。
+    // 由壳画，见本文件的 [AppsTidyButton]。页内原来还有一颗同名的，撤了 ——
+    // 同一屏两颗开关同一个状态，还都不一定写对当前是整理还是整理完。
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -304,16 +305,6 @@ fun AppsSectionPage(
                                             .padding(horizontal = 8.dp, vertical = 4.dp),
                                     )
                                 }
-                                Text(
-                                    text = if (tidy) "完成" else "整理",
-                                    fontSize = Type.caption,
-                                    fontWeight = Type.weightBody,
-                                    color = colors.primary,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable(onClickLabel = "整理应用") { UiPrefs.appsTidy.value = !UiPrefs.appsTidy.value }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                )
                             }
                         }
                         common.chunked(COMMON_LIMIT).forEachIndexed { rowIndex, rowApps ->
@@ -489,18 +480,20 @@ private fun isNativeApp(app: PortalApp): Boolean = when (AppOpenStrategy.decide(
  * 高频入口 ⇒ **不加动画**（`wanzai-motion` 第 1 步频率闸门）。
  */
 @Composable
-fun AppsTidyButton(onClick: () -> Unit) {
+fun AppsTidyButton(tidy: Boolean, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
     val shape = RoundedCornerShape(50)
+    // 它现在是全页唯一的整理开关（页内那颗撤了），所以字必须跟着状态走 ——
+    // 否则整理中它仍写「整理」，按下去却退出整理，标签在替自己撒谎。
     Text(
-        text = "整理",
+        text = if (tidy) "完成" else "整理",
         fontSize = Type.summary,
         fontWeight = Type.weightBody,
         color = colors.primary,
         modifier = Modifier
             .clip(shape)
             .background(colors.primary.copy(alpha = 0.11f))
-            .clickable(onClickLabel = "整理应用") { onClick() }
+            .clickable(onClickLabel = if (tidy) "完成整理" else "整理应用") { onClick() }
             .padding(horizontal = 9.7.dp, vertical = 6.2.dp),
     )
 }

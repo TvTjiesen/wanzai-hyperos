@@ -473,11 +473,12 @@ fun WanzaiMainShell(
                     // 板 `.topbar .meta .tidybtn`：**「整理」是应用页顶栏右边那颗**，
                     // 上一版被我塞进「常用」那一行的行尾，位置比板上低了两层。
                     if (MainSection.entries[section] == MainSection.Apps) {
-                        // ★ 第 1 轮 B-10 / 第 3 轮必修 7：这颗以前叫「整理」却跳**外观页**，
-                        //   与这一页里那颗同名不同义的「整理」并存。现在接到页内同一个状态上。
-                        AppsTidyButton(onClick = {
-                            UiPrefs.appsTidy.value = !UiPrefs.appsTidy.value
-                        })
+                        // ★ 第 1 轮 B-10 / 第 3 轮必修 7：这颗以前叫「整理」却跳**外观页**。
+                        //   现在它是全页唯一的整理开关（页内那颗撤了），所以字跟着状态走。
+                        AppsTidyButton(
+                            tidy = UiPrefs.appsTidy.value,
+                            onClick = { UiPrefs.appsTidy.value = !UiPrefs.appsTidy.value },
+                        )
                     }
                 },
             )
