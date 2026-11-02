@@ -94,6 +94,7 @@ import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.PeriodTimeEditor
 import com.muyao.wanzaihyperos.ui.design.Tone
 import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.retrievalGlow
 import com.muyao.wanzaihyperos.ui.design.liquid.LargeTitle
 import com.muyao.wanzaihyperos.ui.design.liquid.LocalLargeTitle
 import com.muyao.wanzaihyperos.ui.design.liquid.LocalNavBarVisible
@@ -539,7 +540,15 @@ fun TimetableSectionPage(
         //   现在只认 `jwPending`：教务在路上就只给进度，别的一律不画。
         if (jwPending) {
             item(key = "jw-pending") {
-                AppCard {
+                // 这张卡本身就是「正在从教务系统取课表」那句话（只有 pending 时才挂），
+                // 所以 active 恒为真：会走到这一支，就说明真有一趟爬取在路上。
+                AppCard(
+                    modifier = Modifier.retrievalGlow(
+                        active = true,
+                        cornerRadius = Dims.cardCorner,
+                        color = colors.primary,
+                    ),
+                ) {
                     Column(Modifier.padding(Dims.cardPadding)) {
                         Text(
                             text = "正在从教务系统取课表",

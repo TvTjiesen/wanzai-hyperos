@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.muyao.wanzaihyperos.ui.design.pressSpring
 import com.muyao.wanzaihyperos.ui.design.OdometerText
+import com.muyao.wanzaihyperos.ui.design.retrievalGlow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -65,9 +66,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.data.metaOrNull
 import com.muyao.wanzaihyperos.data.UiPrefs
 import com.muyao.wanzaihyperos.data.schedule.PeriodClock
 import com.muyao.wanzaihyperos.data.schedule.TodayPlan
+import com.muyao.wanzaihyperos.data.schedule.JwVerdict
 import com.muyao.wanzaihyperos.data.schedule.jwVerdictOf
 import com.muyao.wanzaihyperos.data.schedule.pickSlots
 import com.muyao.wanzaihyperos.data.szty.SztyRun
@@ -297,6 +300,14 @@ fun HomeSectionPage(
     // 另一处说「今天没有课」，而后者是在替学校服务器撒谎。
     val loading = daySlots.isEmpty() &&
         (slotPick.isWaiting || scheduleState is ListState.FirstLoad)
+    // ★ 卡沿那圈流光只在「真有一笔请求在路上」时亮，而这件事必须是正面证据：
+    //   教务那趟由 jwVerdictOf 认（它已经把 isCrawling 与 meta.refreshing 合起来了），
+    //   学在城院那一发看自己的 meta.refreshing。
+    //   不拿上面那个 loading 当判据 —— 它是「这一屏画不出课」的集合，里面还含「取不到」
+    //   与「压根没人发起过」；把后两者画成「正在取」，就是界面在说数据证明不了的话
+    //   （见 data/schedule/SlotSource.kt 开头那条纪律）。
+    val fetchingSchedule = slotPick.jwVerdict == JwVerdict.IN_FLIGHT ||
+        scheduleState.metaOrNull?.refreshing == true
     // ★ 第 3 轮审计必修 3：这一句以前只看"哪一份失败了"，不看**这一屏到底有没有画出课**。
     //   教务 Failed、学在城院有货时，大标题下写「课表没取到，去课表页看看」，
     //   而同一屏下面的「此刻」卡照样画出他下一节课 —— 自己跟自己矛盾。
@@ -509,6 +520,7 @@ fun HomeSectionPage(
                             plan = plan,
                             focus = focus,
                             loading = loading,
+                            fetching = fetchingSchedule,
                             // 同一条规矩：这一屏画得出课就不说「没取到」（三张卡共用 shownFailure）。
                             shownFailure = shownFailure,
                             week = week,
@@ -554,13 +566,23 @@ fun HomeSectionPage(
 
                 if ("todos" in UiPrefs.homeModules) {
                     item(key = "todos") {
-                        TodoSummaryCard(state = todoState, onClick = onOpenTodos)
+                        TodoSummaryCard(
+                            state = todoState,
+                            // 本页一进来就发了这一发（见上面那个 LaunchedEffect），所以：
+                            // 还没有任何结论 + 壳里真有一笔在途 ⇒ 这一栏确实在等。
+                            fetching = todoState is ListState.FirstLoad && inFlight > 0,
+                            onClick = onOpenTodos,
+                        )
                     }
                 }
 
                 if ("szty" in UiPrefs.homeModules) {
                     item(key = "szty") {
-                        RunSummaryCard(state = sztyState, onClick = onOpenSzty)
+                        RunSummaryCard(
+                            state = sztyState,
+                            fetching = sztyState is ListState.FirstLoad && inFlight > 0,
+                            onClick = onOpenSzty,
+                        )
                     }
                 }
 
@@ -763,6 +785,8 @@ private fun FocusGlassCard(
     plan: TodayPlan?,
     focus: FocusNow,
     loading: Boolean,
+    /** 有一笔请求真的在路上（判据见调用点的 fetchingSchedule）。为真时卡沿绕一圈流光。 */
+    fetching: Boolean,
     /** 已经过「画得出课就不说没取到」这道闸门的失败话术（调用点传 shownFailure）。 */
     shownFailure: String?,
     week: Int?,
@@ -866,6 +890,11 @@ private fun FocusGlassCard(
                     color = Color(0xFF373024),
                     alpha = 0.14f,
                 ),
+            )
+            .retrievalGlow(
+                active = fetching,
+                cornerRadius = Dims.cardCorner * 1.3f,
+                color = colors.primary,
             ),
         cornerRadius = Dims.cardCorner * 1.3f,
         // ★ `material` 在这里**显式传**（不靠 `GlassSurface` 那个默认参数）：
@@ -1409,6 +1438,8 @@ private fun RollcallBanner(title: String, deadline: String, onClick: () -> Unit)
 @Composable
 private fun TodoSummaryCard(
     state: ListState<TodoBoard>,
+    /** 这一刻真的在等一场取数（由调用点按「没有结论 + 有一笔在途」算好）。 */
+    fetching: Boolean,
     onClick: () -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -1419,7 +1450,9 @@ private fun TodoSummaryCard(
     //   没有截止时间的条目排在最后，保持它们原有的相对顺序（不编一个时间）。
     val items = board?.groups?.flatMap { it.items }.orEmpty()
         .let { TodoNext.ordered(it, java.time.LocalDateTime.now()) }
-    val loading = state is ListState.FirstLoad
+    // ★ 这里以前写的是 state is ListState.FirstLoad。单独用它不成立：startRefresh 在没有内容时
+    //   原样返回 FirstLoad（ListState.kt:130），于是 FirstLoad 既可能是「正在取」、也可能是
+    //   「还没人发起过」。两件事分开问，合并点放在调用点。
     val expired = state is ListState.SessionExpired
     val error = (state as? ListState.Failed)?.error?.userText
     // 未知不得当成 0（data/ListState.kt 的红线）：只有真取到了才敢给数字，其余一律「—」。
@@ -1452,7 +1485,7 @@ private fun TodoSummaryCard(
             }
             Spacer(Modifier.height(6.dp))
             when {
-                loading -> Text(
+                fetching -> Text(
                     text = "正在整理待办…",
                     fontSize = Type.secondary,
                     color = colors.onSurfaceVariantSummary,
@@ -1565,19 +1598,22 @@ private fun TodoSummaryCard(
 @Composable
 private fun RunSummaryCard(
     state: ListState<SztySnapshot>,
+    /** 这一刻真的在等一场取数（由调用点按「没有结论 + 有一笔在途」算好）。 */
+    fetching: Boolean,
     onClick: () -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
     val snapshot = (state as? ListState.Content)?.items?.firstOrNull()
     val run = snapshot?.run
     val stale = (state as? ListState.Content)?.meta?.stale == true
-    val loading = state is ListState.FirstLoad
+    // 同 TodoSummaryCard：FirstLoad 单独不足以说明「正在取」（SlotSource.kt 开头那条纪律），
+    // 由调用点把「没有结论 + 有一笔在途」合起来交给 fetching。
     val expired = state is ListState.SessionExpired
     val error = (state as? ListState.Failed)?.error?.userText
     val km = run?.runKm
     val target = run?.runTargetKm
     val status = when {
-        loading -> "正在取校园跑…"
+        fetching -> "正在取校园跑…"
         expired -> "登录已失效，校园跑取不到。"
         error != null -> "校园跑那份没取到：" + error
         // Empty 有两个来源（没接过数智体育 / 接上了但一块都没取到），对人来说下一步一样：进去接。

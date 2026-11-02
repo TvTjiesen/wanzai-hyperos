@@ -75,6 +75,9 @@ class MotionGuardTest {
         // 首页视窗那幅画的缓慢漂移：业主自己要求的"会动的壁纸感"。
         // `tween(14_000)` + 线性 = 0.07Hz，在 Apple《Designing Fluid Interfaces》点名的"约 0.2Hz 摆动最难受"之下。
         "HomeStudio.kt" to 14_000,
+        // 卡片沿上那圈流光：2.6 秒走完一圈 = 0.38Hz，沿边框行进，不是对任何用户操作的响应。
+        // 它画的是「有一笔请求在路上」；快到 300ms 一圈就变成闪烁，反而看不出是在等。
+        "RetrievalGlow.kt" to 2_600,
     )
 
     @Test
