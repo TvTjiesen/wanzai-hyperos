@@ -25,11 +25,11 @@ import kotlinx.coroutines.sync.withLock
  * | 來源 | 內容 | 取數方式 |
  * |------|------|---------|
  * | 門戶 | 流程審批（請假、申請…） | [PortalBillRepository]（已可用） |
- * | 學在城院 | 作業 | 🟡 **待接入**（見下） |
+ * | 學在城院 | 作業 | [com.muyao.wanzaihyperos.net.TronclassClient.todos]（已可用） |
  *
- * ### ★ 為什麼學在城院那一路**先留空**
+ * ### ★ 學在城院那一路的鑑權是怎麼通的（2026-10-12 真機取證）
  *
- * 它的契約與鑑權方式**都已經查清**了（真機取證）：
+ * 契約與鑑權方式都查清了：
  *
  * ```jsonc
  * // 域：courses.hzcu.edu.cn（不是 mobile！）
@@ -38,17 +38,17 @@ import kotlinx.coroutines.sync.withLock
  * → { todo_list: [{ id, title, course_name, course_code, type, end_time, is_locked, … }] }
  * ```
  *
- * **但 `X-SESSION-ID` 我們手上沒有**：`TronclassSession` 存的是 identity **token 對**
- * （accessToken/refreshToken），而 sessionID 是 SPA 拿它換來的、只存在
- * WebView 的 `localStorage.global` 裡。
+ * `X-SESSION-ID` 不在 identity 的 token 對裡（`TronclassSession` 存的是
+ * accessToken/refreshToken），它是 SPA 用 token 對換來的、只存在 WebView 的
+ * `localStorage.global` 裡。所以這條路由自己走了一次
+ * `POST /api/login?login=access_token` 把 token 對換成 sessionID ——
+ * 實作在 [com.muyao.wanzaihyperos.net.TronclassClient.sessionId]，失敗後單飛續期
+ * 也在那裡。**這曾經是「待接入」，現在不是了。**
  *
- * 要接上它，得自己走一次 `POST /api/login?login=access_token` 把 token 對換成
- * sessionID —— 那是一個**新的鑑權流程**，需要單獨取證與驗證
- * （A4 只是把它交給 SPA 做，我們從沒自己調過）。
+ * ### 為什麼失敗時給 null 而不是空清單
  *
- * **所以這一輪的處理是：框架做好、門戶接通、學在城院標為「待接入」並在界面上
- * 明確顯示「尚未接入」** —— 而不是編一個假的空清單。
- * 顯示「這個來源還沒接」比顯示「0 條待辦」誠實得多。
+ * 空清單在界面上是「0 條作業」，那等於斷言「你沒作業」；而失敗時我們**不知道**。
+ * 顯示「這個來源還沒接通」比顯示「0 條待辦」誠實得多。
  *
  * ### 為什麼要「來源內去重、不跨來源」
  *
