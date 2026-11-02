@@ -237,9 +237,13 @@ object PortalParsers {
                 id = item["id"].text() ?: title,
                 title = title,
                 createdDate = item["createdate"].text() ?: "",
-                // 正文页：`blink` 是校网正文，`linktitle` 是公众号版（部分为空）。
+                // 正文页两处地址：`linktitle` 是公众号版（https，任何网络都能开），
+                // `blink` 是校网正文（http，只在校园网可达）。**先公众号版** ——
+                // 2026-11-02 实测：门户给的 8 条 `blink` 全是 404（栏目 art_101 已迁走），
+                // 而 ccpo.hzcu.edu.cn 在手机移动数据上连首页都打不开（系统浏览器同样打不开，
+                // 不是本 App 的网络策略问题）。先用 blink 的代价是「点一条新闻 = 一张加载失败」。
                 // 两个都读不到就留 null —— 让界面去决定「这行不给点」，不是编一个地址。
-                openUrl = item["blink"].text() ?: item["linktitle"].text(),
+                openUrl = item["linktitle"].text() ?: item["blink"].text(),
             )
         }
         return out

@@ -122,7 +122,7 @@ data class PortalNewsItem(
     val id: String,
     val title: String,
     val createdDate: String,
-    /** 正文页地址：优先 `blink`，其次 `linktitle`；都没有就是 `null`（那一行不画 `›`、不给点）。 */
+    /** 正文页地址：优先 `linktitle`（公众号版，https 到处能开），其次 `blink`（校网，只在校园网可达）；都没有就是 `null`（那一行不画 `›`、不给点）。 */
     val openUrl: String? = null,
 )
 
