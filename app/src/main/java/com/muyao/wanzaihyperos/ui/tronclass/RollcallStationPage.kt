@@ -559,6 +559,16 @@ private const val PASTE_KEY = -1
 /** `busyId` 的哨兵值：正在提交的是「扫码」這件事，不是列表裡某一條（真的 id 都是正數）。 */
 private const val SCAN_BUSY_ID = -2
 
+/**
+ * 課程考勤記錄裡，哪些 `student_status` 算「我真的到了」。
+ *
+ * 只放**到課**的幾種：`on_call` / `on_call_fine`。請假（`on_leave`）與缺勤（`absent`）
+ * **不算到課** —— 那是「沒到但被批准」，把它判成成功等於告訴他「你簽上了」。
+ * 出勤記錄這支端點回的是粗粒度的 `student_status`，實測樣本
+ * （`docs/B12-TRONCLASS-SHAPES.txt:26`）五條全部是 `on_call`。
+ */
+private val VERIFIED_ATTENDED = setOf("on_call", "on_call_fine")
+
 @Composable
 private fun NoticeBanner(notice: Notice) {
     val text = notice.text ?: return
@@ -612,7 +622,22 @@ private fun submitTo(
                 },
             ),
         )
-        if (result.ok) runCatching { repository.refresh() }
+        // ★ 提交后核对：HTTP 200 却判成「没签上」，是 2026-11-03 那次误判的形状。
+        //   判据已经修过（认 on_call_fine），但它仍然是在猜响应字段 —— 这个站的响应外层
+        //   从来不统一，`answer` 的返回体更是只有一份样本。
+        //   所以「服务端接受了请求、但字面上看不出已到」时，回它自己的出勤记录里查一次：
+        //   那条记在册上的 student_status 才是权威。只读，不重发写请求。
+        //   核对不到就什么都不说（保持 answer 的原话），绝不因为查不到就改口「没签上」。
+        var signed = result.ok
+        if (!result.ok && result.httpStatus == 200) {
+            val verified = runCatching { repository.verifyAttendance(id, rollcall.courseId) }
+                .getOrNull()
+            if (verified != null && verified in VERIFIED_ATTENDED) {
+                signed = true
+                onNotice(Notice(true, "签到成功（${rollcall.title.ifBlank { rollcall.sourceLabel }}）· 已核对课程记录"))
+            }
+        }
+        if (signed) runCatching { repository.refresh() }
         onBusy(null)
     }
 }

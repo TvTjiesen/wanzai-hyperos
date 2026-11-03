@@ -47,6 +47,16 @@ interface RollcallRepository {
         kind: RollcallAnswerKind,
         code: String?,
     ): RollcallAnswerResult
+
+    /**
+     * 提交之后回服務端考勤記錄核對一次（**只讀**，不重發寫請求）。
+     *
+     * 詳見 [LiveRollcallRepository.verifyAttendance] 的註釋：
+     * `answer` 的響應形狀我們只有一份樣本，說不清的時候要以**服務端記在冊上的記錄**為準。
+     *
+     * @return 核對到的出席狀態原文；查不到回 null（= 核對不了，**不是**「沒簽上」）。
+     */
+    suspend fun verifyAttendance(rollcallId: Int, courseId: Int): String?
 }
 
 class LiveRollcallRepository(
@@ -107,4 +117,40 @@ class LiveRollcallRepository(
         code: String?,
     ): RollcallAnswerResult = client.answerRollcall(rollcallId, kind, code)
 
+    /**
+     * 提交之后，**回服务端的出勤記錄裡核對一次**（只讀）。
+     *
+     * ### 為什麼要有這一步
+     *
+     * 簽到成功與否，最終只有一個權威來源：**教務/學在城院記在冊上的那條記錄**。
+     * 之前我們完全靠 `answer` 響應裡猜一個 `status` 欄位 —— 2026-11-03 那次就是
+     * 「欄位認錯 → 服務端明明簽上了，App 說沒簽上」。
+     * 判據修好了，但**判據本身仍然是在猜響應形狀**：這個站的響應外層不統一
+     * （`{rollcalls:[...]}` / `{data:[...]}` / 裸數組都出現過），`answer` 的返回體
+     * 更是從來沒有第二份樣本。
+     *
+     * 所以改成：`answer` 說不清的時候，去查 `GET /api/course/{courseId}/student/{me}/rollcalls`，
+     * 看**這次 rollcallId 在不在、我在那條上的 `student_status` 是不是已到**。
+     * 這是服務端自己的記賬，比任何欄位猜測都硬。
+     *
+     * ### 邊界（為什麼不會變成騷擾服務端）
+     *
+     * - **只在 `answer` 的結果「說不清」時調用**（HTTP 200 但判不出已到/未到）。
+     *   明確 4xx/5xx 有服務端原話，不需要核對；明確成功也不需要。
+     * - 只讀，不重發寫請求（紅線不動）。
+     * - 失敗一律回 null（= 核對不了），由界面照舊顯示 `answer` 的原話，
+     *   **絕不因為核對失敗就改口說「沒簽上」**。
+     *
+     * @return 核對到的出席狀態原文（如 `on_call` / `on_call_fine` / `absent`）；
+     *   查不到、解析不出、請求失敗都回 null。
+     */
+    override suspend fun verifyAttendance(rollcallId: Int, courseId: Int): String? {
+        // ⚠️ 先查参数、再取 `myStudentId()`：后者会多打一次 `/api/profile`。
+        //    没有 courseId 时这次请求毫无意义（`courseId == 0` 是扫描器合成出来的
+        //    占位记录常用的值），所以要在发任何请求**之前**就返回。
+        val course = courseId.takeIf { it > 0 } ?: return null
+        val me = myStudentId() ?: return null
+        val rows = runCatching { client.courseAttendance(course, me) }.getOrNull() ?: return null
+        return rows.firstOrNull { it.rollcallId == rollcallId }?.myStatus?.takeIf { it.isNotBlank() }
+    }
 }

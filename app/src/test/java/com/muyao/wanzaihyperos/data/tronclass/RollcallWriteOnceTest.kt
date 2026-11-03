@@ -191,4 +191,42 @@ class RollcallWriteOnceTest {
         assertTrue("包体里仍要有 deviceId（兜底值也算）", "\"deviceId\":" in writes()[0].body)
         assertTrue("服务端记成 on_call_fine 就是成功，实际消息：${r.message}", r.ok)
     }
+
+    // ---------------- 提交后按考勤记录核对（只读，绝不重发写请求） ----------------
+
+    @Test
+    fun `核对：查到课程记录里我已到 就返回服务端记的状态`() = runTest {
+        // `/api/profile` 的 `id` 在**顶层**（`profileUserId()` 读 `root["id"]`）。
+        server.enqueue(status = 200, body = """{"id":36519}""")
+        server.enqueue(
+            status = 200,
+            body = """{"rollcalls":[{"rollcall_id":4242,"student_status":"on_call","source":"qr"}]}""",
+        )
+        val got = repository.verifyAttendance(4242, 67436)
+        assertEquals("on_call", got)
+        assertEquals("核对是只读的：一条写请求都不许有", 0, writes().size)
+    }
+
+    @Test
+    fun `核对：这条不在记录里就返回 null 而不是猜`() = runTest {
+        // `/api/profile` 的 `id` 在**顶层**（`profileUserId()` 读 `root["id"]`）。
+        server.enqueue(status = 200, body = """{"id":36519}""")
+        server.enqueue(status = 200, body = """{"rollcalls":[]}""")
+        assertEquals("查不到就是「核对不了」，不是「没签上」", null, repository.verifyAttendance(4242, 67436))
+    }
+
+    @Test
+    fun `核对：取数失败也返回 null 不许改口说没签上`() = runTest {
+        // `/api/profile` 的 `id` 在**顶层**（`profileUserId()` 读 `root["id"]`）。
+        server.enqueue(status = 200, body = """{"id":36519}""")
+        server.enqueue(status = 500, body = """{"message":"服务器开小差了"}""")
+        assertEquals("核对失败只能是 null", null, repository.verifyAttendance(4242, 67436))
+        assertEquals("核对失败也不许重发写请求", 0, writes().size)
+    }
+
+    @Test
+    fun `核对：课程 id 缺失时直接放弃 不去打无意义的请求`() = runTest {
+        assertEquals(null, repository.verifyAttendance(4242, 0))
+        assertEquals("没有 courseId 就不该发任何请求", 0, server.requestCount)
+    }
 }
