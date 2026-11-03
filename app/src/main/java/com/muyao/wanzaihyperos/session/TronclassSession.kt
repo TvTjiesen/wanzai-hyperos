@@ -182,13 +182,27 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
      * 為什麼要它：官方掃碼簽到的包體是 `{"data":…,"deviceId":…}`
      * （`mobile.hzcu.edu.cn/js/1154.*.js` 的 `re` 函數逐字）。缺了它服務端回
      * `no_request_data`。生成後**永久保留**，換賬號也不換（那是同一台手機）。
+     *
+     * ### 存儲壞了**不許拋**
+     *
+     * 這個值不是憑據（洩出去也登不進任何東西），而它落在**簽到提交的最前面**：
+     * 加密存儲一旦讀寫失敗（Keystore 失效、換 ROM、root），舊版會在這裡直接拋
+     * `HzcuException.Storage`，於是**請求根本發不出去、連 debugDump 都留不下** ——
+     * 真機上表現就是「按了確認，什麼都沒發生」（業主 2026-11-03 報的那次，
+     * `files/` 裡連 `tron_raw_answer_qr.txt` 都沒有，正是這個形狀）。
+     * 所以這裡降級：讀寫失敗就用一個**本次進程內穩定**的 uuid 頂上，
+     * 讓簽到照樣發得出去；能不能長期穩定，比「發不出去」次要得多。
      */
     fun deviceId(): String {
         deviceIdValue?.let { return it }
         synchronized(lock) {
             deviceIdValue?.let { return it }
-            val stored = store.read(KEY_DEVICE_ID)?.trim()?.takeIf { it.isNotEmpty() }
-            val value = stored ?: java.util.UUID.randomUUID().toString().also { store.write(KEY_DEVICE_ID, it) }
+            val stored = runCatching { store.read(KEY_DEVICE_ID) }
+                .getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+            val value = stored ?: java.util.UUID.randomUUID().toString().also { fresh ->
+                // 寫不進去就算了 —— 這個值不是憑據，丟了只是下次換一個 uuid。
+                runCatching { store.write(KEY_DEVICE_ID, fresh) }
+            }
             deviceIdValue = value
             return value
         }

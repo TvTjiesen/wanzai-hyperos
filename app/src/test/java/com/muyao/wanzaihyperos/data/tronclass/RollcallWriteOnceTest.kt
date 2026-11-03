@@ -70,8 +70,14 @@ class RollcallWriteOnceTest {
 
     @Test
     fun `成功路径只发一条PUT且打在正确的端点上`() = runTest {
-        // 官方成功判據（1154.js 逐字）：HTTP 200 **且** data.status == "on_call"。
-        server.enqueue(status = 200, body = """{"data":{"status":"on_call"}}""")
+        // ★ 這是**真實**的成功響應形狀（`docs/B12-TRONCLASS-SHAPES.txt:26` 五條樣本全是這樣）：
+        //   `status` 是細粒度那套（on_call_fine），`student_status` 才是粗粒度那套（on_call）。
+        //   舊測試用 `{"status":"on_call"}` 當成功樣本 —— 那正好是 bug 本身的形狀，
+        //   所以它能一直綠、而真機上永遠「沒簽上」。
+        server.enqueue(
+            status = 200,
+            body = """{"data":{"status":"on_call_fine","student_status":"on_call"}}""",
+        )
         val r = repository.answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
         assertTrue("成功响应应判 ok=true（消息=${r.message}）", r.ok)
 
@@ -118,13 +124,32 @@ class RollcallWriteOnceTest {
         }
     }
     @Test
-    fun `HTTP 200 但状态不是 on_call 必须判失败`() = runTest {
-        // 官方判据是 `200 === o.status && "on_call" === o.data?.status`（1154.js 逐字）。
+    fun `HTTP 200 但服务端没记成已到 必须判失败`() = runTest {
         // 只看 HTTP 200 会把「服务端收到了但没算签到」说成成功 —— 那是替学校撒谎。
+        // `absent` 在粗细两套枚举里都不属于「到了」。
         server.enqueue(status = 200, body = """{"data":{"status":"absent"}}""")
         val r = repository.answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
-        assertFalse("状态不是 on_call 就不能说签到成功：${r.message}", r.ok)
+        assertFalse("缺勤不能说签到成功：${r.message}", r.ok)
         assertEquals("仍然只发一条", 1, writes().size)
+        assertTrue("要告诉他服务端记成了什么，实际是：${r.message}", "缺勤" in r.message)
+    }
+
+    @Test
+    fun `只回 student_status 的响应也认`() = runTest {
+        // 不知道服务端回的是细粒度的 `status` 还是粗粒度的 `student_status`，
+        // 两支都得认 —— 只认一支就是这次「明明签上了却说没签上」的同族 bug。
+        server.enqueue(status = 200, body = """{"data":{"student_status":"on_call"}}""")
+        val r = repository.answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
+        assertTrue("student_status=on_call 必须判成功：${r.message}", r.ok)
+    }
+
+    @Test
+    fun `请假的响应不算签到成功`() = runTest {
+        // 请假是「没到但被批准」。判成成功等于告诉他「你签上了」，而他根本没出席。
+        server.enqueue(status = 200, body = """{"data":{"status":"on_sick_leave"}}""")
+        val r = repository.answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
+        assertFalse("病假不能算签到成功：${r.message}", r.ok)
+        assertTrue("要说出是病假，实际是：${r.message}", "病假" in r.message)
     }
 
     @Test
@@ -135,5 +160,35 @@ class RollcallWriteOnceTest {
         val r = repository.answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
         assertFalse("过期必须判失败", r.ok)
         assertTrue("error_code 要翻成人话，实际是：${r.message}", "过期" in r.message)
+    }
+
+    @Test
+    fun `deviceId 那边抛异常也必须把请求发出去`() = runTest {
+        // 真机现场（业主 2026-11-03）：`files/` 里**连 answer 的 dump 都没有**，
+        // 说明那次根本没发请求。唯一在发请求之前、又能抛的，就是 deviceId 提供方
+        // （加密存储读写）。这里把它钉死：提供方炸了也要用兜底 uuid 发出去，
+        // 因为「发出去拿到服务端一句真话」永远比「本地炸掉、什么都不留」有用。
+        val throwing = com.muyao.wanzaihyperos.net.tronHttpClient().newBuilder()
+            .addInterceptor { chain ->
+                val req = chain.request()
+                val local = req.url.newBuilder()
+                    .scheme("http").host("127.0.0.1")
+                    .port(java.net.URI(server.baseUrl).port).build()
+                chain.proceed(req.newBuilder().url(local).build())
+            }
+            .build()
+        val c = TronclassClient(
+            http = throwing,
+            accountProvider = { "2021001" },
+            accessTokenProvider = { "FAKE-ACCESS-TOKEN" },
+            cachedSessionId = { "FAKE-SESSION-ID" },
+            limiter = HzcuRateLimiter.forTesting(minIntervalMs = 0, perPathMinIntervalMs = 0),
+            deviceIdProvider = { error("加密存储读不出来") },
+        )
+        server.enqueue(status = 200, body = """{"data":{"status":"on_call_fine"}}""")
+        val r = LiveRollcallRepository(c).answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
+        assertEquals("请求必须真的发出去", 1, writes().size)
+        assertTrue("包体里仍要有 deviceId（兜底值也算）", "\"deviceId\":" in writes()[0].body)
+        assertTrue("服务端记成 on_call_fine 就是成功，实际消息：${r.message}", r.ok)
     }
 }

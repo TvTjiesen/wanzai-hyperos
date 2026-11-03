@@ -500,7 +500,12 @@ class TronclassClient(
                 """{"number_code":${jsonString(code.orEmpty())}}"""
             com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.QR -> {
                 val data = com.muyao.wanzaihyperos.data.tronclass.RollcallQrCode.submissionData(code)
-                val device = deviceIdProvider()?.takeIf { it.isNotBlank() } ?: fallbackDeviceId
+                // ⚠️ `runCatching`：deviceId 提供方一旦抛异常（加密存储坏了、Keystore 失效），
+                //   旧版会在**发请求之前**就炸掉 —— 于是 debugDump 什么都没留、界面只能说
+                //   「提交失败：Storage」，而他看到的是「按了没反应」。宁可换一个本次稳定的
+                //   兜底 uuid 也要把请求发出去：服务端至少能回一句真话。
+                val device = runCatching { deviceIdProvider() }.getOrNull()
+                    ?.takeIf { it.isNotBlank() } ?: fallbackDeviceId
                 """{"data":${jsonString(data)},"deviceId":${jsonString(device)}}"""
             }
             else -> "{}"
@@ -511,20 +516,33 @@ class TronclassClient(
         val (status, text) = rawRequest(path, "PUT", bodyJson)
         // 響應原文也留一份（只給可調試構建）：判斷「到底簽上了沒有」靠的就是它。
         debugDump?.invoke("answer_" + kind.name.lowercase() + "_resp", text)
-        // 成功判據照官方：**HTTP 200 且 data.status == "on_call"**
-        // （`200===o.status && "on_call"===(o.data?.status)`，同一份 re 函數）。
-        // 只看 200 會把「送到了但沒簽上」說成成功 —— 那是替他撒謊。
-        val onCall = runCatching {
+        // 成功判據：**HTTP 200 且服務端把這次點名記成「到了」**。
+        //
+        // ⚠️ 舊版這裡寫的是 `data.status == "on_call"`，那是**錯的欄位對錯的枚舉**：
+        //   · `status` 是**細粒度**考勤狀態（`on_call_fine` / `on_call_arrive_late` / …），
+        //   · `student_status` 才是**粗粒度**那三檔（`on_call` / `on_leave` / `absent`）。
+        //   官方包裡這是兩個不同的 object（`build/recon/tron/all3.txt` offset 1424349）：
+        //     a = { onCall:"on_call", onLeave:"on_leave", absent:"absent" }
+        //     s = { onCallFine:"on_call_fine", onCallArriveLate:"on_call_arrive_late", … }
+        //   而 rollcall 模型的欄位映射是 `student_status` → 粗、`status` → 細。
+        //   實測樣本（`docs/B12-TRONCLASS-SHAPES.txt:26`）五條全部是
+        //   `"status":"on_call_fine","student_status":"on_call"`。
+        //   所以舊判據在真實響應上**幾乎必然 false**：服務端確實記上了，
+        //   App 卻回報「沒確認簽到」—— 這就是他看到的「提示碼有效、但沒簽上」。
+        //
+        // 兩支欄位都認，是因為不知道服務端回的是哪一支；取到哪支就用哪支判。
+        val answerState = runCatching {
             val root = Json.parseToJsonElement(text) as? JsonObject
             val body = root?.get("data") as? JsonObject
-            body?.get("status").asStringOrNull() == "on_call"
-        }.getOrDefault(false)
+            body?.get("status").asStringOrNull() ?: body?.get("student_status").asStringOrNull()
+        }.getOrNull()
+        val onCall = answerState != null && answerState in SIGNED_STATUSES
         return com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult(
             ok = status == 200 && onCall,
             httpStatus = status,
             // 服務端原話（校驗失敗時它會說「位置不對」「二維碼過期」等）。
             // ⚠️ 只保留短消息，且**不帶請求內容**。
-            message = answerMessage(text = text, status = status, onCall = onCall),
+            message = answerMessage(text = text, status = status, onCall = onCall, state = answerState),
         )
     }
 
@@ -534,8 +552,11 @@ class TronclassClient(
      * 服務端的可讀消息在 `message` / `msg` / `error` 裡；校驗失敗時常常**只有**
      * `error_code`（例如 `qr_code_expired`），所以這裡兩邊都認。
      * 只吐短句，且**絕不寫日誌**（響應是外部文字）。
+     *
+     * @param state 響應裡讀到的考勤狀態原文（`on_call_fine` 這類）。**只用來查本地碼表**，
+     *   原樣吐出服務端枚舉等於讓他讀英文，所以走 [attendanceStateText]。
      */
-    private fun answerMessage(text: String, status: Int, onCall: Boolean): String {
+    private fun answerMessage(text: String, status: Int, onCall: Boolean, state: String?): String {
         val obj = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
         val raw = obj?.get("message").asStringOrNull()
             ?: obj?.get("msg").asStringOrNull()
@@ -544,12 +565,36 @@ class TronclassClient(
         val fallback = when {
             status != 200 -> "签到未成功（服务端未说明原因）"
             onCall -> "已签到"
-            else -> "服务端收到了，但没确认签到（状态不是 on_call）"
+            else -> attendanceStateText(state)?.let { "服务端记成了「$it」，不是已到" }
+                ?: "服务端收到了，但没确认签到"
         }
         return listOf(raw?.take(120)?.takeIf { it.isNotBlank() }, human)
             .filterNotNull()
             .joinToString(" · ")
             .ifBlank { fallback }
+    }
+
+    /**
+     * 考勤狀態原文 -> 一句中文（**只認官方枚舉**，認不出就回 null，不回顯原文）。
+     *
+     * 碼表逐字來自 `build/recon/tron/all3.txt` offset 1424349 那組枚舉：
+     * `absent / on_call_fine / on_call_arrive_late / on_call_leave_early /
+     *  on_call_arrive_late_leave_early / on_personal_leave / on_sick_leave / …`
+     */
+    private fun attendanceStateText(state: String?): String? = when (state) {
+        "on_call", "on_call_fine" -> "已到"
+        "on_call_arrive_late" -> "迟到"
+        "on_call_leave_early" -> "早退"
+        "on_call_arrive_late_leave_early" -> "迟到且早退"
+        "on_leave", "on_personal_leave" -> "事假"
+        "on_sick_leave" -> "病假"
+        "on_public_leave" -> "公假"
+        "on_physiological_leave" -> "生理假"
+        "on_funeral_leave" -> "丧假"
+        "on_mental_health_leave" -> "心理健康假"
+        "absent" -> "缺勤"
+        "other" -> "其他"
+        else -> null
     }
 
     /** 官方錯誤碼 -> 一句中文（碼表逐字來自 mobile.hzcu.edu.cn 的錯誤碼枚舉）。 */
@@ -789,5 +834,24 @@ class TronclassClient(
          *   要做更長的緩存，必須同時給每一屏加「X 分鐘前更新 + 下拉刷新」，那是另一輪的活。
          */
         private const val TTL_MS = 5 * 60 * 1000L
+
+        /**
+         * 服務端把這次點名記成「人到了」的那些狀態。
+         *
+         * 為什麼是一個**集合**而不是一個字串：官方有粗細兩套考勤枚舉
+         * （`on_call` / `on_call_fine` / `on_call_arrive_late` ……，見
+         * `build/recon/tron/all3.txt` offset 1424349），而不管哪一套，
+         * 「到了」都只有 `on_call` 這一個前綴；遲到早退仍是到了，只是有異常。
+         *
+         * 請假（`on_*_leave`）與缺勤（`absent`）**不算簽到**——那些是「沒到但被批准」，
+         * 把請假判成功等於告訴他「你簽上了」，而實際上他一節課都沒出席。
+         */
+        private val SIGNED_STATUSES = setOf(
+            "on_call",
+            "on_call_fine",
+            "on_call_arrive_late",
+            "on_call_leave_early",
+            "on_call_arrive_late_leave_early",
+        )
     }
 }

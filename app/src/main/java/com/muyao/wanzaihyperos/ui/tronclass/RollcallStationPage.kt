@@ -589,9 +589,18 @@ private fun submitTo(
     scope.launch {
         val result = runCatching { repository.answer(id, kind, code) }
             .getOrElse { e ->
+                // ★ 旧版这里只写 `${e.javaClass.simpleName}`，真机上只能看到「提交失败：SocketTimeoutException」
+                //   这类赤裸类名 —— 业主 2026-11-03 报「提示了什么没返回」就是这个形状：
+                //   连是超时、是 401、还是解析炸了都分不出来。
+                //   `HzcuException.userText` 就是为这一步准备的（只带类名+message+已有 details，
+                //   不带请求正文/URL/凭据），所以直接把它的结果拿来显示。
+                val text = (e as? com.muyao.wanzaihyperos.net.HzcuException)?.userText
+                    ?: (e.message?.take(160)?.takeIf { it.isNotBlank() }
+                        ?.let { "${e.javaClass.simpleName}：$it" }
+                        ?: e.javaClass.simpleName)
                 RollcallAnswerResult(
                     ok = false, httpStatus = 0,
-                    message = "提交失败：${e.javaClass.simpleName}",
+                    message = "提交失败（$text）",
                 )
             }
         onNotice(
