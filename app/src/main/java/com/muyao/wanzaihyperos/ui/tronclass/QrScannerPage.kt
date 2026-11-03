@@ -2,7 +2,10 @@ package com.muyao.wanzaihyperos.ui.tronclass
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -23,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +38,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.zxing.MultiFormatReader
 import com.muyao.wanzaihyperos.data.tronclass.QrDecoder
+import java.util.concurrent.atomic.AtomicBoolean
 import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Icon
@@ -45,6 +50,10 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.concurrent.Executors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 相機掃碼（原生）。
@@ -84,7 +93,8 @@ fun QrScannerPage(
     title: String = "扫码签到",
     subtitle: String = "对准二维码",
     hint: String = "对准学在城院的签到二维码",
-    noPermissionText: String = "没有相机权限，无法扫码。可以返回后用粘贴的方式签到。",
+    noPermissionText: String = "没有相机权限，无法扫码。可以返回后用粘贴的方式签到，或者从相册里选一张图。",
+    fromGalleryText: String = "从相册选一张",
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -100,6 +110,14 @@ fun QrScannerPage(
     // 解碼結果只回報一次：同一個碼在連續幀裡會重複命中，
     // 不去重的話會疊加多次提交（而簽到是寫操作）。
     var reported by remember { mutableStateOf(false) }
+    // 分析流實際給的是多大一帧，只在第一帧記一次（自檢用，見 ANALYSIS_RESOLUTION）。
+    val loggedSize = remember { AtomicBoolean(false) }
+
+    // 扫了一会儿还没对上时，补一句能照着做的话——用状态而不是每帧计数，避免每帧重组。
+    var slow by remember { mutableStateOf(false) }
+    // 相册那张图正在认（几千万像素的图缩完再解码要几百毫秒）。
+    var picking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -110,8 +128,35 @@ fun QrScannerPage(
         }
     }
 
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                picking = true
+                val text = withContext(Dispatchers.IO) {
+                    runCatching { decodePickedImage(context, uri) }.getOrNull()
+                }
+                picking = false
+                if (text != null) {
+                    reported = true
+                    onScanned(text)
+                } else {
+                    errorText = "这张照片里没找到二维码。换一张把码拍正、拍清楚的。"
+                }
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (!hasPermission) launcher.launch(Manifest.permission.CAMERA)
+    }
+
+    // 页面上没有任何「在动」的东西时，人分不清是「还在找」还是「卡死了」。
+    LaunchedEffect(hasPermission, reported) {
+        if (!hasPermission || reported) return@LaunchedEffect
+        delay(SLOW_HINT_MS)
+        slow = true
     }
 
     val executor = remember { Executors.newSingleThreadExecutor() }
@@ -196,11 +241,24 @@ color = Color.Transparent,
                                             androidx.camera.core.resolutionselector.AspectRatioStrategy
                                                 .RATIO_16_9_FALLBACK_AUTO_STRATEGY,
                                         )
+                                        .setResolutionStrategy(ANALYSIS_RESOLUTION)
                                         .build(),
                                 )
                                 .build()
                             analysis.setAnalyzer(executor) { proxy ->
                                 if (!reported) {
+                                    // 分辨率是这条链路唯一「看不见」的变量：拿不到 1080p 时
+                                    // 症状和「解码器坏了」一模一样。留一行可查的事实，
+                                    // 免得下次又靠猜（只在自检开关打开时写）。
+                                    if (loggedSize.compareAndSet(false, true)) {
+                                        if (com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning.debugLog) {
+                                            android.util.Log.i(
+                                                "wz-scan",
+                                                "analysis frame ${proxy.width}x${proxy.height} " +
+                                                    "rowStride=${proxy.planes[0].rowStride}",
+                                            )
+                                        }
+                                    }
                                     // 解碼邏輯在 QrDecoder（純函式，可單測）——
                                     // 這裡只負責把相機的平面資料交給它。
                                     val text = QrDecoder.decodeWithStride(
@@ -237,7 +295,7 @@ color = Color.Transparent,
                         text = msg,
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.error,
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp).padding(bottom = 64.dp),
                     )
                 }
                 Text(
@@ -246,7 +304,104 @@ color = Color.Transparent,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
                 )
+                if (slow && !reported && !picking) {
+                    Text(
+                        text = "还没对上。让码占满中间，或者从相册里选一张。",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 44.dp),
+                    )
+                }
+            }
+            // 这条路不需要相机权限：拒了权限的人也还能把已经拍下来的码认出来。
+            Button(
+                onClick = {
+                    errorText = null
+                    picker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp),
+            ) {
+                Text(if (picking) "正在认这张图…" else fromGalleryText)
             }
         }
     }
 }
+
+/**
+ * 從相簿選到的圖裡找二維碼（讀圖、縮放、轉灰度都在這裡）。
+ *
+ * 為什麼要自己縮圖：相簿裡的照片常有幾千萬像素，整張轉成 int 陣列會直接 OOM。
+ * 縮到長邊 [MAX_PICKED_PX] 之後，一張佔畫面一半的碼仍有 800px 上下，模組遠大於解碼下限。
+ */
+private fun decodePickedImage(context: android.content.Context, uri: Uri): String? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use {
+        BitmapFactory.decodeStream(it, null, bounds)
+    }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    // 先試小的，認不出再回到大的重試——縮圖會吃掉模組邊界，見 QrDecoder.sampleLadder。
+    for (sample in QrDecoder.sampleLadder(bounds.outWidth, bounds.outHeight)) {
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, opts)
+        } ?: return null
+        val found = try {
+            val w = bitmap.width
+            val h = bitmap.height
+            if (w <= 0 || h <= 0) {
+                null
+            } else {
+                val pixels = IntArray(w * h)
+                bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+                QrDecoder.decodeArgb(pixels, w, h, MultiFormatReader())
+            }
+        } catch (t: Throwable) {
+            null
+        } finally {
+            bitmap.recycle()
+        }
+        if (found != null) return found
+    }
+    return null
+}
+
+/** 扫了这么多毫秒还没对上，就补一句能照着做的话。 */
+private const val SLOW_HINT_MS = 4_000L
+
+/**
+ * 要哪一档分析分辨率。
+ *
+ * ### 为什么必须显式指定（这是「怎么扫都没反应」的真正原因）
+ *
+ * CameraX 的 `ImageAnalysis` 在不指定时的默认值是 `SizeUtil.RESOLUTION_VGA` +
+ * `FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER`，落到 16:9 上就是 **960×540** 左右。
+ * 二维码能不能解，看的不是帧多大，而是**每个模块还剩几个像素**。
+ *
+ * 实测（同一张真照片反复缩放，见 QrDecoder 的注释）：
+ *
+ * | 帧 | 码占画面宽 12% | 15% | 18% |
+ * |---|---|---|---|
+ * | 960×540 | 模组 2.2px ✗ | 2.7px ✗ | 3.2px ~ |
+ * | 1920×1080 | 4.3px ✓ | 5.4px ✓ | 6.5px ✓ |
+ *
+ * 而人把手机举起来对准投影幕时，码通常只占画面宽一兩成 —— 教室那台电脑离得远，
+ * 码在大屏上本来就只占角落一块。所以 VGA 这条默认值让「码明明在画面里」变成了
+ * 「一直没反应」。
+ *
+ * ### 为什么是 1080p 而不是更高
+ *
+ * 解码耗时随像素线性涨，但**没码**的那一帧要把四趟跑满才放弃（最坏情形）：
+ * 1080p 约 7ms、4K 约 300ms。1080p 既够大（占宽 10% 的码也有 3.6px/模块），
+ * 又留得住 30fps —— 4K 会在没对准时把帧全部丢掉，反而更难扫上。
+ *
+ * 取 `CLOSEST_LOWER_THEN_HIGHER`：宁可低一档也别越界，某些机型报的 1080p
+ * 实际只能用 720p，这条规则会自己退，不会抛。
+ */
+private val ANALYSIS_RESOLUTION =
+    androidx.camera.core.resolutionselector.ResolutionStrategy(
+        android.util.Size(1920, 1080),
+        androidx.camera.core.resolutionselector.ResolutionStrategy
+            .FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
+    )
