@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -87,6 +89,23 @@ fun LoginPage(
     var account by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var state by remember { mutableStateOf<LoginFormState>(LoginFormState.Idle) }
+
+    // ★ 别让系统密码管理器把学号/密码收进它的库。
+    //
+    // 实机现象：登录成功后 ColorOS 的「常用信息与密码」(com.coloros.codebook) 弹
+    // 「是否保存此密码？」，点了就把**学号**存进系统密码库。它不是本 App 的行为，
+    // 但触发条件是本 App 的输入框对 Autofill 可见 —— Compose 的宿主 View
+    // (`AndroidComposeView.getImportantForAutofill()`) 硬返回 `1`(YES)，
+    // 应用层改不了，只能在页面这一层把宿主标成「我和我的子孙都不参与」。
+    //
+    // 用 NO_EXCLUDE_DESCENDANTS(8) 而不是 NO(2)：Compose 的自动填充是虚拟视图树，
+    // 只标自己为 NO 挡不住子节点。离开页面恢复原值，免得影响别的页。
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val previous = view.importantForAutofill
+        view.importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        onDispose { view.importantForAutofill = previous }
+    }
 
     val submitting = state is LoginFormState.Submitting
 
