@@ -518,24 +518,33 @@ class TronclassClient(
         debugDump?.invoke("answer_" + kind.name.lowercase() + "_resp", text)
         // 成功判據：**HTTP 200 且服務端把這次點名記成「到了」**。
         //
-        // ⚠️ 舊版這裡寫的是 `data.status == "on_call"`，那是**錯的欄位對錯的枚舉**：
-        //   · `status` 是**細粒度**考勤狀態（`on_call_fine` / `on_call_arrive_late` / …），
-        //   · `student_status` 才是**粗粒度**那三檔（`on_call` / `on_leave` / `absent`）。
-        //   官方包裡這是兩個不同的 object（`build/recon/tron/all3.txt` offset 1424349）：
-        //     a = { onCall:"on_call", onLeave:"on_leave", absent:"absent" }
-        //     s = { onCallFine:"on_call_fine", onCallArriveLate:"on_call_arrive_late", … }
-        //   而 rollcall 模型的欄位映射是 `student_status` → 粗、`status` → 細。
-        //   實測樣本（`docs/B12-TRONCLASS-SHAPES.txt:26`）五條全部是
-        //   `"status":"on_call_fine","student_status":"on_call"`。
-        //   所以舊判據在真實響應上**幾乎必然 false**：服務端確實記上了，
-        //   App 卻回報「沒確認簽到」—— 這就是他看到的「提示碼有效、但沒簽上」。
+        // ⚠️ 這裡前後錯過兩次，兩次都是「在猜響應形狀」，記下來防止第三次：
         //
-        // 兩支欄位都認，是因為不知道服務端回的是哪一支；取到哪支就用哪支判。
-        val answerState = runCatching {
-            val root = Json.parseToJsonElement(text) as? JsonObject
-            val body = root?.get("data") as? JsonObject
-            body?.get("status").asStringOrNull() ?: body?.get("student_status").asStringOrNull()
-        }.getOrNull()
+        // 第一版：`data.status == "on_call"` —— 假設響應是 `{"data":{"status":…}}`。
+        // 第二版：改成「`data.status` 或 `data.student_status` 都認」，理由是觀察到
+        //   清單端點裡 `status` 是細粒度（`on_call_fine`）、`student_status` 是粗粒度
+        //   （`on_call`）—— 這個觀察本身對，但**用錯了地方**：那兩個欄位是清單端點
+        //   `/api/radar/rollcalls` 裡 rollcall 對象的欄位，不是 `answer` 響應的欄位。
+        //
+        // ★ 真憑據（2026-11-04 15:16 那次真實提交，`files/tron_raw_answer_qr_resp.txt`，31 B）：
+        //     {"id":null,"status":"on_call"}
+        //   狀態就在**正文頂層**，沒有 `data` 這一層 —— 兩版都在 `root["data"]` 底下找，
+        //   於是永遠取不到、永遠判失敗，界面就吐「服務端收到了，但沒確認簽到」。
+        //   業主看到的「已上傳到服務器但是沒確認」正是這一句。
+        //
+        // ★ 官方 H5 原函數逐字（`https://mobile.hzcu.edu.cn/js/1154.08a25277.js`，
+        //   2026-11-04 下載，`/e/tmp/c1154_new.js` 25982 B）：
+        //     re=function(e){ … n={data:r.data,deviceId:D.Z.deviceId},
+        //       [4,p.Z.answerQRRollcall(r.rollcallId,n)];
+        //       case 1:return o=a.sent(), 200===o.status &&
+        //         "on_call"===(null===(t=o.data)||void 0===t?void 0:t.status)
+        //         ? (…"success"…) : (…ee(o)) }
+        //   `o` 是 axios 響應對象：`o.status` 是 HTTP 碼，**`o.data` 就是響應正文**。
+        //   所以 `o.data.status` = 正文頂層的 `status` —— 和上面那份 31 B 實樣完全對得上。
+        //
+        // ⇒ 判據：**正文頂層 `status` 優先**（官方語義），再回落 `data.status` /
+        //   `data.student_status`（防禦服務端哪天真的包一層 `data`）。
+        val answerState = answerStateOf(text)
         val onCall = answerState != null && answerState in SIGNED_STATUSES
         return com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult(
             ok = status == 200 && onCall,
@@ -544,6 +553,31 @@ class TronclassClient(
             // ⚠️ 只保留短消息，且**不帶請求內容**。
             message = answerMessage(text = text, status = status, onCall = onCall, state = answerState),
         )
+    }
+
+    /**
+     * 從簽到響應裡取出「這次簽到目前記成什麼狀態」。
+     *
+     * 三種形狀按**證據強弱**排隊試，第一種就是官方 H5 的語義：
+     *
+     * 1. **正文頂層 `status`** —— 官方 `o.data?.status`（`o` 是 axios 響應對象，
+     *    `o.data` 即正文）。實樣 `{"id":null,"status":"on_call"}`（2026-11-04 15:16）。
+     * 2. `data.status` / `data.student_status` —— 防禦性保留：萬一哪天服務端真的
+     *    包一層 `data`，也不用再改一次判據。
+     * 3. `student_rollcall_status` —— 少數端點用這個名字指同一件事。
+     *
+     * 一層都取不到就回 null（= 說不清），由 [answerMessage] 給出「說不清」的說法，
+     * **不要靠猜**。
+     */
+    private fun answerStateOf(text: String): String? {
+        val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+            ?: return null
+        root["status"].asStringOrNull()?.takeIf { it.isNotBlank() }?.let { return it }
+        (root["data"] as? JsonObject)?.let { body ->
+            body["status"].asStringOrNull()?.takeIf { it.isNotBlank() }?.let { return it }
+            body["student_status"].asStringOrNull()?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return root["student_rollcall_status"].asStringOrNull()?.takeIf { it.isNotBlank() }
     }
 
     /**

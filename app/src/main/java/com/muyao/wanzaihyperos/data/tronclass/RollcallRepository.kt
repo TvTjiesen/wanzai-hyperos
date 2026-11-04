@@ -145,9 +145,38 @@ class LiveRollcallRepository(
      *   查不到、解析不出、請求失敗都回 null。
      */
     override suspend fun verifyAttendance(rollcallId: Int, courseId: Int): String? {
-        // ⚠️ 先查参数、再取 `myStudentId()`：后者会多打一次 `/api/profile`。
-        //    没有 courseId 时这次请求毫无意义（`courseId == 0` 是扫描器合成出来的
-        //    占位记录常用的值），所以要在发任何请求**之前**就返回。
+        // ① 先查**進行中的清單** —— 這是唯一確定包含「正在進行的點名」的端點。
+        //
+        //    實憑據（2026-11-04 15:16 那次真實提交，機器上 `files/http_cache/` 的原文）：
+        //    提交前 10 秒那份快照裡就躺著這條點名
+        //      rollcall_id:252446, rollcall_status:"in_progress", status:"absent"
+        //    —— 同一份 JSON 裡，`rollcall_status` 是**整場點名**的狀態，
+        //    頂層 `status` 才是**我**在這場點名的狀態（未簽時是 `absent`）。
+        //    而課程考勤記錄那份（`files/http_cache/f169e2ea…json`）**只有兩條已結束的**
+        //    （231614 / 242417，都是 finished），根本不包含進行中的那一條 ——
+        //    所以只靠考勤記錄核對，在「剛簽完」那一刻永遠查不到，等於白核。
+        //
+        //    ⚠️ 必須繞過緩存：不清掉就會讀到**提交之前**的快照，永遠是 `absent`，
+        //    那會把一次成功的簽到核成失敗 —— 比不核還糟。
+        client.bypassCacheOnce()
+        // ⚠️ 傳**已緩存**的學號就好：`/api/radar/rollcalls` 的每條記錄頂層 `status`
+        //    本來就是「我」的狀態，不需要拿學號去 `student_rollcalls[]` 裡挑；
+        //    這裡若走 `myStudentId()` 會白多打一次 `/api/profile`。
+        val ongoing = runCatching {
+            client.ongoingRollcalls(if (myIdResolved) cachedMyId else null)
+        }.getOrNull()
+        ongoing?.firstOrNull { it.id == rollcallId }?.let { row ->
+            // 解析器現在把 `status`（生命週期）與 `myStatus`（我的考勤）分開了；
+            // 核對要的是**我的考勤**。`row.status` 只在它的值確實是考勤值時才兜底
+            // （少數端點把兩者擺在同一個位置，靠值的形狀分辨）。
+            row.myStatus.takeIf { it.isNotBlank() }?.let { return it }
+            row.status.takeIf { TronAttendanceStates.isAttendance(it) }?.let { return it }
+        }
+
+        // ② 再查課程考勤記錄，補「老師提交後很快結束了點名」那種情形：
+        //    這時清單裡已經沒有它，但考勤記錄裡會有。
+        //    `courseId == 0` 是掃描器合成的占位記錄常用的值（沒有課程就無處可查），
+        //    所以要在發任何請求**之前**就返回 —— 別白打一次 `/api/profile`。
         val course = courseId.takeIf { it > 0 } ?: return null
         val me = myStudentId() ?: return null
         val rows = runCatching { client.courseAttendance(course, me) }.getOrNull() ?: return null

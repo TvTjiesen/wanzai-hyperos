@@ -140,4 +140,90 @@ class TronRollcallParserTest {
         assertEquals("请假", TronRollcallParser.parse(sample(myStatus = "on_leave"), myId)!!.myStatusLabel)
         assertEquals("缺勤", TronRollcallParser.parse(sample(myStatus = "absent"), myId)!!.myStatusLabel)
     }
+
+    // ---------------- ★ 真機實樣（2026-11-04 15:11 那場點名） ----------------
+
+    /**
+     * 逐字取自業主機器上 `files/tron_raw_rollcalls.txt`（2026-11-04 15:16:14）。
+     *
+     * 這份 JSON 裡 `rollcall_status` 與 `status` **同時存在、意思完全不同**：
+     * 前者是這一場點名的狀態（in_progress），後者是**我**的考勤狀態（absent）。
+     */
+    private val deviceSample = obj(
+        """
+        {"rollcalls":[{"avatar_big_url":"","class_name":"","course_id":62045,
+         "course_title":"总体国家安全观","created_by":19994,"created_by_name":"葛杨",
+         "department_name":"马克思主义学院","grade_name":"","group_set_id":0,
+         "is_expired":false,"is_number":false,"is_radar":false,"published_at":null,
+         "rollcall_id":252446,"rollcall_status":"in_progress",
+         "rollcall_time":"2026-11-04T07:11:12Z","scored":true,"source":"qr",
+         "status":"absent","student_rollcall_id":0,"title":"2026.11.04 15:11",
+         "type":"qr_rollcall"}]}
+        """.trimIndent(),
+    )
+
+    @Test
+    fun `真机样本：进行中的点名不能被判成已结束`() {
+        // ★ 這條盯的是 2026-11-04 抓到的第二個真 bug：
+        //   舊解析器把頂層 `status`（= 我缺勤 absent）當成這一場點名的狀態，
+        //   於是 `isOpen` 判 false、頁面把它歸到「已結束」，
+        //   掃碼按鈕連候選都拿不到 —— **連門都進不去**。
+        val r = TronRollcallParser.parseList(deviceSample, myId).single()
+        assertEquals("生命週期要讀 rollcall_status，不是 status", "in_progress", r.status)
+        assertTrue("in_progress 且未過期 ⇒ 必須是開著的", r.isOpen)
+        assertTrue("我缺勤 ⇒ 這次還能簽", r.unanswered)
+        assertEquals("頂層 status 是我的考勤狀態", "absent", r.myStatus)
+        assertEquals("缺勤", r.myStatusLabel)
+    }
+
+    @Test
+    fun `真机样本：签上之后就是已签到`() {
+        val signed = obj(
+            """
+            {"rollcalls":[{"course_id":62045,"rollcall_id":252446,
+             "rollcall_status":"in_progress","status":"on_call",
+             "source":"qr","is_expired":false}]}
+            """.trimIndent(),
+        )
+        val r = TronRollcallParser.parseList(signed, myId).single()
+        assertTrue(r.isOpen)
+        assertEquals("on_call", r.myStatus)
+        assertEquals("已签到", r.myStatusLabel)
+        assertFalse("已簽到就不該再提示可以簽", r.unanswered)
+    }
+
+    @Test
+    fun `顶层的编造生命周期值仍然被认出来`() {
+        // 少數端點沒有 rollcall_status，只用 status 表示生命週期 —— 這種要照認。
+        val r = TronRollcallParser.parse(sample(status = "in_progress", myStatus = ""), myId)!!
+        assertEquals("in_progress", r.status)
+        assertTrue(r.isOpen)
+        assertEquals("沒有我的狀態就留空（不知道 ≠ 沒簽）", "", r.myStatus)
+    }
+
+    @Test
+    fun `细粒度的已到也算已签`() {
+        // 真實資料裡「到了」有五種寫法。只認 on_call 會讓簽到過的人被要求再簽一次。
+        for (signed in TronAttendanceStates.SIGNED) {
+            val r = TronRollcallParser.parse(sample(myStatus = signed), myId)!!
+            assertFalse("$signed 應算已簽，不該再提示可以簽", r.unanswered)
+        }
+    }
+
+    @Test
+    fun `请假和缺勤都不算已签`() {
+        for (notSigned in listOf("absent", "on_leave", "on_sick_leave")) {
+            val r = TronRollcallParser.parse(sample(myStatus = notSigned), myId)!!
+            assertFalse("$notSigned 不能算已簽", TronAttendanceStates.isSigned(r.myStatus))
+        }
+    }
+
+    @Test
+    fun `签到状态表认得官方那套枚举`() {
+        // 官方枚舉（bundle offset 1424349）逐條要能翻譯，認不出來的回 null 而不是編。
+        assertEquals("事假", TronAttendanceStates.label("on_personal_leave"))
+        assertEquals("病假", TronAttendanceStates.label("on_sick_leave"))
+        assertEquals("迟到且早退", TronAttendanceStates.label("on_call_arrive_late_leave_early"))
+        assertEquals(null, TronAttendanceStates.label("some_new_state"))
+    }
 }

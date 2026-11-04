@@ -29,6 +29,7 @@ import com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind
 import com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult
 import com.muyao.wanzaihyperos.data.tronclass.RollcallQrCode
 import com.muyao.wanzaihyperos.data.tronclass.RollcallRepository
+import com.muyao.wanzaihyperos.data.tronclass.TronAttendanceStates
 import com.muyao.wanzaihyperos.data.tronclass.TronRollcall
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
@@ -130,7 +131,7 @@ fun RollcallStationPage(
 private fun rollcallSubtitle(state: ListState<TronRollcall>): String {
     val items = (state as? ListState.Content)?.items.orEmpty()
     val open = items.filter { it.isOpen }
-    val mine = open.count { it.myStatus == "on_call" }
+    val mine = open.count { TronAttendanceStates.isSigned(it.myStatus) }
     return when {
         items.isEmpty() && state is ListState.FirstLoad -> "正在取进行中的签到…"
         // 「没有进行中的签到」这句以前是整页的头条，配上一颗禁用的扫码按钮 ——
@@ -481,7 +482,7 @@ fun RollcallBody(
                         r.rollcallTime.takeIf { it.isNotBlank() },
                     ).joinToString("　"),
                     trailing = r.myStatusLabel,
-                    trailingColor = if (r.myStatus == "on_call") colors.primary else colors.error,
+                    trailingColor = if (TronAttendanceStates.isSigned(r.myStatus)) colors.primary else colors.error,
                 )
             }
         }
@@ -752,11 +753,11 @@ private fun RollcallCard(
                     rollcall.endTime.takeIf { it.isNotBlank() }?.let { "截止 $it" },
                 ).joinToString("　"),
                 trailing = rollcall.myStatusLabel,
-                trailingColor = if (rollcall.myStatus == "on_call") colors.primary else colors.error,
+                trailingColor = if (TronAttendanceStates.isSigned(rollcall.myStatus)) colors.primary else colors.error,
             )
 
             when {
-                rollcall.myStatus == "on_call" -> Unit   // 已簽：什麼都不給（避免重複提交）
+                TronAttendanceStates.isSigned(rollcall.myStatus) -> Unit   // 已簽：什麼都不給（避免重複提交）
 
                 else -> {
                     val blocked = rollcall.actionBlockReason

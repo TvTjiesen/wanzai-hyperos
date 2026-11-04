@@ -70,16 +70,17 @@ class RollcallWriteOnceTest {
 
     @Test
     fun `成功路径只发一条PUT且打在正确的端点上`() = runTest {
-        // ★ 這是**真實**的成功響應形狀（`docs/B12-TRONCLASS-SHAPES.txt:26` 五條樣本全是這樣）：
-        //   `status` 是細粒度那套（on_call_fine），`student_status` 才是粗粒度那套（on_call）。
-        //   舊測試用 `{"status":"on_call"}` 當成功樣本 —— 那正好是 bug 本身的形狀，
-        //   所以它能一直綠、而真機上永遠「沒簽上」。
-        server.enqueue(
-            status = 200,
-            body = """{"data":{"status":"on_call_fine","student_status":"on_call"}}""",
-        )
+        // ★ 這是**真機實樣**（業主 2026-11-04 15:16 那次真實提交，
+        //   機器上 `files/tron_raw_answer_qr_resp.txt`，31 B，逐字）：
+        //     {"id":null,"status":"on_call"}
+        //   狀態就在**正文頂層**，沒有 `data` 這一層。
+        //   官方 H5 也是這樣判的（`o` 是 axios 響應對象，`o.data` 即正文）：
+        //     "on_call"===(null===(t=o.data)||void 0===t?void 0:t.status)
+        //   前兩版測試用的 `{"data":{"status":…}}` 形狀**服務端從來沒回過** ——
+        //   所以它們一直綠，而真機上永遠「沒簽上」。
+        server.enqueue(status = 200, body = """{"id":null,"status":"on_call"}""")
         val r = repository.answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
-        assertTrue("成功响应应判 ok=true（消息=${r.message}）", r.ok)
+        assertTrue("真机实样必须判 ok=true（消息=${r.message}）", r.ok)
 
         val w = writes()
         assertEquals("写请求必须**恰好一条**（GET 刷新也在同一台 server 上，所以只数写方法）", 1, w.size)
@@ -93,6 +94,15 @@ class RollcallWriteOnceTest {
         assertTrue("包体字段必须是 data（官方 1154.js：{ data: r.data }）", "\"data\":" in w[0].body)
         assertTrue("包体必须带 deviceId（官方 1154.js：{ deviceId: D.Z.deviceId }）", "\"deviceId\":" in w[0].body)
         assertTrue("旧的错字段 code_str 不许再出现", "code_str" !in w[0].body)
+    }
+
+    @Test
+    fun `顶层 status 是细粒度值时也认`() = runTest {
+        // 同一支端点在别的時機會回細粒度那套（`on_call_fine` / `on_call_arrive_late`），
+        // 它們都算「到了」。頂層判據不許只認 `on_call` 一個字面量。
+        server.enqueue(status = 200, body = """{"id":123,"status":"on_call_fine"}""")
+        val r = repository.answer(4242, RollcallAnswerKind.QR, "SCAN-PAYLOAD")
+        assertTrue("顶层 status=on_call_fine 必须判成功：${r.message}", r.ok)
     }
 
     @Test
@@ -195,8 +205,28 @@ class RollcallWriteOnceTest {
     // ---------------- 提交后按考勤记录核对（只读，绝不重发写请求） ----------------
 
     @Test
-    fun `核对：查到课程记录里我已到 就返回服务端记的状态`() = runTest {
+    fun `核对：进行中清单里已经是到了 就返回那个状态`() = runTest {
+        // ★ 真机现场（2026-11-04 15:16 那次提交，机器上 `files/http_cache/03c28bac…json`）：
+        //   `/api/radar/rollcalls` 的每条记录里，`rollcall_status` 是**整场点名**的状态，
+        //   顶层 `status` 才是**我**的状态（未签时是 `absent`，签上后变 `on_call`）。
+        //   这条路径**不需要**先拿学号：顶层 status 就是我的。
+        server.enqueue(
+            status = 200,
+            // 真實外層是 `{"rollcalls":[...]}`（`requestJson` 只接對象，接不了裸數組）。
+            // 欄位形狀照抄 2026-11-04 那次真機原文，只把 `status` 從 absent 改成簽上之後的值。
+            body = """{"rollcalls":[{"id":252446,"course_id":62045,"rollcall_status":"in_progress","status":"on_call","source":"qr","is_expired":false}]}""",
+        )
+        val got = repository.verifyAttendance(252446, 62045)
+        assertEquals("on_call", got)
+        assertEquals("一条 /api/radar/rollcalls 就够，不许再去问 profile", 1, server.requestCount)
+        assertEquals("核对是只读的：一条写请求都不许有", 0, writes().size)
+    }
+
+    @Test
+    fun `核对：清单里查不到才回落到课程考勤记录`() = runTest {
+        // 老师刚提交完就结束点名的情形：清单里已经没有了，但考勤记录里会有。
         // `/api/profile` 的 `id` 在**顶层**（`profileUserId()` 读 `root["id"]`）。
+        server.enqueue(status = 200, body = """{"rollcalls":[]}""")
         server.enqueue(status = 200, body = """{"id":36519}""")
         server.enqueue(
             status = 200,
@@ -208,8 +238,8 @@ class RollcallWriteOnceTest {
     }
 
     @Test
-    fun `核对：这条不在记录里就返回 null 而不是猜`() = runTest {
-        // `/api/profile` 的 `id` 在**顶层**（`profileUserId()` 读 `root["id"]`）。
+    fun `核对：两处都查不到就返回 null 而不是猜`() = runTest {
+        server.enqueue(status = 200, body = """{"rollcalls":[]}""")
         server.enqueue(status = 200, body = """{"id":36519}""")
         server.enqueue(status = 200, body = """{"rollcalls":[]}""")
         assertEquals("查不到就是「核对不了」，不是「没签上」", null, repository.verifyAttendance(4242, 67436))
@@ -217,16 +247,18 @@ class RollcallWriteOnceTest {
 
     @Test
     fun `核对：取数失败也返回 null 不许改口说没签上`() = runTest {
-        // `/api/profile` 的 `id` 在**顶层**（`profileUserId()` 读 `root["id"]`）。
-        server.enqueue(status = 200, body = """{"id":36519}""")
+        server.enqueue(status = 500, body = """{"message":"服务器开小差了"}""")
         server.enqueue(status = 500, body = """{"message":"服务器开小差了"}""")
         assertEquals("核对失败只能是 null", null, repository.verifyAttendance(4242, 67436))
         assertEquals("核对失败也不许重发写请求", 0, writes().size)
     }
 
     @Test
-    fun `核对：课程 id 缺失时直接放弃 不去打无意义的请求`() = runTest {
+    fun `核对：课程 id 缺失时最多查一下清单 不回去翻考勤记录`() = runTest {
+        // `courseId == 0` 是扫描器合成的占位记录常用的值：没有课程就无处可翻考勤，
+        // 但清单那条路**仍然有意义**（它不需要 courseId）。
+        server.enqueue(status = 200, body = """{"rollcalls":[]}""")
         assertEquals(null, repository.verifyAttendance(4242, 0))
-        assertEquals("没有 courseId 就不该发任何请求", 0, server.requestCount)
+        assertEquals("没有 courseId 就不该再发第二个请求", 1, server.requestCount)
     }
 }

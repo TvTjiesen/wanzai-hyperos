@@ -47,7 +47,12 @@ data class TronRollcall(
     /** 來源方式（`source`，如 `number` / `radar` / `qr`）。 */
     val source: String,
     /**
-     * 狀態（`status`，源碼枚舉 `in_progress` / `finished` / `waiting`）。
+     * 這一場點名的**生命週期**（`rollcall_status`：`in_progress` / `finished` / `waiting`）。
+     *
+     * ⚠️ 不要拿它跟考勤狀態比。同一個 JSON 裡的頂層 `status` 是**我**的考勤狀態
+     * （`absent` / `on_call`），不是這一場點名的狀態 —— 兩者長得像、意思完全不同，
+     * 2026-11-04 就是因為把 `status` 當成生命週期，讓正在進行的點名全被判成「已結束」。
+     * 分類規則集中在 [TronAttendanceStates]。
      */
     val status: String,
     /** 是否已結束（`is_expired`）。 */
@@ -62,7 +67,7 @@ data class TronRollcall(
     val myStatus: String,
 ) {
     /** 是否進行中（還能簽）。 */
-    val isOpen: Boolean get() = status == "in_progress" && !expired
+    val isOpen: Boolean get() = TronAttendanceStates.isOpenLifecycle(status) && !expired
 
     /** 使用者看得懂的方式名。認不出來的**原樣顯示**（不編）。 */
     val sourceLabel: String
@@ -82,13 +87,7 @@ data class TronRollcall(
 
     /** 我的狀態翻成人話；認不出來原樣顯示。 */
     val myStatusLabel: String
-        get() = when (myStatus) {
-            "on_call" -> "已签到"
-            "on_leave" -> "请假"
-            "absent" -> "缺勤"
-            "" -> "—"
-            else -> myStatus
-        }
+        get() = TronAttendanceStates.label(myStatus) ?: myStatus.ifBlank { "—" }
 
     /**
      * 這一條該用**哪個端點**去簽（null = 不是「學生點一下就能簽」的類型）。
@@ -116,8 +115,14 @@ data class TronRollcall(
     /** 需不需要相機（只有掃碼那一類）。 */
     val needsCamera: Boolean get() = answerKind == RollcallAnswerKind.QR
 
-    /** 我還沒簽（進行中且狀態不是「已簽」；**請假/缺勤都算還能簽**，由服務端裁定）。 */
-    val unanswered: Boolean get() = isOpen && myStatus != "on_call"
+    /**
+     * 我還沒簽（進行中且狀態不是「已到」；**請假/缺勤都算還能簽**，由服務端裁定）。
+     *
+     * ⚠️ 不能只比 `"on_call"`：真實資料裡「到了」有 `on_call_fine` / `on_call_arrive_late`
+     * 等五種寫法（見 [TronAttendanceStates.SIGNED]）。只認一個字面量會讓
+     * 「簽到了但顯示還要你再簽一次」。
+     */
+    val unanswered: Boolean get() = isOpen && !TronAttendanceStates.isSigned(myStatus)
 
     /**
      * 不能點時給使用者的理由。能點時 null。
@@ -128,8 +133,8 @@ data class TronRollcall(
     val actionBlockReason: String?
         get() = when {
             !isOpen && expired -> "这次签到已经截止"
-            !isOpen -> "这次签到还没结束显示中的状态，服务端说现在是“${status.ifBlank { "未知" }}”"
-            myStatus == "on_call" -> "你已经签过了"
+            !isOpen -> "这次签到没有在进行中，服务端说现在是“${status.ifBlank { "未知" }}”"
+            TronAttendanceStates.isSigned(myStatus) -> "你已经签过了"
             answerKind == null -> when {
                 source.contains("radar", true) -> "雷达签到靠定位/信号自动判定，没有可以点的按钮"
                 source.contains("manual", true) -> "老师手动点名，不需要你这边操作"
@@ -140,30 +145,146 @@ data class TronRollcall(
         }
 }
 
+/**
+ * 簽到裡那兩個**同名字段**到底各是什麼。
+ *
+ * ★ 這一段是 2026-11-04 真機現場抓出來的（`files/tron_raw_rollcalls.txt` 逐字）：
+ *
+ * ```json
+ * {"rollcall_id":252446,"rollcall_status":"in_progress","status":"absent",
+ *  "student_rollcall_id":0,"source":"qr"}
+ * ```
+ *
+ * 同一個 JSON 裡：
+ * - `rollcall_status` = **這一場點名**的狀態（`in_progress` / `finished` …）
+ * - `status`           = **我**在這場點名的考勤狀態（`absent` / `on_call` …）
+ *
+ * 舊解析器把 `status` 當成「這一場點名的狀態」，於是：
+ * 進行中的點名 → `status` 是 `absent` → `isOpen` 判成 **false** →
+ * 界面把它歸到「已結束」，`unanswered` 也是 false →
+ * 「簽到」頁那顆掃碼按鈕拿不到任何候選、清單裡那條看起來已經關門。
+ * 這是比「判據讀錯層級」更早一步的錯：**連門都進不去**。
+ *
+ * 所以這裡按**值的形狀**分類，而不是按欄位名猜 —— 兩個欄位名都可能出現在
+ * 不同端點的不同位置上（`/api/radar/rollcalls` 與 `answer_qr_rollcall`
+ * 的擺法就不完全一樣）。
+ */
+object TronAttendanceStates {
+
+    /**
+     * 這一場點名**還開著**的生命週期值。
+     *
+     * ⚠️ `waiting` **不在這裡**：它是「還沒開始」，那時候按鈕也不該給
+     *（既有用例 `截止的与没开始的都不算开放` 守著這條）。
+     */
+    private val OPEN_LIFECYCLE = setOf("in_progress", "open")
+
+    /** 生命週期裡所有認得的值（用來判斷某個 `status` 是不是在說「這場點名」）。 */
+    private val LIFECYCLE = OPEN_LIFECYCLE + setOf("finished", "closed", "ended", "expired")
+
+    /**
+     * 算「到了」的考勤狀態。
+     *
+     * 請假（`on_*_leave`）與缺勤（`absent`）**不算到** —— 那些是「沒出席」的紀錄，
+     * 把請假算成到課等於告訴他「你上課了」，而他一節課都沒去。
+     */
+    val SIGNED = setOf(
+        "on_call",
+        "on_call_fine",
+        "on_call_arrive_late",
+        "on_call_leave_early",
+        "on_call_arrive_late_leave_early",
+    )
+
+    /** 所有認得的考勤狀態（不含生命週期值）。 */
+    private val ATTENDANCE = SIGNED + setOf(
+        "absent",
+        "on_leave",
+        "on_personal_leave",
+        "on_sick_leave",
+        "on_public_leave",
+        "on_physiological_leave",
+        "on_funeral_leave",
+        "on_mental_health_leave",
+        "other",
+    )
+
+    /** 這個值是在說「這一場點名」嗎？ */
+    fun isLifecycle(value: String): Boolean = value in LIFECYCLE
+
+    /** 這個值是在說「我到了沒有」嗎？ */
+    fun isAttendance(value: String): Boolean = value in ATTENDANCE
+
+    /** 算不算「到了」。 */
+    fun isSigned(value: String): Boolean = value in SIGNED
+
+    /** 這場點名還開著嗎？ */
+    fun isOpenLifecycle(value: String): Boolean = value in OPEN_LIFECYCLE
+
+    /** 考勤狀態翻成人話；認不出來回 null（**不編**）。 */
+    fun label(value: String): String? = when (value) {
+        "on_call", "on_call_fine" -> "已签到"
+        "on_call_arrive_late" -> "迟到"
+        "on_call_leave_early" -> "早退"
+        "on_call_arrive_late_leave_early" -> "迟到且早退"
+        "on_leave" -> "请假"
+        "on_personal_leave" -> "事假"
+        "on_sick_leave" -> "病假"
+        "on_public_leave" -> "公假"
+        "on_physiological_leave" -> "生理假"
+        "on_funeral_leave" -> "丧假"
+        "on_mental_health_leave" -> "心理健康假"
+        "absent" -> "缺勤"
+        "other" -> "其他"
+        else -> null
+    }
+}
+
 object TronRollcallParser {
 
     /**
      * 解析一條簽到。
      *
      * @param myStudentId 自己的 `student_id`（用來從 `student_rollcalls[]` 挑出自己那條）。
-     *   為 null 時 `myStatus` 為空 —— 那是「不知道」，不是「沒簽」。
+     *   為 null 時仍會嘗試用**頂層 `status`**（`/api/radar/rollcalls` 就是這樣回我的狀態的）。
      */
     fun parse(obj: JsonObject, myStudentId: Int?): TronRollcall? {
-        val id = obj["id"].asIntOrNull() ?: return null
+        // ★ 主鍵有兩個名字：`id` 與 `rollcall_id`。
+        //   `/api/radar/rollcalls` 實測用的是 **`rollcall_id`**（2026-11-04 15:16 機器原文）。
+        //   上一版只認 `id` ⇒ 每一條都 `return null` ⇒ **清單永遠是空的**，
+        //   於是「簽到」頁一直說「清單裡現在沒有進行中的簽到」，
+        //   掃碼那顆按鈕也永遠拿不到候選（因為老師正在點名，它卻說沒有）。
+        val id = obj["id"].asIntOrNull() ?: obj["rollcall_id"].asIntOrNull() ?: return null
+        val topStatus = obj["status"].asStringOrNull().orEmpty()
+        val rollcallStatus = obj["rollcall_status"].asStringOrNull().orEmpty()
+
+        // 生命週期：先看 `rollcall_status`（它專指這一場點名），
+        // 再看 `status` —— 但**只在它的值長得像生命週期時**才認，
+        // 否則會把「我缺勤」讀成「這場點名結束了」。
+        val lifecycle = rollcallStatus.ifBlank {
+            topStatus.takeIf { TronAttendanceStates.isLifecycle(it) }.orEmpty()
+        }
+
         val mine = obj["student_rollcalls"].asArrayOrNull()
             ?.mapNotNull { it.asObjectOrNull() }
             ?.firstOrNull { myStudentId != null && it["student_id"].asIntOrNull() == myStudentId }
+
+        val myStatus = mine?.get("status").asStringOrNull().orEmpty().ifBlank {
+            // 頂層 `status` 是考勤值時就是我的狀態（`absent` / `on_call` …）。
+            topStatus.takeIf { TronAttendanceStates.isAttendance(it) }.orEmpty()
+        }
+
         return TronRollcall(
             id = id,
             courseId = obj["course_id"].asIntOrNull() ?: 0,
             title = obj["title"].asStringOrNull().orEmpty(),
             source = obj["source"].asStringOrNull().orEmpty(),
-            status = obj["status"].asStringOrNull().orEmpty(),
+            status = lifecycle,
             expired = obj["is_expired"].asBoolOrNull() ?: false,
             rollcallTime = obj["rollcall_time"].asStringOrNull().orEmpty(),
             endTime = obj["end_time"].asStringOrNull().orEmpty(),
             numberCode = obj["number_code"].asStringOrNull().orEmpty(),
-            myStatus = mine?.get("status").asStringOrNull().orEmpty(),
+            myStatus = myStatus,
         )
     }
 
