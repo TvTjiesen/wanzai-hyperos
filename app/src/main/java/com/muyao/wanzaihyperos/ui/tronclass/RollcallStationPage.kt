@@ -777,10 +777,12 @@ private fun RollcallCard(
                                 }
                                 TextField(
                                     value = inputValue,
-                                    onValueChange = onInput,
-                                    // 官方是 4 个格子、每位一格（`7748` chunk：`new Array(4)`，
-                                    // 收满 4 位自动提交）。我们这里是一个输入框，所以把「4 位」
-                                    // 写进标签 —— 否则他会以为随便几位都行。
+                                    // ★ 只收數字、最多 4 位。官方是 4 個格子、每位一格
+                                    //   （`7748.9d913ed8.js`：`new Array(4)`，收滿 4 位自動送出），
+                                    //   我們是一個輸入框，所以由這裡保證「送出去的永遠是 4 位數字」——
+                                    //   否則他少打一位按下去，服務端只會回 `wrong_number_code`，
+                                    //   而界面說的會像「數字錯了」，他會以為是老師報的數字有問題。
+                                    onValueChange = { raw -> onInput(raw.filter { it.isDigit() }.take(4)) },
                                     label = "老师报的数字（4 位）",
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -789,9 +791,15 @@ private fun RollcallCard(
                                 Spacer(Modifier.height(Dims.sectionGap))
                                 Button(
                                     onClick = { onSubmit(RollcallAnswerKind.NUMBER, inputValue) },
-                                    enabled = inputValue.isNotBlank() && !submitting,
+                                    // 必須剛好 4 位才能按：這是官方那個「收滿 4 位才發」的等價物，
+                                    // 而且仍然由他按下去 —— 寫操作的紅線不放寬到自動提交。
+                                    enabled = inputValue.length == 4 && !submitting,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) { Text(if (submitting) "提交中…" else "签到") }
+                                if (inputValue.isNotEmpty() && inputValue.length < 4) {
+                                    Spacer(Modifier.height(Dims.tight))
+                                    HintText("还差 ${4 - inputValue.length} 位 —— 数字是 4 位，打满才会亮起签到键。")
+                                }
                             }
 
                             RollcallAnswerKind.SELF_REGISTRATION -> Button(

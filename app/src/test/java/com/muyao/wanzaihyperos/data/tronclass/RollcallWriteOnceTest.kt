@@ -31,6 +31,8 @@ class RollcallWriteOnceTest {
 
     private lateinit var server: TestHttpServer
     private lateinit var repository: LiveRollcallRepository
+    /** 缓存测试要往它身上挂 [com.muyao.wanzaihyperos.net.ResponseCache]。 */
+    private lateinit var clientUnderTest: TronclassClient
 
     private val writeMethods = setOf("PUT", "POST", "PATCH", "DELETE")
 
@@ -58,6 +60,7 @@ class RollcallWriteOnceTest {
             cachedSessionId = { "FAKE-SESSION-ID" },
             limiter = HzcuRateLimiter.forTesting(minIntervalMs = 0, perPathMinIntervalMs = 0),
         )
+        clientUnderTest = client
         repository = LiveRollcallRepository(client)
     }
 
@@ -274,6 +277,36 @@ class RollcallWriteOnceTest {
         assertFalse("400 必须判失败：${r.message}", r.ok)
         assertTrue("错误码要翻成学校自己的说法（签到密码错误）：${r.message}", "签到密码错误" in r.message)
         assertEquals("仍然一条都不许重试", 1, writes().size)
+    }
+
+
+    // ---------------- 刷新必须绕过本地缓存 ----------------
+
+    @Test
+    fun `刷新一定走网络 不许把五分钟前的清单再播一遍`() = runTest {
+        // ★ 現場（業主 2026-11-06「簽到壓根沒做好」）：`/api/radar/rollcalls` 是 GET，
+        //   在緩存的可緩存範圍內，TTL 五分鐘。於是「老師剛發起 → 我刷新 → 還是
+        //   『清單裡沒有進行中的簽名』」，以及「剛簽完 → 刷新 → 卡片還寫著缺勤」。
+        //   2026-11-04 15:16 那次的機器上留著兩份 mtime 相隔 10 秒、內容完全一樣的
+        //   快照 —— 後一份根本沒走網絡。
+        val cacheDir = java.io.File(System.getProperty("java.io.tmpdir"), "wzrc-${System.nanoTime()}")
+        val cache = com.muyao.wanzaihyperos.net.ResponseCache(cacheDir)
+        // 先塞一份「進行中清單是空的」的舊快照，假裝五分鐘內取過。
+        cache.put("/api/radar/rollcalls?api_version=1.1.0", """{"rollcalls":[]}""")
+        clientUnderTest.cache = cache
+
+        server.enqueue(status = 200, body = """{"id":36519}""")
+        server.enqueue(
+            status = 200,
+            body = """{"rollcalls":[{"rollcall_id":252446,"course_id":62045,"rollcall_status":"in_progress","status":"absent","source":"qr","is_expired":false}]}""",
+        )
+        repository.refresh()
+
+        val hits = server.requests.filter { it.path.startsWith("/api/radar/rollcalls") }
+        assertEquals("刷新必須真的打一次網絡，不能吃緩存", 1, hits.size)
+        val items = (repository.state.value as? com.muyao.wanzaihyperos.data.ListState.Content)?.items.orEmpty()
+        assertEquals("剛發起的點名必須出現在清單裡", 1, items.size)
+        assertEquals(252446, items[0].id)
     }
 
     // ---------------- 提交后按考勤记录核对（只读，绝不重发写请求） ----------------

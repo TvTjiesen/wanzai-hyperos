@@ -97,6 +97,15 @@ class LiveRollcallRepository(
             _state.value = _state.value.startRefresh()
             // 先確保知道自己是誰（簽到狀態要按 student_id 挑）。
             val me = myStudentId()
+            // ★ 刷新**必须**绕过本地响应缓存（业主 2026-11-06：「签到压根没做好」）。
+            //   缓存 TTL 是 5 分钟（`TronclassClient.TTL_MS`），而 `/api/radar/rollcalls`
+            //   正好属于可缓存的 GET —— 于是「老师刚发起 → 我点刷新 → 还是那句
+            //   『清单里没有进行中的签到』」，以及「刚签完 → 刷新 → 卡片还写着缺勤」。
+            //   2026-11-04 15:16 那次的现场就在机器上：提交前后两份快照 mtime 相隔 10 秒、
+            //   内容一模一样，因为后一次根本没走网络。
+            //   ⚠️ 必须紧挨着 `ongoingRollcalls`：`bypassCacheOnce()` 是一次性开关，
+            //   放到 `myStudentId()` 之前会被那次 `/api/profile` 吃掉。
+            client.bypassCacheOnce()
             val result = runCatching { client.ongoingRollcalls(me) }
             if (!guard.isCurrent(token)) return
             _state.value = result.fold(
