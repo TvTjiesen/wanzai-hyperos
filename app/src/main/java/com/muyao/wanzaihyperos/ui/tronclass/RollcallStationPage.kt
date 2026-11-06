@@ -48,11 +48,13 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.icon.extended.Refresh
@@ -290,210 +292,239 @@ fun RollcallBody(
         return
     }
 
-    AppList(modifier = modifier) {
-        header()
-
-        item {
-            NoticeBanner(notice)
-        }
-
-        // ── 扫码：一颗**永远能按**的大按钮（認碼是服務端的事）─────────────
-        item {
-            val qrOpen = items.count { it.needsCamera && it.unanswered }
-            AppCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(Dims.cardPadding)) {
-                    Text(
-                        text = "扫码签到",
-                        style = MiuixTheme.textStyles.title4,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.onSurface,
-                    )
-                    Spacer(Modifier.height(Dims.tight))
-                    Text(
-                        // ⚠️ 這裡的話改過兩次，現在以**真機實測**為準：
-                        //   2026-10-20 在他手机上把掃到的串送 `GET /api/qr-code/scan?codeStr=…`，
-                        //   學校回的是 **404 {"message":"未找到资源"}** ——
-                        //   也就是說這個部署**沒有「服務端認碼」那支接口**（源碼裡那支是
-                        //   Roomis 廠商的整合，我們學校沒上）。
-                        //   所以「扫了服务端会认」是我說錯的話，不能留。
-                        //   相機仍然**永遠可點**：萬一清單同步慢了，他不該被我擋住。
-                        //   扫到的码**不直接提交**：先刷新清单、把候选摆出来，再由他按确认。
-                        text = if (qrOpen > 0) {
-                            "对着老师屏幕上的码扫一下（我这边看到 $qrOpen 项在进行）。" +
-                                "扫完我会先问一句是哪一次，提交由你按。"
-                        } else {
-                            "清单里现在没有进行中的签到，但扫码按钮照样能用 ——" +
-                                "学校的签到码里自带签到编号，扫完不用等它出现在清单里。" +
-                                "提交仍然由你按。"
-                        },
-                        style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = Type.tabular),
-                        color = colors.onSurfaceVariantSummary,
-                    )
-                    Spacer(Modifier.height(Dims.sectionGap))
-                    Button(
-                        onClick = { scanTarget = ScanTarget.Quick },
-                        enabled = busyId == null,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (busyId != null) "提交中…" else "打开相机扫码")
-                    }
-                    Spacer(Modifier.height(Dims.loose))
-                    // 相机读不出来时的出路（暗教室、屏幕反光、拍糊）。
-                    PasteRow(
-                        value = inputs[PASTE_KEY].orEmpty(),
-                        onValueChange = { inputs = inputs + (PASTE_KEY to it) },
-                        enabled = busyId == null,
-                        onSubmit = { text ->
-                            if (text.isBlank()) {
-                                notice = Notice(false, "先粘贴扫码得到的内容")
-                            } else {
-                                // 和相机那条**完全同一个入口**：只挑、不写。
-                                pickScanTarget(
-                                    scope = scope,
-                                    code = text,
-                                    refreshCandidates = {
-                                        repository.refresh()
-                                        (repository.state.value as? ListState.Content)?.items.orEmpty()
-                                            .filter { it.needsCamera && it.unanswered }
-                                    },
-                                    onBusy = setBusy,
-                                    onNotice = showNotice,
-                                    onNeedPick = { pending = ScanPending(it, null, RollcallQrCode.parse(text)) },
-                                )
-                            }
-                        },
-                    )
+    // ── 下拉刷新：清单是**随时会变**的东西（老师这一秒发起）──────────────
+    //
+    // 以前只有右上角那颗刷新钮，手指下拉没有任何反应 —— 而人对列表的第一反应就是往下拉。
+    // 刷新走 `repository.refresh()`，它在 `ongoingRollcalls` 之前会 `bypassCacheOnce()`，
+    // 所以拉一次一定打到服务器（不会把五分钟前的清单再播一遍）。
+    //
+    // ⚠️ 下拉里**只刷新、不清空**：仓库用 `startRefresh()` 保留现有内容，
+    // 手指往下拉时不会闪成「正在取…」的空页。
+    var refreshing by remember { mutableStateOf(false) }
+    val pullState = rememberPullToRefreshState()
+    PullToRefresh(
+        isRefreshing = refreshing,
+        onRefresh = {
+            refreshing = true
+            scope.launch {
+                try {
+                    runCatching { repository.refresh() }
+                } finally {
+                    refreshing = false
                 }
             }
-        }
+        },
+        pullToRefreshState = pullState,
+        modifier = modifier.fillMaxSize(),
+        // 默认四句气泡是英文（Pull down to refresh / …），中文界面里会冒出英文。
+        // 顺序是 下拉 / 松开 / 正在刷 / 刷完了。
+        refreshTexts = listOf("下拉刷新", "松开手就刷", "正在刷新…", "刷完了"),
+    ) {
+        AppList(modifier = Modifier.fillMaxSize()) {
+            header()
 
-        // ── 扫到了、要确认（或挑）是哪门课 ───────────────────────────
-        pending?.let { p ->
             item {
-                val candidates = pendingCandidates(items, p.targetId, p.code)
+                NoticeBanner(notice)
+            }
+
+            // ── 扫码：一颗**永远能按**的大按钮（認碼是服務端的事）─────────────
+            item {
+                val qrOpen = items.count { it.needsCamera && it.unanswered }
                 AppCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(Dims.cardPadding)) {
                         Text(
-                            // 一条时是"确认"，多条时是"挑"—— 两种都不能由我们替他决定
-                            text = when {
-                                candidates.isEmpty() -> "这条签到已经不在了（清单刚刷新过）。"
-                                p.code?.rollcallId != null && p.targetId == null ->
-                                    "扫到了。码里自带签到编号（第 ${p.code.rollcallId} 号），" +
-                                        "不用等它出现在清单里；确认后由你按下面这一键。"
-                                candidates.size == 1 -> "扫到了。是这一次吗？确认后由你按下面这一键。"
-                                else -> "有几门课正在扫码签到，是哪一门？"
-                            },
-                            style = MiuixTheme.textStyles.body1,
+                            text = "扫码签到",
+                            style = MiuixTheme.textStyles.title4,
+                            fontWeight = FontWeight.SemiBold,
                             color = colors.onSurface,
                         )
-                        Spacer(Modifier.height(Dims.loose))
-                        candidates.forEach { r ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        text = r.title.ifBlank { "签到" },
-                                        style = MiuixTheme.textStyles.body2,
-                                        color = colors.onSurface,
-                                    )
-                                    // 学校给的原文（课/节次/时间），不加工、不补
-                                    val extra = listOf(r.rollcallTime, r.endTime)
-                                        .filter { it.isNotBlank() }
-                                        .joinToString(" · ")
-                                    if (extra.isNotBlank()) {
-                                        Text(
-                                            text = extra,
-                                            style = MiuixTheme.textStyles.footnote2,
-                                            color = colors.onSurfaceVariantSummary,
-                                        )
-                                    }
-                                }
-                                Button(
-                                    onClick = {
-                                        // ★ 全页唯一会发签到写请求的两个入口之一，
-                                        //   另一个是行内"签到/自助签到"按钮。都得他自己按。
-                                        pending = null
-                                        submitTo(
-                                            scope, repository, r, RollcallAnswerKind.QR, p.payload,
-                                            onBusy = setBusy, onNotice = showNotice,
-                                        )
-                                    },
-                                    enabled = busyId == null,
-                                ) { Text(if (candidates.size == 1) "确认签到" else "就是这次") }
-                            }
-                            Spacer(Modifier.height(Dims.tight))
+                        Spacer(Modifier.height(Dims.tight))
+                        Text(
+                            // ⚠️ 這裡的話改過兩次，現在以**真機實測**為準：
+                            //   2026-10-20 在他手机上把掃到的串送 `GET /api/qr-code/scan?codeStr=…`，
+                            //   學校回的是 **404 {"message":"未找到资源"}** ——
+                            //   也就是說這個部署**沒有「服務端認碼」那支接口**（源碼裡那支是
+                            //   Roomis 廠商的整合，我們學校沒上）。
+                            //   所以「扫了服务端会认」是我說錯的話，不能留。
+                            //   相機仍然**永遠可點**：萬一清單同步慢了，他不該被我擋住。
+                            //   扫到的码**不直接提交**：先刷新清单、把候选摆出来，再由他按确认。
+                            text = if (qrOpen > 0) {
+                                "对着老师屏幕上的码扫一下（我这边看到 $qrOpen 项在进行）。" +
+                                    "扫完我会先问一句是哪一次，提交由你按。"
+                            } else {
+                                "清单里现在没有进行中的签到，但扫码按钮照样能用 ——" +
+                                    "学校的签到码里自带签到编号，扫完不用等它出现在清单里。" +
+                                    "提交仍然由你按。"
+                            },
+                            style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = Type.tabular),
+                            color = colors.onSurfaceVariantSummary,
+                        )
+                        Spacer(Modifier.height(Dims.sectionGap))
+                        Button(
+                            onClick = { scanTarget = ScanTarget.Quick },
+                            enabled = busyId == null,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(if (busyId != null) "提交中…" else "打开相机扫码")
                         }
-                        TextButton(
-                            text = "取消",
-                            onClick = { pending = null },
+                        Spacer(Modifier.height(Dims.loose))
+                        // 相机读不出来时的出路（暗教室、屏幕反光、拍糊）。
+                        PasteRow(
+                            value = inputs[PASTE_KEY].orEmpty(),
+                            onValueChange = { inputs = inputs + (PASTE_KEY to it) },
+                            enabled = busyId == null,
+                            onSubmit = { text ->
+                                if (text.isBlank()) {
+                                    notice = Notice(false, "先粘贴扫码得到的内容")
+                                } else {
+                                    // 和相机那条**完全同一个入口**：只挑、不写。
+                                    pickScanTarget(
+                                        scope = scope,
+                                        code = text,
+                                        refreshCandidates = {
+                                            repository.refresh()
+                                            (repository.state.value as? ListState.Content)?.items.orEmpty()
+                                                .filter { it.needsCamera && it.unanswered }
+                                        },
+                                        onBusy = setBusy,
+                                        onNotice = showNotice,
+                                        onNeedPick = { pending = ScanPending(it, null, RollcallQrCode.parse(text)) },
+                                    )
+                                }
+                            },
                         )
                     }
                 }
             }
-        }
 
-        if (items.isEmpty()) {
+            // ── 扫到了、要确认（或挑）是哪门课 ───────────────────────────
+            pending?.let { p ->
+                item {
+                    val candidates = pendingCandidates(items, p.targetId, p.code)
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(Dims.cardPadding)) {
+                            Text(
+                                // 一条时是"确认"，多条时是"挑"—— 两种都不能由我们替他决定
+                                text = when {
+                                    candidates.isEmpty() -> "这条签到已经不在了（清单刚刷新过）。"
+                                    p.code?.rollcallId != null && p.targetId == null ->
+                                        "扫到了。码里自带签到编号（第 ${p.code.rollcallId} 号），" +
+                                            "不用等它出现在清单里；确认后由你按下面这一键。"
+                                    candidates.size == 1 -> "扫到了。是这一次吗？确认后由你按下面这一键。"
+                                    else -> "有几门课正在扫码签到，是哪一门？"
+                                },
+                                style = MiuixTheme.textStyles.body1,
+                                color = colors.onSurface,
+                            )
+                            Spacer(Modifier.height(Dims.loose))
+                            candidates.forEach { r ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            text = r.title.ifBlank { "签到" },
+                                            style = MiuixTheme.textStyles.body2,
+                                            color = colors.onSurface,
+                                        )
+                                        // 学校给的原文（课/节次/时间），不加工、不补
+                                        val extra = listOf(r.rollcallTime, r.endTime)
+                                            .filter { it.isNotBlank() }
+                                            .joinToString(" · ")
+                                        if (extra.isNotBlank()) {
+                                            Text(
+                                                text = extra,
+                                                style = MiuixTheme.textStyles.footnote2,
+                                                color = colors.onSurfaceVariantSummary,
+                                            )
+                                        }
+                                    }
+                                    Button(
+                                        onClick = {
+                                            // ★ 全页唯一会发签到写请求的两个入口之一，
+                                            //   另一个是行内"签到/自助签到"按钮。都得他自己按。
+                                            pending = null
+                                            submitTo(
+                                                scope, repository, r, RollcallAnswerKind.QR, p.payload,
+                                                onBusy = setBusy, onNotice = showNotice,
+                                            )
+                                        },
+                                        enabled = busyId == null,
+                                    ) { Text(if (candidates.size == 1) "确认签到" else "就是这次") }
+                                }
+                                Spacer(Modifier.height(Dims.tight))
+                            }
+                            TextButton(
+                                text = "取消",
+                                onClick = { pending = null },
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (items.isEmpty()) {
+                item {
+                    HintText(
+                        // 上面那颗「打开相机扫码」在这一屏仍然可点 —— 這句只是說明清單空，
+                        // 不是「簽到功能不可用」。
+                        if (pageState == PageState.Empty)
+                            "清单里暂时没有进行中的签到（老师发起后才会出现在这里）。" +
+                                "手上已经有码的话，上面那颗扫码键照样能用 ——" +
+                                "学校的签到码里自带签到编号，扫完直接就能签，不用等它出现在清单里。"
+                        else "签到没有取到，请稍后重试。",
+                    )
+                }
+                item { ActionRow(title = "改用网页版", action = "打开", onClick = onOpenWeb) }
+                return@AppList
+            }
+
+            val open = items.filter { it.isOpen }
+            val closed = items.filter { !it.isOpen }
+
+            if (open.isNotEmpty()) {
+                item { SmallTitle(text = "进行中（${open.size}）") }
+                infoItems(open, key = { it.id }) { r ->
+                    RollcallCard(
+                        rollcall = r,
+                        submitting = busyId == r.id,
+                        inputValue = inputs[r.id].orEmpty(),
+                        onInput = { inputs = inputs + (r.id to it) },
+                        onScan = { scanTarget = ScanTarget.Row(r.id) },
+                        onSubmit = { kind, code ->
+                            submitTo(
+                                scope, repository, r, kind, code,
+                                onBusy = setBusy, onNotice = showNotice,
+                            )
+                        },
+                    )
+                }
+            }
+
+            if (closed.isNotEmpty()) {
+                item { SmallTitle(text = "已经结束（${closed.size}）") }
+                infoItems(closed, key = { it.id }) { r ->
+                    InfoItem(
+                        title = r.title.ifBlank { "签到" },
+                        subtitle = listOfNotNull(
+                            r.sourceLabel,
+                            r.rollcallTime.takeIf { it.isNotBlank() },
+                        ).joinToString("　"),
+                        trailing = r.myStatusLabel,
+                        trailingColor = if (TronAttendanceStates.isSigned(r.myStatus)) colors.primary else colors.error,
+                    )
+                }
+            }
+
             item {
                 HintText(
-                    // 上面那颗「打开相机扫码」在这一屏仍然可点 —— 這句只是說明清單空，
-                    // 不是「簽到功能不可用」。
-                    if (pageState == PageState.Empty)
-                        "清单里暂时没有进行中的签到（老师发起后才会出现在这里）。" +
-                            "手上已经有码的话，上面那颗扫码键照样能用 ——" +
-                            "学校的签到码里自带签到编号，扫完直接就能签，不用等它出现在清单里。"
-                    else "签到没有取到，请稍后重试。",
+                    "签到成不成由学校服务器判定（位置、IP、二维码时效都在那边校验），" +
+                        "失败时会把服务器的原话显示出来。数字签到以老师屏幕上的数字为准。",
                 )
             }
-            item { ActionRow(title = "改用网页版", action = "打开", onClick = onOpenWeb) }
-            return@AppList
+            item { ActionRow(title = "更多功能（网页版）", action = "打开", onClick = onOpenWeb) }
         }
-
-        val open = items.filter { it.isOpen }
-        val closed = items.filter { !it.isOpen }
-
-        if (open.isNotEmpty()) {
-            item { SmallTitle(text = "进行中（${open.size}）") }
-            infoItems(open, key = { it.id }) { r ->
-                RollcallCard(
-                    rollcall = r,
-                    submitting = busyId == r.id,
-                    inputValue = inputs[r.id].orEmpty(),
-                    onInput = { inputs = inputs + (r.id to it) },
-                    onScan = { scanTarget = ScanTarget.Row(r.id) },
-                    onSubmit = { kind, code ->
-                        submitTo(
-                            scope, repository, r, kind, code,
-                            onBusy = setBusy, onNotice = showNotice,
-                        )
-                    },
-                )
-            }
-        }
-
-        if (closed.isNotEmpty()) {
-            item { SmallTitle(text = "已经结束（${closed.size}）") }
-            infoItems(closed, key = { it.id }) { r ->
-                InfoItem(
-                    title = r.title.ifBlank { "签到" },
-                    subtitle = listOfNotNull(
-                        r.sourceLabel,
-                        r.rollcallTime.takeIf { it.isNotBlank() },
-                    ).joinToString("　"),
-                    trailing = r.myStatusLabel,
-                    trailingColor = if (TronAttendanceStates.isSigned(r.myStatus)) colors.primary else colors.error,
-                )
-            }
-        }
-
-        item {
-            HintText(
-                "签到成不成由学校服务器判定（位置、IP、二维码时效都在那边校验），" +
-                    "失败时会把服务器的原话显示出来。数字签到以老师屏幕上的数字为准。",
-            )
-        }
-        item { ActionRow(title = "更多功能（网页版）", action = "打开", onClick = onOpenWeb) }
     }
 }
 
