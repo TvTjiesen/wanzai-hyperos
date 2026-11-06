@@ -202,6 +202,80 @@ class RollcallWriteOnceTest {
         assertTrue("服务端记成 on_call_fine 就是成功，实际消息：${r.message}", r.ok)
     }
 
+    // ---------------- 数字签到（官方 7748 chunk 的契约） ----------------
+
+    @Test
+    fun `数字签到的包体必须是 deviceId + numberCode 驼峰`() = runTest {
+        // ★ 業主 2026-11-06 07:56 那次數字簽到失敗，機器上 `files/tron_raw_answer_number.txt` 逐字：
+        //     {"number_code":"5876"}
+        //   回應逐字（`files/tron_raw_answer_number_resp.txt`）：
+        //     {"error_code":"wrong_number_code","message":"wrong number code","number_code":null}
+        //   官方實現逐字（`https://mobile.hzcu.edu.cn/js/7748.9d913ed8.js`，module 37748，
+        //   組件 `NumberRollcallAnswer`）：
+        //     e = { deviceId: w.Z.deviceId, numberCode: b.value.join("") }
+        //     [4, i.Z.answerNumberRollcall(N, e)]
+        //   ⇒ 欄位是**駝峰 `numberCode`**、且**必須帶 `deviceId`**。
+        //   我們發的 `number_code`（下劃線、無 deviceId）服務端根本不認，
+        //   於是「輸入正確數字卻說錯」。
+        server.enqueue(status = 200, body = """{"id":null,"status":"on_call"}""")
+        val r = repository.answer(4242, RollcallAnswerKind.NUMBER, "5876")
+        assertTrue("官方成功形狀必須判成功：${r.message}", r.ok)
+
+        val w = writes()
+        assertEquals("數字簽到也只發一條", 1, w.size)
+        assertEquals("PUT", w[0].method)
+        assertEquals(
+            "端點必須是 answer_number_rollcall",
+            "/api/rollcall/4242/answer_number_rollcall",
+            w[0].path,
+        )
+        assertTrue("必須用駝峰 numberCode：${w[0].body}", "\"numberCode\":\"5876\"" in w[0].body)
+        assertTrue("必須帶 deviceId（官方 payload 就有它）：${w[0].body}", "\"deviceId\":" in w[0].body)
+        assertFalse("下劃線那個錯欄位不許再出現：${w[0].body}", "number_code" in w[0].body)
+    }
+
+    @Test
+    fun `数字签到只认 HTTP 200 不拿 body 缺席当失败`() = runTest {
+        // 官方這兩支端點（數字 `7748`、自助 `8424`）的成功判據都只有 `200===l.status`，
+        // body 一律不解析。照 QR 那套「必須看到 status」去要求它們，等於自己造了一條
+        // 服務端從沒承諾過的契約 —— 哪天它回 `{}` 或 `{"id":null}`，他就會看到
+        // 「没确认签到」而他其實已經簽上了。
+        server.enqueue(status = 200, body = """{}""")
+        val r = repository.answer(4242, RollcallAnswerKind.NUMBER, "5876")
+        assertTrue("HTTP 200 且沒有 error_code 就是成功：${r.message}", r.ok)
+        assertFalse("不許說「沒確認簽到」：${r.message}", "没确认签到" in r.message)
+    }
+
+    @Test
+    fun `自助签到也要带 deviceId`() = runTest {
+        // 官方 `8424.4b25a4f1.js`（AnswerSelfRegistrationRollcall）逐字：
+        //   e = { deviceId: I.Z.deviceId }
+        //   [4, c.Z.answerSelfRegistionRollcall(n, e)]
+        // 我們先前發的是 `{}`，和數字簽到同一個毛病。
+        server.enqueue(status = 200, body = """{"id":null,"status":"on_call"}""")
+        val r = repository.answer(4242, RollcallAnswerKind.SELF_REGISTRATION, null)
+        assertTrue("200 就是成功：${r.message}", r.ok)
+        val w = writes()
+        assertEquals("只发一条", 1, w.size)
+        assertEquals(
+            "/api/rollcall/4242/answer_self_registration_rollcall",
+            w[0].path,
+        )
+        assertTrue("必须带 deviceId：${w[0].body}", "\"deviceId\":" in w[0].body)
+    }
+
+    @Test
+    fun `数字签到 400 就是失败 且 error_code 翻成人话`() = runTest {
+        server.enqueue(
+            status = 400,
+            body = """{"error_code":"wrong_number_code","message":"wrong number code"}""",
+        )
+        val r = repository.answer(4242, RollcallAnswerKind.NUMBER, "5876")
+        assertFalse("400 必须判失败：${r.message}", r.ok)
+        assertTrue("错误码要翻成学校自己的说法（签到密码错误）：${r.message}", "签到密码错误" in r.message)
+        assertEquals("仍然一条都不许重试", 1, writes().size)
+    }
+
     // ---------------- 提交后按考勤记录核对（只读，绝不重发写请求） ----------------
 
     @Test

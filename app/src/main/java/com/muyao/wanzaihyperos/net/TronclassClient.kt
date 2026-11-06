@@ -488,27 +488,46 @@ class TronclassClient(
                 "/api/rollcall/$rollcallId/answer?api_version=1.76"
         }
         // 包體照官方 H5，不是猜的：
-        //   數字簽到 -> {"number_code":"..."}
+        //   數字簽到 -> {"deviceId":"<设备 uuid>","numberCode":"<老师报的数字>"}
         //   掃碼簽到 -> {"data":"<码里的 3 号段>","deviceId":"<设备 uuid>"}
-        // `mobile.hzcu.edu.cn/js/1154.08a25277.js` 的 `re` 函數逐字：
+        // 掃碼那份出自 `mobile.hzcu.edu.cn/js/1154.08a25277.js` 的 `re` 函數逐字：
         //   n = { data: r.data, deviceId: D.Z.deviceId }
         //   [4, p.Z.answerQRRollcall(r.rollcallId, n)]
         // 舊的 `{"code_str":...}` 是**錯的**（官方包裡 code_str 一次都沒出現），
         // 服務端只會回 no_request_data。
+        //
+        // ★ 數字那份是 2026-11-06 挖出來的（`/e/tmp/chunks/7748.js`，7872 B，
+        //   `https://mobile.hzcu.edu.cn/js/7748.9d913ed8.js` 逐字，module 37748，
+        //   组件 `NumberRollcallAnswer`）：
+        //     e = { deviceId: w.Z.deviceId, numberCode: b.value.join("") }
+        //     [4, i.Z.answerNumberRollcall(N, e)]
+        //   ⇒ 字段名是 **`numberCode`（驼峰）**，且**必须带 `deviceId`**。
+        //   我們之前發的是 `{"number_code":"..."}`（下劃線、無 deviceId），服務端收不到
+        //   那個字段，於是判 `wrong_number_code` —— 業主 2026-11-06 07:56:37 的原文
+        //   `files/tron_raw_answer_number_resp.txt` 逐字：
+        //     {"error_code":"wrong_number_code","message":"wrong number code","number_code":null}
+        //   「輸入正確數字卻說錯」就是這條。
+        //
+        // ⚠️ `runCatching`：deviceId 提供方一旦抛异常（加密存储坏了、Keystore 失效），
+        //   旧版会在**发请求之前**就炸掉 —— 于是 debugDump 什么都没留、界面只能说
+        //   「提交失败：Storage」，而他看到的是「按了没反应」。宁可换一个本次稳定的
+        //   兜底 uuid 也要把请求发出去：服务端至少能回一句真话。
+        val device = runCatching { deviceIdProvider() }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: fallbackDeviceId
         val bodyJson = when (kind) {
             com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.NUMBER ->
-                """{"number_code":${jsonString(code.orEmpty())}}"""
+                """{"deviceId":${jsonString(device)},"numberCode":${jsonString(code.orEmpty())}}"""
+            // 自助簽到官方只帶 deviceId（`8424.4b25a4f1.js` 逐字：
+            //   `e={deviceId:I.Z.deviceId}` / `[4,c.Z.answerSelfRegistionRollcall(n,e)]`）。
+            // 我們先前發的是 `{}` —— 和數字簽到同一個毛病：少一個服務端要的欄位。
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.SELF_REGISTRATION ->
+                """{"deviceId":${jsonString(device)}}"""
             com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.QR -> {
                 val data = com.muyao.wanzaihyperos.data.tronclass.RollcallQrCode.submissionData(code)
-                // ⚠️ `runCatching`：deviceId 提供方一旦抛异常（加密存储坏了、Keystore 失效），
-                //   旧版会在**发请求之前**就炸掉 —— 于是 debugDump 什么都没留、界面只能说
-                //   「提交失败：Storage」，而他看到的是「按了没反应」。宁可换一个本次稳定的
-                //   兜底 uuid 也要把请求发出去：服务端至少能回一句真话。
-                val device = runCatching { deviceIdProvider() }.getOrNull()
-                    ?.takeIf { it.isNotBlank() } ?: fallbackDeviceId
                 """{"data":${jsonString(data)},"deviceId":${jsonString(device)}}"""
             }
-            else -> "{}"
+            // PLAIN（裸 `/answer`）包體我們**沒有憑據**，維持 `{}` 且不主動給按鈕。
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.PLAIN -> "{}"
         }
         // 只给可调试构建：把他自己按下提交那一次真正发出去的包体留下（业主 2026-10-28 第⑤条）。
         // 没有这一条，签到码只能靠猜；有了它，服务端收到什么就是一串可查的原文。
@@ -544,14 +563,37 @@ class TronclassClient(
         //
         // ⇒ 判據：**正文頂層 `status` 優先**（官方語義），再回落 `data.status` /
         //   `data.student_status`（防禦服務端哪天真的包一層 `data`）。
+        //
+        // ★ 但**數字簽到與自助簽到不看這個**：這兩支端點的官方實現（`7748.9d913ed8.js`
+        //   的 `NumberRollcallAnswer`、`8424.4b25a4f1.js` 的 `AnswerSelfRegistrationRollcall`）
+        //   都是 `200===l.status ? (成功) : (失敗)` —— **只看 HTTP 碼，body 一律不解析**。
+        //   我們先前拿 QR 那套「必須看到 status」去要求它們，等於自己造了一條服務端
+        //   從沒承諾過的契約：哪天服務端回 `{"id":null,"status":null}` 或 `{}`，
+        //   業主就會看到「簽到未成功」而他其實已經簽上了。
+        //   ⇒ 200 且**沒有 error_code** 即成功（有 error_code 說明服務端確實拒了）。
         val answerState = answerStateOf(text)
         val onCall = answerState != null && answerState in SIGNED_STATUSES
+        val errorCode = answerErrorCodeOf(text)
+        val statusOnlySuccess = when (kind) {
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.NUMBER,
+            com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind.SELF_REGISTRATION,
+            -> true
+            else -> false
+        }
+        val ok = status == 200 && (onCall || (statusOnlySuccess && errorCode == null))
         return com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult(
-            ok = status == 200 && onCall,
+            ok = ok,
             httpStatus = status,
             // 服務端原話（校驗失敗時它會說「位置不對」「二維碼過期」等）。
             // ⚠️ 只保留短消息，且**不帶請求內容**。
-            message = answerMessage(text = text, status = status, onCall = onCall, state = answerState),
+            message = answerMessage(
+                text = text,
+                status = status,
+                onCall = onCall,
+                state = answerState,
+                // 只認 HTTP 碼那兩支：成功了就別再讓 body 的缺席把它說成失敗。
+                statusOnlyOk = statusOnlySuccess && ok,
+            ),
         )
     }
 
@@ -581,6 +623,18 @@ class TronclassClient(
     }
 
     /**
+     * 響應裡的錯誤碼（`error_code`），沒有就回 null。
+     *
+     * 用來區分「這次是服務端明確拒了」還是「只是 body 沒帶 status」：
+     * 數字簽到與自助簽到的官方實現只看 HTTP 碼，body 缺席不等於失敗，
+     * 但**有 `error_code` 就一定真的失敗了**。
+     */
+    private fun answerErrorCodeOf(text: String): String? {
+        val obj = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+        return obj?.get("error_code").asStringOrNull()?.takeIf { it.isNotBlank() }
+    }
+
+    /**
      * 把簽到響應翻成一句能給他看的話。
      *
      * 服務端的可讀消息在 `message` / `msg` / `error` 裡；校驗失敗時常常**只有**
@@ -589,14 +643,24 @@ class TronclassClient(
      *
      * @param state 響應裡讀到的考勤狀態原文（`on_call_fine` 這類）。**只用來查本地碼表**，
      *   原樣吐出服務端枚舉等於讓他讀英文，所以走 [attendanceStateText]。
+     * @param statusOnlyOk 這支端點的成功判據只是 HTTP 200（數字簽到 / 自助簽到），
+     *   且這次確實 200 了 —— 那麼 body 裡沒有一個「已到」的狀態**不是**問題，
+     *   不要再說「沒確認簽到」。
      */
-    private fun answerMessage(text: String, status: Int, onCall: Boolean, state: String?): String {
+    private fun answerMessage(
+        text: String,
+        status: Int,
+        onCall: Boolean,
+        state: String?,
+        statusOnlyOk: Boolean = false,
+    ): String {
         val obj = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
         val raw = obj?.get("message").asStringOrNull()
             ?: obj?.get("msg").asStringOrNull()
             ?: obj?.get("error").asStringOrNull()
         val human = obj?.get("error_code").asStringOrNull()?.let { rollcallErrorText(it) }
         val fallback = when {
+            statusOnlyOk -> "已签到"
             status != 200 -> "签到未成功（服务端未说明原因）"
             onCall -> "已签到"
             else -> attendanceStateText(state)?.let { "服务端记成了「$it」，不是已到" }
@@ -633,7 +697,9 @@ class TronclassClient(
 
     /** 官方錯誤碼 -> 一句中文（碼表逐字來自 mobile.hzcu.edu.cn 的錯誤碼枚舉）。 */
     private fun rollcallErrorText(code: String): String? = when (code) {
-        "wrong_number_code" -> "数字不对"
+        // 官方 i18n 逐字：`errorMsg.wrongNumberCode` = 「签到密码错误，请重试」。
+        // 這個碼只出現在數字簽到，叫「密碼」比叫「數字」貼近學校自己的說法。
+        "wrong_number_code" -> "签到密码错误"
         "rollcall_unknown_student" -> "你不在这次签到的名单里"
         "rollcall_already_closed" -> "这次签到已经结束"
         "not_found_qr_rollcall" -> "服务端找不到这次签到"

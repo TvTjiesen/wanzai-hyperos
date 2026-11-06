@@ -778,7 +778,10 @@ private fun RollcallCard(
                                 TextField(
                                     value = inputValue,
                                     onValueChange = onInput,
-                                    label = "老师报的数字",
+                                    // 官方是 4 个格子、每位一格（`7748` chunk：`new Array(4)`，
+                                    // 收满 4 位自动提交）。我们这里是一个输入框，所以把「4 位」
+                                    // 写进标签 —— 否则他会以为随便几位都行。
+                                    label = "老师报的数字（4 位）",
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.fillMaxWidth(),
