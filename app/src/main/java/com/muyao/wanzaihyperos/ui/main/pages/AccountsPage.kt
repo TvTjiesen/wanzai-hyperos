@@ -34,6 +34,7 @@ import com.muyao.wanzaihyperos.ui.design.SettingIcon
 import com.muyao.wanzaihyperos.ui.design.SettingRow
 import com.muyao.wanzaihyperos.ui.design.Tone
 import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -106,7 +107,12 @@ fun AccountsPage(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = Dims.screenH),
     ) {
-        Spacer(Modifier.height(8.dp))
+        // ★ 2026-11-07：二级页也要让开状态栏。
+        //
+        // 原来这里直接 `Spacer(8.dp)` 就开画，真机上「‹ 返回」和「账号」双双压在
+        // 「14:48 / 抖音 / OPPO」那排系统图标底下（截图 `[local]\fin_app_s.png`）。
+        // 主壳那五页都走 `statusBarTopPadding()`，只有这两个独立路由页漏了。
+        Spacer(Modifier.height(statusBarTopPadding() + 8.dp))
         Text(
             text = "‹ 返回",
             fontSize = Type.body,

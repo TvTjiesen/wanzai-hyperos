@@ -26,6 +26,7 @@ import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.AppColors
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -64,7 +65,9 @@ fun AboutPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = Dims.screenH),
     ) {
-        Spacer(Modifier.height(8.dp))
+        // ★ 2026-11-07：二级页也要让开状态栏（同 AccountsPage 那条，
+        //   原来「‹ 返回」压在系统时间底下）。
+        Spacer(Modifier.height(statusBarTopPadding() + 8.dp))
         Text(
             text = "‹ 返回",
             fontSize = Type.body,
