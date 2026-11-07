@@ -205,7 +205,31 @@ fun HomeSectionPage(
     } else {
         requestedPreset
     }
-    val look = skyLookOf(preset, now.hour)
+    // ★ 2026-11-07：容器背景 = 「只留最外层」时，这一屏身后**没有天光**。
+    //
+    // 真机踩到（`[local]\y_home_bare_s.png`）：切到 bare 之后整片纸底透上来，
+    // 而上面那行「集城」、大日期「今天」、「周六 11 月 7 日」、状态行、焦点卡字色
+    // 全都还在用 `look.ink` —— 相册档与夜航档那一支是**纯白**，
+    // 于是白字压白纸：整屏上半段几乎读不出来。
+    //
+    // 判据：bare 时身后真正会出现的底色就是根上那层整页渐变（`AppColors.pageBrush`），
+    // 也就是 `colors.background`。所以造一版「纸面天空」交给下游：
+    // 三段色全取纸色（`cardBackdrops` 会据此喂出一整排纸色，焦点卡按它算字色），
+    // 墨色取主题的 `onBackground`，状态栏图标跟随主题明暗。
+    val bare = LocalContainerStyle.current == ContainerStyle.Bare
+    val look = if (bare) {
+        SkyLook(
+            top = colors.background,
+            bottom = colors.background,
+            mid = colors.background,
+            ridgeFar = Color.Transparent,
+            ridgeNear = Color.Transparent,
+            ink = colors.onBackground,
+            lightIcons = colors.background.luminance() < 0.5f,
+        )
+    } else {
+        skyLookOf(preset, now.hour)
+    }
     LightStatusBarIcons(light = look.lightIcons)
 
     // ── 顶栏接线 ──────────────────────────────────────────────────
