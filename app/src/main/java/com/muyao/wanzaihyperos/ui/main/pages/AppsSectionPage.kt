@@ -63,8 +63,12 @@ import com.muyao.wanzaihyperos.data.apps.pickCommon
 import com.muyao.wanzaihyperos.data.portal.PortalParsers
 import com.muyao.wanzaihyperos.data.portal.toUiApp
 import com.muyao.wanzaihyperos.ui.design.AppCard
+import com.muyao.wanzaihyperos.ui.design.BodyMark
 import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.Mark
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.markSemantics
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -146,6 +150,18 @@ fun AppsSectionPage(
     val inFlight by graph.inFlight.collectAsState()
     val ballState = AiBallStates.ofList(catalogState, fetching = inFlight > 0)
 
+    // ── 英雄区副行（设计稿 v2.1：「79 个来源入口 · 原生与网页分开」）──────────
+    // 数字全部来自真实清单，一条都不编。清单还没到就是空串，
+    // [LargeTitle] 会走 `subtitle.isEmpty()` 分支把副行整行省掉。
+    val heroApps = (catalogState as? ListState.Content)
+        ?.items.orEmpty().flatMap { it.apps }.distinctBy { it.id }.map { it.toUiApp() }
+    val heroNative = heroApps.count { isNativeApp(it) }
+    val heroSubtitle = if (heroApps.isEmpty()) {
+        ""
+    } else {
+        "${heroApps.size} 个来源入口 · 原生 $heroNative / 网页 ${heroApps.size - heroNative}"
+    }
+
     LazyColumn(
         state = pilot.listState,
         modifier = modifier.fillMaxSize(),
@@ -159,7 +175,16 @@ fun AppsSectionPage(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        largeTitleItem(pilot, leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) })
+        // 2026-11-07 按设计稿 v2.1 复刻首屏英雄区：「校园服务 / 校园集合 / N 个来源入口 · …」。
+        // 顶栏小标题仍是「应用」，首屏大字换成「校园集合」—— 设计稿里这两句本来就不是同一句话。
+        largeTitleItem(
+            pilot = pilot,
+            leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) },
+            kicker = "校园服务",
+            heroTitle = "校园集合",
+            subtitle = heroSubtitle,
+            divider = true,
+        )
 
         // 搜索只做**入口**：真正的输入框与查询状态都在搜索页。
         // 这里再放一个输入框会出现两份查询状态，点进来还要同步一次。
@@ -262,6 +287,7 @@ fun AppsSectionPage(
                                 title = "常用",
                                 subtitle = "",
                                 count = common.size,
+                                icon = MarkIcon.Pin,
                                 // ★ 原来这里写死「最近使用」，可这一页从来没记过一次打开 ——
                                 //   那句是在替业主撒谎（红线：不编）。现在这句由
                                 //   **实际命中的档位**拼出来，用了哪几档就写哪几档。
@@ -363,6 +389,7 @@ fun AppsSectionPage(
                         item(key = "native-header") {
                             // 板 `.sec-head .count{12 · 打开即用}` —— 数字直接打头，没有量词「个」。
                             SectionLabel(title = "原生应用", subtitle = "", count = restNative.size,
+                                icon = MarkIcon.App,
                                 note = "${restNative.size} · 打开即用")
                         }
                         restNative.chunked(4).forEachIndexed { rowIndex, rowApps ->
@@ -411,6 +438,7 @@ fun AppsSectionPage(
                                 title = "网页服务",
                                 subtitle = "",
                                 count = restWeb.size,
+                                icon = MarkIcon.Web,
                                 note = restWeb.size.toString() + " · 需联网",
                                 action = {
                                     CollapseToggle(collapsed = webCollapsed) {
@@ -572,6 +600,12 @@ private fun SectionLabel(
     subtitle: String,
     count: Int,
     modifier: Modifier = Modifier,
+    /**
+     * 标题前的正文图标（2026-11-07 起）。跟 [BodyMark] 是同一套 25 枚，
+     * 不是另造一批：应用页这三堆（常用 / 原生 / 网页）用 [MarkIcon.Pin]、
+     * [MarkIcon.App]、[MarkIcon.Web] 分开，一眼能看出「这是钉住的」还是「这要联网」。
+     */
+    icon: MarkIcon? = null,
     /** 右侧描述文案（板子不是裸数字）：例如「6 个 · 常用入口」。 */
     note: String? = null,
     action: (@Composable () -> Unit)? = null,
@@ -584,14 +618,26 @@ private fun SectionLabel(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                // 板 `.sec-head h3{font-size:15px;font-weight:700;letter-spacing:-.01em}` × 0.886 ⇒ 13sp
-                fontSize = Type.body,
-                fontWeight = Type.weightTitle,
-                letterSpacing = (-0.01).em,
-                color = colors.onBackground,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (icon != null) {
+                    BodyMark(
+                        icon = icon,
+                        tint = colors.onBackground,
+                        modifier = Modifier
+                            .markSemantics(icon)
+                            .padding(end = 6.dp),
+                        size = Mark.rowSize,
+                    )
+                }
+                Text(
+                    text = title,
+                    // 板 `.sec-head h3{font-size:15px;font-weight:700;letter-spacing:-.01em}` × 0.886 ⇒ 13sp
+                    fontSize = Type.body,
+                    fontWeight = Type.weightTitle,
+                    letterSpacing = (-0.01).em,
+                    color = colors.onBackground,
+                )
+            }
             if (subtitle.isNotBlank()) {
                 Spacer(Modifier.height(Dims.tight))
                 Text(
@@ -636,54 +682,64 @@ private fun CollapseToggle(collapsed: Boolean, onToggle: () -> Unit) {
 }
 
 /**
- * 名称 → 板上那套**线性**字形。
+ * 名称 → 正文前图标（[MarkIcon]）。
+ *
+ * ## 为什么换掉原来那套 `ic_board_*`
  *
  * 门户下发的 `app.icon` 是同一颗通用图标（每个入口长一个样），复评的判据是
  * 「逐格都是同一个四方块 + 一个实心形」—— 那不是每格不一样，是每格一样。
- * 板上的做法是每个入口有自己的字形（`#i-book/#i-card/#i-ticket/#i-chart/#i-pen/
- * #i-bus/#i-wifi/#i-pin/#i-scan`…），所以这里按**名字里的关键词**挑，
- * 字形全部来自 `tools/board_icons_to_xml.py` 从板里生成的 `ic_board_*`。
+ * 老做法是按关键词挑 24 枚 `ic_board_*` 矢量，**但那是 24 枚各自的粗细/圆角/画布
+ * 都不完全一致的手绘素材**，混在一屏里看得出参差；而且它与新做的正文前图标
+ * （[BodyMark]/[MarkIcon]）是两套笔性，同一页上并存就显得没做完。
  *
- * 挑不到就用 `#i-grid`（板上「全部」那颗）——**不猜分类、不编一个像样的图标**。
- * 顺序是先匹配先赢，所以「一卡通」要排在「卡」类前面被 `card` 收走。
+ * 现在统一到 [MarkIcon] 这一套：同一条 0.095 中线宽、同一 0.08 内缩、同一圆角比例，
+ * 所以「常用」四格、「原生应用」网格、「网页服务」列表用的是**同一支笔**。
+ *
+ * ## 挑选规则（先匹配先赢，顺序有讲究）
+ *
+ * 挑不到就用 [MarkIcon.App]（「这是个入口」）——**不猜分类、不编一个像样的图标**。
+ * 顺序陷阱：「一卡通」必须先于「卡」类被收走；「我的课程」要先于「我的」被收走，
+ * 否则整列全是同一个人形（17:04 截图里「我的成长 / 我的班级」撞成同一颗就是这么来的）。
  */
-@Composable
-private fun boardIconFor(name: String): ImageVector {
-    val res = when {
-        name.contains("签到") || name.contains("打卡") -> R.drawable.ic_board_check
-        name.contains("扫码") || name.contains("扫描") -> R.drawable.ic_board_scan
-        name.contains("成绩") || name.contains("绩点") || name.contains("排名") ||
-            name.contains("统计") -> R.drawable.ic_board_chart
-        name.contains("作业") || name.contains("报告") || name.contains("提交") -> R.drawable.ic_board_pen
-        name.contains("考试") || name.contains("安排") || name.contains("文件") ||
-            name.contains("证明") -> R.drawable.ic_board_file
-        name.contains("一卡通") || name.contains("卡") || name.contains("消费") ||
-            name.contains("充值") -> R.drawable.ic_board_card
-        name.contains("图书") || name.contains("馆藏") || name.contains("借阅") ||
-            name.contains("数据库") -> R.drawable.ic_board_library
-        name.contains("讲座") || name.contains("书") || name.contains("报销") ->
-            R.drawable.ic_board_book
-        name.contains("教务") || name.contains("培养") || name.contains("方案") ||
-            name.contains("手册") || name.contains("校历") -> R.drawable.ic_board_book
-        name.contains("课") || name.contains("表") -> R.drawable.ic_board_cal
-        name.contains("消息") || name.contains("通知") || name.contains("收件") ||
-            name.contains("邮件") -> R.drawable.ic_board_inbox
-        name.contains("座位") || name.contains("自习") || name.contains("空间") ||
-            name.contains("公寓") || name.contains("宿舍") -> R.drawable.ic_board_pin
-        name.contains("预约") || name.contains("场馆") || name.contains("票") -> R.drawable.ic_board_ticket
-        name.contains("网络") || name.contains("wifi") || name.contains("WiFi") ||
-            name.contains("校园网") -> R.drawable.ic_board_wifi
-        name.contains("车") || name.contains("交通") || name.contains("班车") -> R.drawable.ic_board_bus
-        // 「成长」是一段时间的记录，给统计那颗；「班级」才用人。
-        // （17:04 截图里「我的成长 / 我的班级」两格撞成同一颗人形，看着像没做区分）
-        name.contains("成长") || name.contains("画像") -> R.drawable.ic_board_chart
-        name.contains("我") || name.contains("个人") || name.contains("信息") ||
-            name.contains("账号") || name.contains("班级") -> R.drawable.ic_board_user
-        name.contains("工具") || name.contains("维修") || name.contains("报修") -> R.drawable.ic_board_wrench
-        name.contains("钟") || name.contains("时间") || name.contains("日程") -> R.drawable.ic_board_clock
-        else -> R.drawable.ic_board_grid
-    }
-    return ImageVector.vectorResource(res)
+private fun markIconFor(name: String): MarkIcon = when {
+    // 先处理带「我的」这类高歧义前缀的复合词，否则会被末尾的兜底规则抢走
+    name.contains("成长") || name.contains("画像") || name.contains("绩点") -> MarkIcon.Growth
+    name.contains("班级") || name.contains("信息卡") || name.contains("学籍") -> MarkIcon.Account
+    name.contains("课程") || name.contains("课表") || name.contains("查课") -> MarkIcon.Schedule
+    name.contains("讲座") || name.contains("活动") || name.contains("劳动") -> MarkIcon.Ticket
+    name.contains("考试") || name.contains("问卷") || name.contains("申报") ||
+        name.contains("测评") || name.contains("申报") -> MarkIcon.File
+    name.contains("签到") || name.contains("打卡") || name.contains("待办") -> MarkIcon.Todo
+    name.contains("成绩") || name.contains("排名") || name.contains("统计") ||
+        name.contains("教务") -> MarkIcon.Data
+    name.contains("一卡通") || name.contains("消费") || name.contains("充值") ||
+        name.contains("卡") -> MarkIcon.Card
+    name.contains("图书") || name.contains("馆藏") || name.contains("借阅") ||
+        name.contains("资料") -> MarkIcon.Library
+    name.contains("消息") || name.contains("通知") || name.contains("收件") ||
+        name.contains("邮件") || name.contains("问卷") -> MarkIcon.Message
+    name.contains("座位") || name.contains("自习") || name.contains("空间") ||
+        name.contains("公寓") || name.contains("宿舍") || name.contains("场馆") -> MarkIcon.Pin
+    name.contains("预约") || name.contains("票") -> MarkIcon.Ticket
+    name.contains("网络") || name.contains("wifi") || name.contains("WiFi") ||
+        name.contains("校园网") -> MarkIcon.Wifi
+    name.contains("车") || name.contains("交通") || name.contains("班车") -> MarkIcon.Bus
+    name.contains("体育") || name.contains("跑") || name.contains("运动") -> MarkIcon.Run
+    name.contains("报修") || name.contains("维修") || name.contains("工具") -> MarkIcon.Wrench
+    name.contains("电话") || name.contains("联系") -> MarkIcon.Phone
+    name.contains("证明") || name.contains("文件") || name.contains("回执") ||
+        name.contains("申请") -> MarkIcon.File
+    name.contains("扫码") || name.contains("扫描") || name.contains("一码") -> MarkIcon.Scan
+    name.contains("时间") || name.contains("日程") || name.contains("校历") -> MarkIcon.Clock
+    name.contains("就业") || name.contains("规划") || name.contains("发展") -> MarkIcon.Growth
+    name.contains("心理") || name.contains("安全") || name.contains("预警") -> MarkIcon.Warn
+    // 网页来源天然带「网页」语义；原生入口一律落到 App
+    else -> MarkIcon.App
+}
+
+private fun markIconForWeb(name: String): MarkIcon {
+    val own = markIconFor(name)
+    return if (own == MarkIcon.App) MarkIcon.Web else own
 }
 
 /**
@@ -742,13 +798,17 @@ private fun AppGridCell(
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = boardIconFor(app.name),
-                    contentDescription = null,
-                    // 板子的原生区是**单色线图标 + 米色方块**，不是彩色圆片；
-                    // 只有 `.hi` 那一格换成 accent 字形（和它的薄荷底成一对）。
+                // 板子的原生区是**单色线图标 + 米色方块**，不是彩色圆片；
+                // 只有 `.hi` 那一格换成 accent 字形（和它的薄荷底成一对）。
+                // 2026-11-07：换到统一的正文前图标笔性（MarkIcon），详见 markIconFor 的 KDoc。
+                BodyMark(
+                    icon = if (web) markIconForWeb(app.name) else markIconFor(app.name),
                     tint = if (highlight) colors.primary else colors.onBackground,
-                    modifier = Modifier.size(glyphSize),
+                    modifier = Modifier.markSemantics(
+                        if (web) markIconForWeb(app.name) else markIconFor(app.name),
+                    ),
+                    // 网格里那枚比正文前略大：它要撑住 41~46dp 的托盘。
+                    size = glyphSize,
                 )
             }
             if (web) {
@@ -862,12 +922,12 @@ private fun WebRow(app: PortalApp, onClick: () -> Unit) {
                 .background(colors.onBackground.copy(alpha = 0.045f)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = boardIconFor(app.name),
-                contentDescription = null,
-                // 板 `.webrow .box{color:var(--sub)}` —— 网页那批的字形比原生淡一档。
+            // 板 `.webrow .box{color:var(--sub)}` —— 网页那批的字形比原生淡一档。
+            BodyMark(
+                icon = markIconForWeb(app.name),
                 tint = colors.onSurfaceVariantSummary,
-                modifier = Modifier.size(13.dp),
+                modifier = Modifier.markSemantics(markIconForWeb(app.name)),
+                size = 13.dp,
             )
         }
         Spacer(Modifier.size(9.dp))

@@ -391,6 +391,15 @@ fun SettingRow(
  */
 internal val ChevronSlot = 20.dp
 
+/**
+ * 分组标题前的正文图标尺寸（**13dp**）。
+ *
+ * 比正文条目的 [Mark.size]（15dp）小一档：组标题的字是 `Type.summary`（12sp），
+ * 图标若按 15dp 画会比字还高，两个东西并排时读起来像两颗头。
+ * 与 [Mark.rowSize]（16dp，列表条目里用）同属「图标跟字走」的一族。
+ */
+internal val GroupLabelMarkSize = 13.dp
+
 /** 分组卡：参照站那种"一个圆角容器里塞几行"。 */
 @Composable
 fun SettingGroup(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -408,14 +417,34 @@ fun SettingGroup(modifier: Modifier = Modifier, content: @Composable () -> Unit)
 
 /** 分组之间的小标题。 */
 @Composable
-fun SettingSectionLabel(text: String) {
-    Text(
-        text = text,
-        fontSize = Type.summary,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+fun SettingSectionLabel(text: String, icon: MarkIcon? = null) {
+    // 分组标题前的正文图标（2026-11-07 起）：与首页「今天 / 要处理 / 校园跑」、
+    // 消息页「需要处理 / 门户通知 / 新闻」用的是同一套 [MarkIcon]，不是另造一个。
+    // 组标题是**低对比度的路标**，不是标题，所以图标跟着文字一起走 quiet 色，
+    // 不加磁贴、不加大——它只需要让人一眼分出「账号 / 外观 / 课表 / 关于」四堆。
+    val color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    Row(
         // 左边不再多缩 6dp：全站正文列是 16dp（板 18px），组标题必须同一条基线
-        modifier = Modifier.padding(start = 0.dp, top = 10.dp, bottom = 2.dp),
-    )
+        modifier = Modifier.fillMaxWidth().padding(start = 0.dp, top = 10.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            BodyMark(
+                icon = icon,
+                tint = color,
+                modifier = Modifier.markSemantics(icon),
+                // 13dp 比正文图标的 15dp 小一档：组标题的字是 12sp，
+                // 图标若按 15dp 画会比字还高，读起来像两颗并排的头。
+                size = GroupLabelMarkSize,
+            )
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(
+            text = text,
+            fontSize = Type.summary,
+            color = color,
+        )
+    }
 }
 
 /**

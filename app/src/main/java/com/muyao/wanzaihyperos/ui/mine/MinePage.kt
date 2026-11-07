@@ -178,7 +178,7 @@ fun MinePage(
         item {
             AppCard(modifier = Modifier.padding(horizontal = 12.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    AboutRow("应用", "玩在城院（Kotlin / HyperOS 版）")
+                    AboutRow("应用", "集城（Kotlin / HyperOS 版）")
                     AboutRow("当前阶段", "A1 · Miuix UI 骨架与四页导航")
                     AboutRow("示例数据", "是（未接入学校接口）")
                     AboutRow("主题与 Insets", "根节点统一持有")

@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   ⚠️ 这个文件**只覆盖 debug 构建**（源集机制：src/debug 优先于 src/main）。
-  release 版仍然是 src/main 里的「玩在城院」，正式名不受影响。
+  release 版仍然是 src/main 里的「集城」，正式名不受影响。
 
   为什么要区分（PLAN-GPT §A5「自用驗收期間，新版採可與 Flutter 並存的測試安裝識別」）：
   Flutter 旧版与我们这版**包名本来就不同**（com.muyao.wanzaihzcu vs
   com.muyao.wanzaihyperos），所以安装时不会互相覆盖 —— 这一点已经满足。
-  但**桌面标签原本一模一样**（都是「玩在城院」），同时装在手机上会分不清哪个是哪个，
+  但**桌面标签原本一模一样**（都是「集城」），同时装在手机上会分不清哪个是哪个，
   验收时很容易点错、把旧版的表现当成新版的。
 
   所以给验收版加「(测试)」后缀：肉眼可辨，且**不改包名** ——
   改包名会让「不直接覆盖旧版」这条约束失效（还会丢掉各版的登录态，得重新登录）。
 -->
 <resources>
-    <string name="app_name">玩在城院（新版·测试）</string>
+    <string name="app_name">集城（新版·测试）</string>
 </resources>

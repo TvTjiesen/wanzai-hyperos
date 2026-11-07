@@ -30,8 +30,13 @@ class AiBallWiringTest {
     }
 
     @Test
-    fun 四个内容页各自在标题左边挂一只球() {
-        // 消息 / 应用 / 设置走共享的大标题（leading 槽），课表页自己画标题所以用 AiBallRow。
+    fun 三个内容页各自在标题左边挂一只球() {
+        // 消息 / 应用 / 设置走共享的大标题（leading 槽）。
+        // 2026-11-07 起这三页的 `largeTitleItem` 是**多行多参**调用（加了 kicker / heroTitle /
+        // subtitle / divider 四个参数去复刻稿的「球 + eyebrow + 大字 + 副行 + 细线」），
+        // 所以判据不能再钉一整行字面量，改钉两个**语义点**：
+        //   ① 调的是 `largeTitleItem(`；② leading 槽里确实是 `AiBall(state = ballState`。
+        // 中间插多少个命名参数都不影响「这一页有没有脸」。
         val viaLargeTitle = mapOf(
             "消息" to "main/pages/NotifySectionPage.kt",
             "应用" to "main/pages/AppsSectionPage.kt",
@@ -40,22 +45,39 @@ class AiBallWiringTest {
         viaLargeTitle.forEach { (name, rel) ->
             val src = code(rel)
             assertTrue(
+                "$name 页没有走 largeTitleItem —— 那一页就没有标题了",
+                src.contains("largeTitleItem("),
+            )
+            assertTrue(
                 "$name 页的大标题没有把小球当 leading —— 那一页就没有脸了",
-                src.contains("largeTitleItem(pilot, leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) })"),
+                src.contains("leading = { AiBall(state = ballState"),
             )
         }
+    }
+
+    @Test
+    fun 课表页不挂球() {
+        // ★ 2026-11-07 用户口径：「首页只保留上半屏原设计，其余页面一比一复刻 GPT 的设计」。
+        //   `screens/timetable.png` 的第 1 行只有三件东西 ——「第 11 周」/ `‹` /「回到今天」/ `›`，
+        //   「第」字起笔就贴页边距。前面塞一只 36dp 的球会把整行右移 40dp，与稿对不上。
+        //   所以这一页的球是**故意拿掉的**，不是漏了：这条断言从「必须有」反过来钉「不许有」。
         val timetable = code("main/pages/TimetableSectionPage.kt")
         assertTrue(
-            "课表页的标题没有用 AiBallRow 把小球的字排在标题左边",
-            timetable.contains("AiBallRow(state = ballState"),
+            "课表页又长出一只球 —— 稿上这一页第 1 行只有「第 N 周 + ‹ 回到今天 ›」，没有球",
+            !timetable.contains("AiBall(") && !timetable.contains("AiBallRow("),
+        )
+        // 纯函数本身留着（AiBallStatesTest 仍在验它），只是这一页不消费。
+        assertTrue(
+            "AiBallStates.ofTimetable 被一起删掉了 —— 它只是不在这页用，不是废弃",
+            File("$base/design/ai/AiBallStates.kt").readText(Charsets.UTF_8).contains("fun ofTimetable("),
         )
     }
 
     @Test
     fun 每页用的是自己的那份数据() {
-        // 五页各读各的仓库。写成同一句（例如都 ofCount(...)）说明有人复制粘贴没改。
+        // 三页各读各的仓库。写成同一句（例如都 ofCount(...)）说明有人复制粘贴没改。
+        // （课表页自 2026-11-07 起不画球，所以不在这张表里。）
         val expected = mapOf(
-            "main/pages/TimetableSectionPage.kt" to "AiBallStates.ofTimetable(",
             "main/pages/NotifySectionPage.kt" to "AiBallStates.ofCount(",
             "main/pages/AppsSectionPage.kt" to "AiBallStates.ofList(",
             "main/pages/SettingsSectionPage.kt" to "AiBallStates.ofAccounts(",

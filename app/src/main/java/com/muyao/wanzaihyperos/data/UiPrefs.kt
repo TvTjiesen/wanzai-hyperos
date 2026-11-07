@@ -50,6 +50,14 @@ object UiPrefs {
     // ── 外观 / 首页（v2）─────────────────────────────────────────────
     private const val KEY_WALLPAPER_PRESET = "wallpaper_preset"
     private const val KEY_BACKGROUND_PRESET = "background_preset"
+
+    /**
+     * 容器背景风格：`designed`（保留页内天光与纸色分层，稿子原样）/ `bare`（只留最外层整页背景）。
+     *
+     * 为什么存字符串而不是布尔：以后真想加第三种（比如「只有卡片、没有天光」）时
+     * 不需要再改一次键名，也不会出现「旧布尔值读到一个新语义」的歧义。
+     */
+    private const val KEY_CONTAINER_STYLE = "container_style"
     private const val KEY_WALLPAPER_DIM = "wallpaper_dim"
     private const val KEY_WALLPAPER_SOFT = "wallpaper_soft"
     private const val KEY_WALLPAPER_REV = "wallpaper_rev"
@@ -158,6 +166,9 @@ object UiPrefs {
      *  这里是**字符串白名单**而不是直接引用枚举：偏好层不 import UI 层（同一纪律，见 `saveReduceTransparency`）。 */
     private val BACKGROUND_PRESETS = listOf("porcelain", "cream", "mist", "sakura", "lake")
 
+    /** 容器背景风格的可接受值，与 `ui/design/ContainerStyle.entries` 的 id 一一对应。 */
+    private val CONTAINER_STYLES = listOf("designed", "bare")
+
 
     /**
      * 壁纸预设：`auto`（跟着时间走的内置天空）/ `morning` / `dusk` / `night` / `album`。
@@ -169,6 +180,16 @@ object UiPrefs {
      */
     /** 全局背景预设 id（业主 2026-10-29「让用户自己选择背景颜色」）。读它的人是 `AppColors`。 */
     var backgroundPreset by mutableStateOf("porcelain")
+        private set
+
+    /**
+     * 容器背景风格 id：`designed` = 保留页内天光与纸张底色（稿子原样）；
+     * `bare` = 去掉容器背景，只留最外层那一层整页背景。
+     *
+     * 读它的人是 `WanzaiRoot`（根上读一次，经 `LocalContainerStyle` 往下传），
+     * 以及设置页/外观页那个分段控件。
+     */
+    var containerStyle by mutableStateOf("designed")
         private set
 
     var wallpaperPreset by mutableStateOf("auto")
@@ -296,6 +317,8 @@ object UiPrefs {
             .takeIf { it in WALLPAPER_PRESETS } ?: "auto"
         backgroundPreset = (p.getString(KEY_BACKGROUND_PRESET, "porcelain") ?: "porcelain")
             .takeIf { it in BACKGROUND_PRESETS } ?: "porcelain"
+        containerStyle = (p.getString(KEY_CONTAINER_STYLE, "designed") ?: "designed")
+            .takeIf { it in CONTAINER_STYLES } ?: "designed"
         wallpaperDim = p.getInt(KEY_WALLPAPER_DIM, 24).coerceIn(0, 80)
         wallpaperSoft = p.getInt(KEY_WALLPAPER_SOFT, 26).coerceIn(0, 100)
         wallpaperPanX = p.getFloat(KEY_WALLPAPER_PAN_X, 0f).coerceIn(-1f, 1f)
@@ -433,6 +456,19 @@ object UiPrefs {
         prefs()?.edit()?.putString(KEY_BACKGROUND_PRESET, v)?.apply()
     }
 
+    /**
+     * 改容器背景风格。非法值一律落回 `designed`（稿子原样是安全的那一版）。
+     *
+     * 只有两份状态要同步：这里的 `mutableStateOf`（重组用）与盘上的字符串。
+     * 不需要像 `reduceTransparency` 那样再叫醒 `MotionPrefs` —— 那边是 `@Volatile` 字段，
+     * 这里读的就是 Compose 状态本身。
+     */
+    fun saveContainerStyle(id: String) {
+        val v = id.takeIf { it in CONTAINER_STYLES } ?: "designed"
+        containerStyle = v
+        prefs()?.edit()?.putString(KEY_CONTAINER_STYLE, v)?.apply()
+    }
+
     fun saveWallpaperDim(value: Int) {
         val v = value.coerceIn(0, 80)
         wallpaperDim = v
@@ -526,6 +562,7 @@ object UiPrefs {
     fun resetAppearance() {
         wallpaperPreset = "auto"
         backgroundPreset = "porcelain"
+        containerStyle = "designed"
         // ★ 独立审计（v3 #10 第 1 轮④）：这颗按钮以前只清 preset/dim/soft 三条，
         //   **不清取景三元组** ⇒ 他按过「恢复默认」之后再点相册那一格，
         //   旧图带着旧裁切原地复活（名不副实）。现在一起清。
@@ -550,6 +587,7 @@ object UiPrefs {
         prefs()?.edit()
             ?.putString(KEY_WALLPAPER_PRESET, "auto")
             ?.putString(KEY_BACKGROUND_PRESET, "porcelain")
+            ?.putString(KEY_CONTAINER_STYLE, "designed")
             ?.putInt(KEY_WALLPAPER_DIM, 24)
             ?.putInt(KEY_WALLPAPER_SOFT, 26)
             ?.putString(KEY_HOME_DENSITY, "comfortable")

@@ -73,6 +73,7 @@ import com.muyao.wanzaihyperos.data.UiPrefs
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.AppColors
 import com.muyao.wanzaihyperos.ui.design.BackgroundPreset
+import com.muyao.wanzaihyperos.ui.design.ContainerStyle
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.PillSwitch
 import com.muyao.wanzaihyperos.ui.design.Tone
@@ -357,6 +358,22 @@ fun AppearancePage(
                             repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
+                }
+            }
+
+            // ---- 容器背景（业主 2026-11-07：「整个 app 的容器背景做两版」）----
+            //
+            // 两版**不是同一个色的深浅**，是两条渲染路径：
+            //  · 保留 = 页内这一层自己铺纸色渐变 + 首页天光（`AppColors.pageBrush` 那层）
+            //  · 只留最外层 = 页内这一层让开，露出的仍是根节点画的那一整块
+            // 见 `ui/design/ContainerStyle.kt` 里的说明。这里只负责把它写进偏好。
+            item(key = "container-style") {
+                CtlRow(label = "容器背景", first = true) {
+                    Segmented(
+                        options = ContainerStyle.entries.map { it.label to it.id },
+                        selectedValue = UiPrefs.containerStyle,
+                        onSelect = { UiPrefs.saveContainerStyle(it) },
+                    )
                 }
             }
 

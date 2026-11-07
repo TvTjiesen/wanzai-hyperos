@@ -28,7 +28,7 @@
     其余约 100 处仍在 Composable 里，迁移顺序见 docs/COPY-TERMS.md §7。
 -->
 <resources>
-    <string name="app_name">玩在城院</string>
+    <string name="app_name">集城</string>
 
     <!-- ══════════════ 状态占位（docs/COPY-TERMS.md §3 定稿，可直接抄）══════════════ -->
 

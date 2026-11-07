@@ -119,6 +119,10 @@ fun rememberPageChromePilot(): PageChromePilot {
 fun LazyListScope.largeTitleItem(
     pilot: PageChromePilot,
     leading: (@Composable () -> Unit)? = null,
+    kicker: String = "",
+    subtitle: String = "",
+    divider: Boolean = false,
+    heroTitle: String = "",
 ) {
     val title = pilot.title
     if (title.isEmpty()) return
@@ -128,7 +132,18 @@ fun LazyListScope.largeTitleItem(
                 .fillMaxWidth()
                 .onSizeChanged { if (it.height > 0) pilot.titleHeightPx = it.height.toFloat() },
         ) {
-            LargeTitle(text = title, topInset = statusBarTopPadding() + 4.dp, leading = leading)
+            LargeTitle(
+                // 设计稿里首屏大字与顶栏小标题**不是同一句话**：
+                // 顶栏「应用」/ 首屏「校园集合」，顶栏「消息」/ 首屏「消息与动态」。
+                // 折叠后顶栏接的那一份仍然是 `LocalLargeTitle`（板块名），
+                // 这里只换首屏那颗大字。
+                text = heroTitle.ifEmpty { title },
+                topInset = statusBarTopPadding() + 4.dp,
+                leading = leading,
+                kicker = kicker,
+                subtitle = subtitle,
+                divider = divider,
+            )
         }
     }
 }

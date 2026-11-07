@@ -139,12 +139,12 @@ fun LoginPage(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "玩在城院",
+                text = "集城",
                 style = MiuixTheme.textStyles.title2,
                 color = colors.onBackground,
             )
             Text(
-                text = "浙大城市学院校园聚合入口",
+                text = "浙大城市学院 · 校园聚合入口",
                 style = MiuixTheme.textStyles.footnote1,
                 color = colors.onBackgroundVariant,
             )

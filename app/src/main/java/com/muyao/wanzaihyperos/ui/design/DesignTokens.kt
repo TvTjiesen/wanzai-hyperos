@@ -306,6 +306,22 @@ object Type {
      * 換來的是同一門課能多顯示一行。這是「看得清是哪門課」優先於「行距好看」的取捨。
      */
     val lineTight = 12.sp
+
+    /**
+     * 大標題的行高（單行版：`displayTitle` 26sp × 1.08）。
+     *
+     * 為什麼行高也要進令牌：`TypeRatchetTest` 钉的是「`fontSize` / `lineHeight` 的裸字面量總數
+     * 只許降不許升」。這三個值是 2026-11-07 复刻稿的三行大標題時第一次需要單獨命名的 ——
+     * 之前它們散在 `IosChrome.kt` 裡當裸 `.sp` 寫著，字號階梯一動就漏改它們。
+     */
+    val lineDisplayTitle = 28.sp
+
+    /** 大標題的行高（三行版：`displayTitle` 26sp × 1.15；字大了行距要鬆一點才不擠）。 */
+    val lineDisplayLoose = 30.sp
+
+    /** 副行的行高（`caption` 11sp × 1.45，正好落在 `LINE_HEIGHT_BODY` 上）。 */
+    val lineCaption = 16.sp
+
     /** 行高倍數：正文。 */
     const val LINE_HEIGHT_BODY = 1.45f
 

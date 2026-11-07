@@ -545,12 +545,24 @@ fun WanzaiApp(
             }
         }
 
-        NavDisplay(
-            backStack = backStack,
-            // 参考（变焦环）的推/退动效，见 `nav/RouteTransitions.kt` 的换算说明。
-            transition = routeTransition,
-            onBack = { backStack.removeLastOrNull() },
+        // ── 容器背景风格：**根上读一次**，往下用 CompositionLocal 传 ─────────────
+        //
+        // 为什么不在每个页面各读一次 `UiPrefs.containerStyle`：那样开关切过去时，
+        // 每一层各自订阅、各自重组，会出现「先变的页已经换了、后变的还没换」的错位。
+        // 在这里读一次，同一帧里所有下游一起变。
+        val containerStyle = com.muyao.wanzaihyperos.ui.design.ContainerStyle.of(
+            com.muyao.wanzaihyperos.data.UiPrefs.containerStyle,
+        )
+
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.muyao.wanzaihyperos.ui.design.LocalContainerStyle provides containerStyle,
         ) {
+            NavDisplay(
+                backStack = backStack,
+                // 参考（变焦环）的推/退动效，见 `nav/RouteTransitions.kt` 的换算说明。
+                transition = routeTransition,
+                onBack = { backStack.removeLastOrNull() },
+            ) {
             entry<Route.Login> {
                 LoginPage(
                     onLoggedIn = { account ->
@@ -1117,6 +1129,7 @@ fun WanzaiApp(
                     //   `.ca.hzcu.edu.cn` 會話刪不掉）。已撤銷，理由寫在
                     //   WebShellPage 的對應註釋與 docs/B5-WALKTHROUGH.md。
                 )
+            }
             }
         }
     }

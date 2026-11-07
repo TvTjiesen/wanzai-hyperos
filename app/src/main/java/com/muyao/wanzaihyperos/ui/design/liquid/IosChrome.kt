@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.ui.design.AppColors
+import com.muyao.wanzaihyperos.ui.design.Type
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Icon
@@ -396,35 +397,139 @@ fun IosTopBar(
  * [leading] 是标题左边那一格 —— 现在只放 AI 小球（业主 2026-10-25「小球不要单独一个图层，
  * 要与其他内容同层、并且可以变化位置」）。它跟着这一行一起滚，滚出屏幕就跟着走，
  * 这正是「在内容层里」而不是「钉在顶栏上的一枚徽章」的区别。
+ *
+ * ## 三行大标题（2026-11-07 按 GPT 设计稿 v2.1 复刻）
+ *
+ * 设计稿里 apps / settings / messages 三页的第一屏都是**左边一颗球 + 右边三行**：
+ *
+ * ```
+ * ○   校园服务                      ← kicker（eyebrow）11.29px 灰
+ *     校园集合                      ← 标题 29.35px / 600 / -1px
+ *     79 个来源入口 · 原生与网页分开   ← 副行 12.42px 灰
+ *     ─────────────────────────────  ← 1px 分隔线，横跨内容宽
+ * ```
+ *
+ * 板宽 392px ↔ 本机 347dp（系数 0.886）换算：
+ * - eyebrow `11.29px × 0.886 = 10sp` = [Type.micro]（本工程字号下限，再小不许）
+ * - 标题 `29.35px × 0.886 = 26sp` = [Type.displayTitle]，**和原来的单行标题同一个字号**
+ *   （设计稿的 29.35 就是照着 26sp 反推出来的），所以这次不新造字号档
+ * - 副行 `12.42px × 0.886 = 11sp` = [Type.caption]
+ * - 球 `42px × 0.886 = 37dp` ≈ [AiBall.DIAMETER] 36dp，**不用放大**
+ *
+ * [kicker] / [subtitle] 都为空时退回原来的单行布局，老调用点一个字都不用改。
  */
 @Composable
-fun LargeTitle(text: String, topInset: Dp, leading: (@Composable () -> Unit)? = null) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // 左右不再自己缩 8dp：这一页的正文列已经是 `Dims.screenH`(16dp)，
-            // 标题再缩一次就和正文不在一条竖线上（板上两者都是 18px）。
-            .padding(start = 0.dp, end = 8.dp, top = topInset, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (leading != null) {
-            leading()
-            Spacer(Modifier.width(LargeTitleLeadingGap))
+fun LargeTitle(
+    text: String,
+    topInset: Dp,
+    leading: (@Composable () -> Unit)? = null,
+    kicker: String = "",
+    subtitle: String = "",
+    divider: Boolean = false,
+) {
+    val threeLine = kicker.isNotEmpty() || subtitle.isNotEmpty()
+    val onBackground = MiuixTheme.colorScheme.onBackground
+    val quiet = MiuixTheme.colorScheme.onSurfaceVariantSummary
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // 左右不再自己缩 8dp：这一页的正文列已经是 `Dims.screenH`(16dp)，
+                // 标题再缩一次就和正文不在一条竖线上（板上两者都是 18px）。
+                .padding(
+                    start = 0.dp,
+                    end = 8.dp,
+                    top = topInset,
+                    // 三行版把底距交给下面那条分隔线管，改由 [heroBottom] 控制。
+                    bottom = if (threeLine) HeroBottom else 8.dp,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (leading != null) {
+                leading()
+                Spacer(Modifier.width(if (threeLine) HeroBallGap else LargeTitleLeadingGap))
+            }
+            if (!threeLine) {
+                Text(
+                    text = text,
+                    // 板 `.topbar h2{font-size:27px;font-weight:740;letter-spacing:-.02em}`
+                    // × 0.886 ⇒ **24sp**（`Type.displayTitle`）。原来 32sp 比板大 31%，
+                    // 把「大标题 : 正文」的字阶比从 1.8:1 拉到 2.5:1，五屏一起受影响。
+                    fontSize = Type.displayTitle,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.02).em,
+                    lineHeight = Type.lineDisplayTitle,
+                    color = onBackground,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Column(modifier = Modifier.weight(1f)) {
+                    if (kicker.isNotEmpty()) {
+                        Text(
+                            text = kicker,
+                            fontSize = Type.micro,
+                            fontWeight = Type.weightBody,
+                            // 板 `.eyebrow{letter-spacing:1px}` × 0.886 ⇒ 0.09em 左右；
+                            // 中文加字距主要是给「校园服务」这种四字词组呼吸，取 0.08em。
+                            letterSpacing = 0.08.em,
+                            color = quiet,
+                            maxLines = 1,
+                            modifier = Modifier.padding(bottom = 3.dp),
+                        )
+                    }
+                    Text(
+                        text = text,
+                        fontSize = Type.displayTitle,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.02).em,
+                        lineHeight = Type.lineDisplayLoose,
+                        color = onBackground,
+                        maxLines = 1,
+                    )
+                    if (subtitle.isNotEmpty()) {
+                        Text(
+                            text = subtitle,
+                            fontSize = Type.caption,
+                            fontWeight = Type.weightBody,
+                            lineHeight = Type.lineCaption,
+                            color = quiet,
+                            maxLines = 2,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+            }
         }
-        Text(
-            text = text,
-            // 板 `.topbar h2{font-size:27px;font-weight:740;letter-spacing:-.02em}`
-            // × 0.886 ⇒ **24sp**（`Type.displayTitle`）。原来 32sp 比板大 31%，
-            // 把「大标题 : 正文」的字阶比从 1.8:1 拉到 2.5:1，五屏一起受影响。
-            fontSize = com.muyao.wanzaihyperos.ui.design.Type.displayTitle,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-0.02).em,
-            lineHeight = 28.sp,
-            color = MiuixTheme.colorScheme.onBackground,
-            modifier = Modifier.weight(1f),
-        )
+        if (threeLine && divider) {
+            // 板：hero 底 → 线间隔 21px × 0.886 ≈ 18.6dp，但上面已有 HeroBottom(14dp)，
+            // 再补 4dp 视觉上正好。线本身 1px，半透明到不抢内容。
+            Spacer(Modifier.height(4.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 8.dp)
+                    .height(HairlineHeight)
+                    .background(MiuixTheme.colorScheme.dividerLine),
+            )
+        }
     }
 }
 
 /** 大标题左边那颗小球与标题字之间的间隙（球自己还有 3dp 命中区外扩，视觉上是 6dp 多一点）。 */
 private val LargeTitleLeadingGap = 10.dp
+
+/**
+ * 三行版英雄区：球与文字列的间隙。
+ *
+ * 板：球右缘 x=64、文字左缘 x≈80~85 ⇒ 间隙 16~21px，× 0.886 = **14~18dp**。
+ * 本机球自带 3dp 命中区外扩（视觉上右缘在 3dp 里侧），所以这里给 12dp，
+ * 加起来正好落在 15dp，与板的中位对齐。
+ */
+private val HeroBallGap = 12.dp
+
+/** 三行版英雄区：三行文字底 → 分隔线之间的留白。 */
+private val HeroBottom = 14.dp
+
+/** 分隔线高度。1px 级别的头发丝，在高密度屏上靠 0.5dp 落地。 */
+private val HairlineHeight = 0.5.dp

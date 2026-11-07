@@ -50,6 +50,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.muyao.wanzaihyperos.ui.AppUiState
 import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.SettingExpand
 import com.muyao.wanzaihyperos.ui.design.SettingGroup
 import com.muyao.wanzaihyperos.ui.design.SettingIcon
@@ -179,6 +180,16 @@ fun SettingsSectionPage(
     val inFlight by graph.inFlight.collectAsState()
     val ballState = AiBallStates.ofAccounts(accountSources, fetching = inFlight > 0)
 
+    // ── 英雄区副行（设计稿 v2.1：「液态玻璃 · 偏好保存在本机」）──────────────
+    // 前半是当前玻璃档位（真实读取，用户改了就跟着变），后半是这句承诺本身。
+    // 档位名与外观页保持同一套说法，别在这里另造词。
+    val glassLabel = when (UiPrefs.glassMode) {
+        "frost" -> "磨砂玻璃"
+        "off" -> "关闭玻璃"
+        else -> "液态玻璃"
+    }
+    val heroSubtitle = "$glassLabel · 偏好保存在本机"
+
     LazyColumn(
         state = pilot.listState,
         modifier = modifier.fillMaxSize(),
@@ -192,7 +203,16 @@ fun SettingsSectionPage(
         ),
         verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
     ) {
-        largeTitleItem(pilot, leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) })
+        // 2026-11-07 按设计稿 v2.1 复刻首屏英雄区：「显示偏好 / 你的习惯 / 液态玻璃 · 偏好保存在本机」。
+        // 顶栏小标题仍是「设置」，首屏大字换成「你的习惯」。
+        largeTitleItem(
+            pilot = pilot,
+            leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) },
+            kicker = "显示偏好",
+            heroTitle = "你的习惯",
+            subtitle = heroSubtitle,
+            divider = true,
+        )
 
         // ---- 帳號（v3 #8：业主 2026-10-22「把需要登录的账号都列出来」）--------
         //
@@ -210,7 +230,7 @@ fun SettingsSectionPage(
         // ⚠️ 聚合行只报**数量**，不报"已登录/未登录"那种一句话结论 ——
         // 六套登录态互不牵连（见 `data/account/AccountSources.kt`），一句话必然骗人。
         item(key = "account-entry") {
-            SettingSectionLabel("账号")
+            SettingSectionLabel("账号", icon = MarkIcon.Account)
             SettingGroup {
                 SettingRow(
                     icon = SettingIcon.Shield,
@@ -232,7 +252,7 @@ fun SettingsSectionPage(
         }
 
         // ---- 外觀 ----------------------------------------------------------
-        item(key = "appearance-label") { SettingSectionLabel("外观") }
+        item(key = "appearance-label") { SettingSectionLabel("外观", icon = MarkIcon.Appearance) }
         item(key = "appearance") {
             SettingGroup {
                 // ★ 主题三行**撤掉了**（工单第 15 轮）：它和外观页第一行是同一个功能两个入口。
@@ -267,7 +287,7 @@ fun SettingsSectionPage(
         }
 
         // ---- 課表 ----------------------------------------------------------
-        item(key = "timetable-label") { SettingSectionLabel("课表") }
+        item(key = "timetable-label") { SettingSectionLabel("课表", icon = MarkIcon.Schedule) }
         item(key = "timetable-default-view") {
             SettingGroup {
                 SettingRow(
@@ -379,13 +399,13 @@ fun SettingsSectionPage(
         }
 
         // ---- 關於 ----------------------------------------------------------
-        item(key = "about-label") { SettingSectionLabel("关于") }
+        item(key = "about-label") { SettingSectionLabel("关于", icon = MarkIcon.Info) }
         item(key = "about") {
             SettingGroup {
                 SettingRow(
                     icon = SettingIcon.Info,
                     tint = Tone.quiet,
-                    title = "玩在城院",
+                    title = "集城",
                     subtitle = "版本 ${rememberAppVersion()} · 非官方客户端",
                 )
                 SettingRow(

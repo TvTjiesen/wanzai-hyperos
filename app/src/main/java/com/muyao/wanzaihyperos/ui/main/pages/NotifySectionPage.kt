@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.muyao.wanzaihyperos.ui.design.BodyMark
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.RevealGate
 import com.muyao.wanzaihyperos.ui.design.rememberRevealGate
 import com.muyao.wanzaihyperos.ui.design.revealIn
@@ -51,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.muyao.wanzaihyperos.app.AppGraph
+import com.muyao.wanzaihyperos.data.CountValue
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.portal.PortalMessageGroup
 import com.muyao.wanzaihyperos.data.portal.PortalMessageItem
@@ -208,6 +211,23 @@ fun NotifySectionPage(
     val inFlight by graph.inFlight.collectAsState()
     val ballState = AiBallStates.ofCount(pendingCount, fetching = inFlight > 0)
 
+    // ── 英雄区副行（设计稿 v2.1：「未读 8 · 09:40」）──────────────────────
+    // 两个数都必须是**真数据**，任何一个取不到就把那一半省掉（`data/ListState.kt` 红线：
+    // 未知不得当成 0，更不得编一个像样的数字）。两组都拿不到时整行不画 ——
+    // 空字符串走 [LargeTitle] 的 `subtitle.isEmpty()` 分支，副行自然消失。
+    val unreadState by graph.unread.state.collectAsState()
+    val heroUnread = (unreadState.value as? CountValue.Known)?.value
+    // 「这一份是什么时候的」：消息页的分页元信息里带服务端给的时间戳；
+    // 没有就只写未读。不复用首页那颗钟（那是「现在」，不是「这份数据的时间」）。
+    val heroClock: String = ""
+    val heroSubtitle = buildString {
+        if (heroUnread != null) append("未读 $heroUnread")
+        if (heroClock.isNotEmpty()) {
+            if (isNotEmpty()) append(" · ")
+            append(heroClock)
+        }
+    }
+
     // 下拉刷新：重取两个列表的第一页（仓库走 startRefresh，内容原地不动、不闪白）。
     // ⚠️ contentPadding 只影响下拉指示器的位置，不给内容加 padding ——
     // 内容的 inset 仍由里面那个 LazyColumn 自己消费（见 Miuix PullToRefresh 源码）。
@@ -246,7 +266,19 @@ fun NotifySectionPage(
             ),
             verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
         ) {
-            largeTitleItem(pilot, leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) })
+            largeTitleItem(
+                pilot = pilot,
+                leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) },
+                // 2026-11-07 按设计稿 v2.1 复刻首屏英雄区：
+                // 「校园消息 / 消息与动态 / 未读 8 · 09:40」三行 + 一条分隔线。
+                // 副行是**服务端口径的未读数 + 这一份的时间**，取不到就整行不画（不编）。
+                kicker = "校园消息",
+                // 设计稿里顶栏小标题与首屏大字**不是同一句话**：顶栏「消息」、首屏「消息与动态」。
+                // 折叠后顶栏接的仍是 `LocalLargeTitle`（板块名），这里只换首屏那颗大字。
+                heroTitle = "消息与动态",
+                subtitle = heroSubtitle,
+                divider = true,
+            )
 
             item(key = "tabs") {
                 NotifyFilters(
@@ -667,6 +699,16 @@ private fun SectionHeader(text: String, trailing: String? = null) {
             .padding(top = Dims.sectionGap, start = 0.dp, end = 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        BodyMark(
+            icon = when (text) {
+                "需要处理" -> MarkIcon.Warn
+                "未读消息" -> MarkIcon.Message
+                "校园新闻" -> MarkIcon.Web
+                else -> MarkIcon.Info
+            },
+            tint = MiuixTheme.colorScheme.primary,
+            modifier = Modifier.padding(end = 7.dp),
+        )
         Text(
             text = text,
             fontSize = Type.body,

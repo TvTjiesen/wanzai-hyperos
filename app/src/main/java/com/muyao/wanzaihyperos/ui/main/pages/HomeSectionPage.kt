@@ -81,7 +81,11 @@ import com.muyao.wanzaihyperos.data.tronclass.TronRollcall
 import com.muyao.wanzaihyperos.data.tronclass.TronScheduleSlot
 import com.muyao.wanzaihyperos.ui.common.kmText
 import com.muyao.wanzaihyperos.ui.design.AppCard
+import com.muyao.wanzaihyperos.ui.design.BodyMark
+import com.muyao.wanzaihyperos.ui.design.ContainerStyle
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.LocalContainerStyle
 import com.muyao.wanzaihyperos.ui.design.ai.AiBall
 import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
 import com.muyao.wanzaihyperos.ui.design.Type
@@ -394,26 +398,31 @@ fun HomeSectionPage(
                     modifier = m,
                 )
             }
-            Box(Modifier.fillMaxWidth().height(skyBaseHeight + pullExtra)) {
-                drawSky(Modifier.fillMaxSize())
-                if (skyBlur > 0.dp) {
-                    drawSky(Modifier.fillMaxSize().blur(skyBlur, BlurredEdgeTreatment.Unbounded))
-                }
-                if (colors.background.luminance() < 0.5f) {
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(67.dp)
-                            .background(
-                                androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    // 板 ::after：rgba(16,18,19,0) 0% → .55 46% → --phone 100%
-                                    0f to Color.Transparent,
-                                    0.46f to colors.background.copy(alpha = 0.55f),
-                                    1f to colors.background,
+            // 容器背景两版：`Designed` 画页内天光；`Bare` 不画，把根上那层整页渐变直接透上来。
+            // 注意只撤「天光这一层」，球、大日期、焦点卡一个都不动 —— 那是他要的上半屏。
+            val showSky = LocalContainerStyle.current == ContainerStyle.Designed
+            if (showSky) {
+                Box(Modifier.fillMaxWidth().height(skyBaseHeight + pullExtra)) {
+                    drawSky(Modifier.fillMaxSize())
+                    if (skyBlur > 0.dp) {
+                        drawSky(Modifier.fillMaxSize().blur(skyBlur, BlurredEdgeTreatment.Unbounded))
+                    }
+                    if (colors.background.luminance() < 0.5f) {
+                        Box(
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .height(67.dp)
+                                .background(
+                                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        // 板 ::after：rgba(16,18,19,0) 0% → .55 46% → --phone 100%
+                                        0f to Color.Transparent,
+                                        0.46f to colors.background.copy(alpha = 0.55f),
+                                        1f to colors.background,
+                                    ),
                                 ),
-                            ),
-                    )
+                        )
+                    }
                 }
             }
         },
@@ -593,7 +602,7 @@ fun HomeSectionPage(
             }
         }
 
-        // 顶栏那一行：左「玩在城院」，右「第 N 周」（搜索钮由顶栏自己画在最右）。
+        // 顶栏那一行：左「集城」，右「第 N 周」（搜索钮由顶栏自己画在最右）。
         // 叠在内容之上、顶栏之下；滚动时和顶栏纱一起退场，不会和折叠后的小标题打架。
         val headerAlpha = (1f - chrome.progress * 2.2f).coerceIn(0f, 1f)
         if (headerAlpha > 0.01f) {
@@ -607,7 +616,7 @@ fun HomeSectionPage(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "玩在城院",
+                    text = "集城",
                     fontSize = Type.caption,
                     color = look.ink.copy(alpha = 0.82f),
                 )
@@ -1206,6 +1215,14 @@ private fun TodayTimelineCard(
             .padding(top = 2.dp, bottom = 2.dp),
     ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // 正文前图标（业主 2026-11-07：「再写一套图标放在正文前来标识」）。
+                // 分区标题前那一枚，与设置页的彩色磁贴不是同一套：这里是**线性细笔**，
+                // 尺寸跟着字走（15dp），不抢标题的视觉重量。
+                BodyMark(
+                    icon = MarkIcon.Schedule,
+                    tint = colors.primary,
+                    modifier = Modifier.padding(end = 7.dp),
+                )
                 Text(
                     text = "今天",
                     fontSize = Type.body,
@@ -1469,6 +1486,11 @@ private fun TodoSummaryCard(
             .padding(top = 2.dp, bottom = 2.dp),
     ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                BodyMark(
+                    icon = MarkIcon.Todo,
+                    tint = colors.primary,
+                    modifier = Modifier.padding(end = 7.dp),
+                )
                 Text(
                     text = "要处理",
                     fontSize = Type.body,
@@ -1631,6 +1653,11 @@ private fun RunSummaryCard(
         // 改之前这里套着 AppCard、数字是 MiuixTheme 的 title2、底下还压一条 6dp 横条 —— 三样都是这一页
         // 别处没有的构件，所以它看着像从别的页面搬来的卡（业主 2026-11-01 第 1 条）。
         Row(verticalAlignment = Alignment.CenterVertically) {
+            BodyMark(
+                icon = MarkIcon.Run,
+                tint = colors.primary,
+                modifier = Modifier.padding(end = 7.dp),
+            )
             Text(
                 text = "校园跑",
                 fontSize = Type.body,

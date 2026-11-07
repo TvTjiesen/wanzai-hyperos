@@ -43,6 +43,7 @@ import kotlin.math.abs
 import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.ui.AppUiState
 import com.muyao.wanzaihyperos.ui.design.AppColors
+import com.muyao.wanzaihyperos.ui.design.containerBackground
 import com.muyao.wanzaihyperos.ui.home.colorAt
 import com.muyao.wanzaihyperos.ui.design.Motion
 import com.muyao.wanzaihyperos.ui.design.glass.GlassTheme
@@ -365,7 +366,8 @@ fun WanzaiMainShell(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(AppColors.pageBrush(isDark))
+                        // 容器背景两版：`Designed` 铺页内纸色 + 天光；`Bare` 让开，透出根上那层整页渐变。
+                        .containerBackground(isDark)
                         .layerBackdrop(pageBackdrop),
                 ) {
                     // 内容不留底部内距 —— 让列表一直滚到玻璃底下，否则玻璃背后永远是空白。
@@ -555,7 +557,7 @@ fun WanzaiMainShell(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(AppColors.pageBrush(isDark)),
+                        .containerBackground(isDark),
                 ) {
                     AppearancePage(
                         onClose = { showAppearance = false },
