@@ -45,14 +45,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.muyao.wanzaihyperos.app.AppGraph
+import com.muyao.wanzaihyperos.R
 import com.muyao.wanzaihyperos.data.CountValue
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.portal.PortalMessageGroup
@@ -61,6 +69,7 @@ import com.muyao.wanzaihyperos.data.portal.PortalNewsItem
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -103,6 +112,10 @@ fun NotifySectionPage(
 
     // 板子顶部是四颗小胶囊：全部 / 待处理 / 门户 / 新闻。
     var filter by remember { mutableStateOf(0) }
+    // v2.1 稿在筛选胶囊上面还有一行搜索框（`.searchbox`，「搜索已加载消息」）。
+    // 它只筛**已经取到内存里的这些条**，不向学校服务发任何请求 ——
+    // 门户接口没有搜索参数，假装能全网搜会让人以为搜不到就是没有。
+    var query by remember { mutableStateOf("") }
     // 下拉刷新只重取「当前这一组的第一页」，仓库走 startRefresh，列表不清空。
     var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -280,6 +293,12 @@ fun NotifySectionPage(
                 divider = true,
             )
 
+            // 顺序照 v2.1 稿：搜索框在筛选胶囊**上面**
+            // （`prototype/app.js` 的 messages 路由就是 hero → searchbox → subnav）。
+            item(key = "search") {
+                MessageSearchBox(query = query, onQuery = { query = it })
+            }
+
             item(key = "tabs") {
                 NotifyFilters(
                     selected = filter,
@@ -394,9 +413,16 @@ fun NotifySectionPage(
                 }
 
                 is ListState.Content -> {
-                    val items = s.items
+                    val items = s.items.filter { m ->
+                        query.isBlank() ||
+                            m.title.contains(query, ignoreCase = true) ||
+                            m.message.contains(query, ignoreCase = true) ||
+                            m.group.contains(query, ignoreCase = true)
+                    }
                     if (items.isEmpty()) {
-                        item(key = "msg-empty") { StatusHint("没有消息。") }
+                        item(key = "msg-empty") {
+                            StatusHint(if (s.items.isEmpty()) "没有消息。" else "没有匹配的消息。")
+                        }
                     } else {
                         // 一條一張卡會讓同一個板塊看起來像十個獨立入口；
                         // 收成一張分組卡，掃讀時眼睛只需認一次邊界。
@@ -445,9 +471,13 @@ fun NotifySectionPage(
                 }
 
                 is ListState.Content -> {
-                    val items = s.items
+                    val items = s.items.filter { n ->
+                        query.isBlank() || n.title.contains(query, ignoreCase = true)
+                    }
                     if (items.isEmpty()) {
-                        item(key = "news-empty") { StatusHint("暂时没有新闻。") }
+                        item(key = "news-empty") {
+                            StatusHint(if (s.items.isEmpty()) "暂时没有新闻。" else "没有匹配的新闻。")
+                        }
                     } else {
                         item(key = "news-card") { NewsGroup(items, onOpenUrl) }
                         if (newsMeta?.hasMore == true) {
@@ -722,6 +752,80 @@ private fun SectionHeader(text: String, trailing: String? = null) {
                 text = trailing,
                 fontSize = Type.caption,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+    }
+}
+
+/**
+ * 搜索框（v2.1 稿 `.searchbox`）。
+ *
+ * 板：`border:1px solid var(--divider)` + `background:rgba(var(--tint),.82)` +
+ * `border-radius:99px` + `min-height:52px` + `padding:0 14px`；
+ * 左侧放大镜、占位「搜索已加载消息」、右侧主色小字「搜索」。
+ * × 0.886 ⇒ **46dp 高、全圆、1dp 描边、12.4dp 图标**。
+ *
+ * 它只筛**已经取到内存里的这些条**（门户接口没有搜索参数）。
+ * 所以占位文案写「已加载」而不是「消息」—— 一句话说清这一框能搜到哪一层，
+ * 免得「搜不到」被读成「学校没有这条」。
+ */
+@Composable
+private fun MessageSearchBox(query: String, onQuery: (String) -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    val shape = RoundedCornerShape(50)
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(46.dp)
+            .clip(shape)
+            .background(colors.surface.copy(alpha = 0.82f))
+            .border(1.dp, if (focused) colors.primary else colors.dividerLine, shape)
+            .padding(start = 13.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = ImageVector.vectorResource(R.drawable.ic_board_search),
+            contentDescription = null,
+            tint = colors.onSurfaceVariantSummary,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.size(9.dp))
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (query.isEmpty()) {
+                Text(
+                    text = "搜索已加载消息",
+                    fontSize = Type.summary,
+                    color = colors.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            BasicTextField(
+                value = query,
+                onValueChange = onQuery,
+                singleLine = true,
+                cursorBrush = SolidColor(colors.primary),
+                textStyle = TextStyle(fontSize = Type.summary, color = colors.onBackground),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                // 清空也走同一个入口：右侧那颗在「有字」时变成「清除」，
+                // 免得为了改一个错字要把整串退格删掉（小屏上尤其烦）。
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focused = it.isFocused },
+            )
+        }
+        if (query.isNotEmpty()) {
+            Text(
+                text = "清除",
+                fontSize = Type.summary,
+                fontWeight = Type.weightBody,
+                color = colors.primary,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(shape)
+                    .clickable(onClickLabel = "清除搜索") { onQuery("") }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
             )
         }
     }
