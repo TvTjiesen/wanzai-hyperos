@@ -104,18 +104,21 @@ enum class SettingIcon {
 
 @Composable
 fun SettingGlyph(icon: SettingIcon, tint: Color, modifier: Modifier = Modifier) {
-    // 参照站那颗彩色底 + 白色线性图形：底色用饱和色，图形用白，圆角比方块小一圈
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(Glyph.tileCorner))
-            .background(tint),
-        contentAlignment = Alignment.Center,
-    ) {
+    // ★ 2026-11-07：**去掉彩色磁贴底，改裸线稿**。
+    //
+    // 依据：v2.1 稿的 `screens/settings.png` 与 `screens/accounts.png` 里，设置行左侧
+    // 只有一枚**灰色裸线图标**（像素采样：x=41..62、宽约 21px，底色恒为卡面 `(255,253,248)`，
+    // 笔画色 `(96,103,117)`；磁贴不存在）。用户 2026-11-07 的口径是「其余页面一比一复刻」。
+    //
+    // 与 B4-13（2026-10-23，业主当时要「彩色底 + 白色图形」）的冲突以**更晚的口径**为准；
+    // 颜色没有丢，只是从「底色」搬到「笔画」：登入态仍然靠 `tint` 区分（`tileTintFor`），
+    // 只是现在读起来是一条靛蓝的线，而不是一块靛蓝的方块。
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.size(Glyph.size)) {
             val s = size.minDimension
             // B4-13：線寬與圓角走令牌（`Glyph`），不在某一枚圖標裡偷偷改數
             val stroke = s * Glyph.STROKE_RATIO
-            val c = Color.White
+            val c = tint
             when (icon) {
                 SettingIcon.School -> {
                     dot(s * 0.5f, s * 0.34f, s * 0.17f, c)
@@ -325,7 +328,10 @@ fun SettingRow(
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SettingGlyph(icon = icon, tint = tint, modifier = Modifier.size(Glyph.tile))
+        // ★ 2026-11-07：38dp 的彩色磁贴退役，换成 26dp 的**留白格**（图标 20dp 居中）。
+        //   行内距 14dp + 26dp + 12dp ⇒ 文字列左缘 52dp，与 v2.1 稿的能量到的对齐一致
+        //   （`screens/settings.png` 卡面 x=20、文字列 x=79 ⇒ (79-20)×0.886 ≈ 52dp）。
+        SettingGlyph(icon = icon, tint = tint, modifier = Modifier.size(Glyph.rowSlot))
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(

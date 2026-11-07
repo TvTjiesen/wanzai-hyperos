@@ -237,8 +237,12 @@ private fun glyphFor(source: AccountSource): SettingIcon = when (source.id) {
 }
 
 /**
- * 磁贴**底色**（三枚图形都画白字）。这三档是浅色板的饱和色，白字在上面 **4.5–6.2:1**
- * （最低是橙 `#B65E3D` 那档 4.51，绿 6.17、灰 5.07），深色板上同样成立 ⇒ 底色可以写死。
+ * 行首图形的**笔画色**（2026-11-07 起不再有磁贴底色，见 `SettingsChrome.SettingGlyph`）。
+ *
+ * 三档沿用状态语义：登入 = 靛蓝 `Tone.ok`、拿到了没激活 = 橙 `Tone.warn`、其余 = 灰 `Tone.quiet`。
+ * 断言的是**线条对卡面**的对比度 —— `ok` 7.34:1、`warn` 5.05:1、`quiet` 5.24:1（深色档 6.57/5.90/5.94），
+ * 三档都过 WCAG 1.4.11 的 3:1（非文字图形）且都过 4.5:1（按文字判也够）。
+ * 原来那句「白字压底色 4.5–6.2:1」随磁贴一起作废。
  */
 private fun tileTintFor(status: AccountStatus): Color = when (status) {
     AccountStatus.LoggedIn -> Tone.ok

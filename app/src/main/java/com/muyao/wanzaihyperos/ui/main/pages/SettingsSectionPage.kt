@@ -267,8 +267,9 @@ fun SettingsSectionPage(
                 SettingRow(
                     // 不再共用 `Glass`：两行同一个图形 = 看起来是同一件事写了两遍。
                     icon = SettingIcon.Contrast,
-                    // 磁贴底色跟着开关走：OFF 时还给强调绿，等于用颜色替一项
-                    // 没生效的功能背书（复评 2026-10-22）。
+                    // 笔画色跟着开关走：OFF 时还给强调蓝，等于用颜色替一项
+                    // 没生效的功能背书（复评 2026-10-22）。2026-11-07 起图形是裸线稿，
+                    // 这个 tint 就是线条颜色本身（对卡面 7.34 vs 5.24，两档都过 4.5）。
                     tint = if (UiPrefs.reduceTransparency) Tone.quiet else Tone.ok,
                     title = "减弱玻璃透明度",
                     subtitle = "底栏、顶栏和浮层改成近实底（高对比文字时自动）",

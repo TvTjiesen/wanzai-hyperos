@@ -61,27 +61,48 @@ class IconSystemTest {
     }
 
     /**
-     * 四个令牌**必须真的被用上**（工单第 14 轮）：上一版只禁 `cornerRadius` 行里的裸比例，
+     * 图形**留白格**与开关钮**必须真的被用上**（工单第 14 轮）：上一版只禁 `cornerRadius` 行里的裸比例，
      * 把 `RoundedCornerShape(Glyph.tileCorner)` 改回 `11.dp`、`size(Glyph.tile)` 改回 `38.dp`、
      * `size(Glyph.knob)` 改回 `22.dp` —— **三条全绿**。现在逐个点名 + 钉值。
+     *
+     * ## ★ 2026-11-07 改判：彩色磁贴退役，`RoundedCornerShape(Glyph.tileCorner)` 那条必需项删掉
+     *
+     * 依据：v2.1 稿的 `screens/settings.png` / `screens/accounts.png` 里，设置行左侧
+     * **只有一枚灰色裸线图标**（像素采样：`settings.png` 四行图标 bbox x=41..79、底恒为卡面
+     * `(255,253,248)`、笔画色 `(96,103,117)`；`accounts.png` 六行 x=43..59、宽 17px）——
+     * 根本没有彩色方块。用户 2026-11-07 的口径是「其余页面一比一复刻」。
+     * 于是 `SettingGlyph` 去掉 `.clip(...).background(tint)`，图形色从 `Color.White` 改 `tint`；
+     * 行内的 38dp 磁贴换成 `Glyph.rowSlot`（26dp 留白格）。
+     *
+     * **没有放宽的部分**：`Glyph.tile` / `Glyph.tileCorner` / `Glyph.knob` /
+     * `INNER_RECT_CORNER_RATIO` 四个值仍然钉死（档位尺不能悄悄变），
+     * `Modifier.size(Glyph.rowSlot)`、`Modifier.size(Glyph.size)`、`.size(Glyph.knob)` 仍然点名，
+     * 三条「改回字面量」的禁令一条不少。
      */
     @Test
-    fun `磁贴与开关钮必须读令牌且值不变`() {
+    fun `留白格与开关钮必须读令牌且值不变`() {
         val chrome = text("$design/SettingsChrome.kt")
         listOf(
-            "RoundedCornerShape(Glyph.tileCorner)",
-            "Modifier.size(Glyph.tile)",
+            "Modifier.size(Glyph.rowSlot)",
+            "Modifier.size(Glyph.size)",
             ".size(Glyph.knob)",
         ).forEach { need ->
             assertTrue("SettingsChrome 里没有 `$need`（又被改回字面量了？）", need in chrome)
         }
         // 把三条"改回字面量"的具体写法也禁掉
-        listOf("RoundedCornerShape(11.dp)", "size(38.dp)", "size(22.dp)").forEach { bad ->
+        listOf("size(26.dp)", "size(38.dp)", "size(22.dp)").forEach { bad ->
             assertTrue("SettingsChrome 里还有字面量 `$bad`", bad !in chrome)
         }
+        // ★ 2026-11-07 起 `SettingGlyph` 不再画彩色底 ⇒ 磁贴圆角那一档不该再被请求；
+        //   写回来等于把退役的方块又铺回去（半改不改比不改更糟）。
+        assertTrue(
+            "SettingGlyph 已经改裸线稿了，这里不该再有磁贴圆角",
+            "RoundedCornerShape(Glyph.tileCorner)" !in chrome,
+        )
         // 四个值钉死：改常量等于改观感，必须连带改这条测试和清单
-        assertEquals("Glyph.tile 应为 38dp", 38f, Glyph.tile.value, 0.001f)
-        assertEquals("Glyph.tileCorner 应为 11dp", 11f, Glyph.tileCorner.value, 0.001f)
+        assertEquals("Glyph.rowSlot 应为 26dp", 26f, Glyph.rowSlot.value, 0.001f)
+        assertEquals("Glyph.tile 应为 38dp（退役档位尺，不许变）", 38f, Glyph.tile.value, 0.001f)
+        assertEquals("Glyph.tileCorner 应为 11dp（退役档位尺，不许变）", 11f, Glyph.tileCorner.value, 0.001f)
         assertEquals("Glyph.knob 应为 22dp", 22f, Glyph.knob.value, 0.001f)
         assertEquals("INNER_RECT_CORNER_RATIO 应为 0.2", 0.2f, Glyph.INNER_RECT_CORNER_RATIO, 0.0001f)
     }

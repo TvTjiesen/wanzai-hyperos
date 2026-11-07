@@ -11,7 +11,7 @@ import java.io.File
  *
  * ## 为什么要分档（工单第 22 轮那条）
  *
- * `Glyph.tileCorner`（11dp）是 **38dp 列表行磁贴**那一枚彩色底的圆角 ——
+ * `Glyph.tileCorner`（11dp）原本是 **38dp 列表行磁贴**那一枚彩色底的圆角 ——
  * `SettingsChrome.SettingGlyph` 在用它。而外观页把它当"通用圆角"用了 **10 处**：
  * `:1245` 是 36dp 的胶囊控件、`:1466` 是**整屏宽**的取景框 —— 同一档位服务三种尺寸，
  * 观感必然不一致；而且画布那边 `.wp{border-radius:13px}` 的换算值（13 × 0.886 = 11.5dp）
@@ -23,7 +23,7 @@ import java.io.File
  * | 令牌 | 值 | 给谁用 |
  * | --- | --- | --- |
  * | `Dims.chipCorner` | 8dp | 小元件 / 胶囊 |
- * | `Glyph.tileCorner` | 11dp | **只**给 38dp 列表行磁贴 |
+ * | `Glyph.tileCorner` | 11dp | **只**给 38dp 列表行磁贴（**2026-11-07 退役，零调用**） |
  * | `Dims.wallpaperTileCorner` | 11.5dp | 牆紙格（设计板 `.wp`） |
  * | `Dims.containerCorner` | 14dp | 小托盘（提示条、搜索列） |
  * | `Dims.cardCorner` | 18dp | 卡片与大面 |
@@ -67,18 +67,25 @@ class CornerTierTest {
         }
     }
 
+    /**
+     * ★ 2026-11-07 改判：`Glyph.tileCorner` 从「只许出现在磁贴那一处」改成「**全工程零调用**」。
+     *
+     * 依据：v2.1 稿的设置行没有彩色磁贴（`screens/settings.png` 四行图标底恒为卡面
+     * `(255,253,248)`），`SettingGlyph` 已改裸线稿、行内换成 `Glyph.rowSlot`（26dp 留白格）。
+     * 磁贴退役后这一档圆角**不该再被任何地方请求**；令牌值本身（11dp）仍由
+     * [圆角分档的令牌值钉死] 钉住 —— 档位尺不删，只是不再有调用点。
+     *
+     * 判据方向反过来：以前是「必须有且只在这里」，现在是「一个都不许有」。
+     */
     @Test
-    fun `列表行那档圆角只许出现在磁贴那一处`() {
+    fun `列表行那档圆角已经退役，全工程零调用`() {
         val offenders = SourceScan.sources()
             .filter { "Glyph.tileCorner" in it.second }
             .map { it.first }
-            .filter { it != "main/ui/design/SettingsChrome.kt" }
         assertTrue(
-            "Glyph.tileCorner 只允许出现在 38dp 列表行磁贴（main/ui/design/SettingsChrome.kt）：$offenders",
+            "Glyph.tileCorner 已随彩色磁贴退役（2026-11-07），不许再被任何源码请求：$offenders",
             offenders.isEmpty(),
         )
-        val chrome = SourceScan.sources().first { it.first == "main/ui/design/SettingsChrome.kt" }.second
-        assertTrue("磁贴那一处反倒不用令牌了", "Glyph.tileCorner" in chrome)
     }
 
     @Test
