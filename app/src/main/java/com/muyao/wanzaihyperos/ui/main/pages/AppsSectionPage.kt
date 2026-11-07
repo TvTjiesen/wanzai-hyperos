@@ -702,6 +702,12 @@ private fun CollapseToggle(collapsed: Boolean, onToggle: () -> Unit) {
  * 否则整列全是同一个人形（17:04 截图里「我的成长 / 我的班级」撞成同一颗就是这么来的）。
  */
 private fun markIconFor(name: String): MarkIcon = when {
+    // ★ 2026-11-07 真机截图暴露的问题：`学在城院` / `智云课堂` 两条**最常用**的入口
+    //   名字里一个关键词都不沾，双双落到兜底的 `App`（同一枚 88 方格），
+    //   排在一起像复制粘贴。它们各自有明确的语义，前置点名。
+    name.contains("学在城院") -> MarkIcon.Schedule
+    name.contains("智云课堂") -> MarkIcon.Course
+    name.contains("一码通") -> MarkIcon.Scan
     // 先处理带「我的」这类高歧义前缀的复合词，否则会被末尾的兜底规则抢走
     name.contains("成长") || name.contains("画像") || name.contains("绩点") -> MarkIcon.Growth
     name.contains("班级") || name.contains("信息卡") || name.contains("学籍") -> MarkIcon.Account

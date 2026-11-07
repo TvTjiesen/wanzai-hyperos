@@ -561,22 +561,23 @@ private fun MsgGroupChips(
 private fun FilterPill(label: String, count: String, selected: Boolean, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
     val shape = RoundedCornerShape(50)
-    // 板 `.chip{font-size:10px;font-weight:600;padding:6px 11px;border:1px solid var(--line)}`
-    // × 0.886 ⇒ 8.9sp、5.3×9.7dp。
-    // **字重不随选中变**（硬规则 1：加粗让文字变宽，四条并排时整行会横抖一下；
-    // 板上 `.chip.on` 也只换底色与字色）。选中态 = 板上那条 `background:var(--ink)`。
-    val ink = if (selected) colors.background else colors.onSurfaceVariantSummary
+    // 板 `.chip{padding:10px 12px;min-height:50px;border-radius:99px;border:1px solid var(--divider);
+    //   color:var(--quiet);font-size:12.42px}`、`.chip.selected{background:var(--container);
+    //   color:var(--primary);border-color:var(--primary)}`。
+    //
+    // ★ 2026-11-07 改选中态：原来是 `background(onBackground)` = 黑底白字，
+    //   而 v2.1 稿（`screens/messages.png`）里「全部」那颗是**主色描边 + 主色字 + 淡容器底**。
+    //   黑底那版在真机上看着像「切成深色模式的一小块」，与整页纸面打架。
+    // **字重不随选中变**（硬规则 1：加粗让文字变宽，四条并排时整行会横抖一下）。
+    val ink = if (selected) colors.primary else colors.onSurfaceVariantSummary
     Row(
         modifier = Modifier
             .clip(shape)
-            .background(if (selected) colors.onBackground else Color.Transparent)
-            .then(
-                if (selected) Modifier
-                else Modifier.border(
-                    1.dp,
-                    colors.dividerLine,
-                    shape,
-                )
+            .background(if (selected) colors.primaryContainer else Color.Transparent)
+            .border(
+                1.dp,
+                if (selected) colors.primary else colors.dividerLine,
+                shape,
             )
             .clickable(onClickLabel = "筛选" + label) { onClick() }
             .padding(horizontal = 9.7.dp, vertical = 6.2.dp),
