@@ -107,6 +107,8 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
+import com.muyao.wanzaihyperos.ui.design.ai.AiBall
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
 
 /**
  * 「外觀」子頁（v2）：壁紙 / **相冊取景（v3 #10）** / 柔化 / 暗度 / 液態玻璃 / 首頁密度與模組。
@@ -326,8 +328,17 @@ fun AppearancePage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 11.5.dp, bottom = 5.dp),
-                    verticalAlignment = Alignment.Bottom,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // 返工总单 B6：首个区块标题左边挂球。脸色走 ofTimetable —— 这张
+                    // 预览卡吃的就是同一份课表状态，所以预览说「还在取课表」时球在 Loading、
+                    // 两份都取到了才是 Idle。不写死。
+                    AiBall(
+                        state = AiBallStates.ofTimetable(scheduleState, jwTimetableState),
+                        diameter = AiBall.DIAMETER_PAGE,
+                        hitSlop = AiBall.INLINE_SLOP,
+                    )
+                    Spacer(Modifier.width(9.dp))
                     Text(
                         text = "首页预览",
                         fontSize = Type.summary,

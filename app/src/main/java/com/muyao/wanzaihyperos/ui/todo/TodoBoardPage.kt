@@ -52,6 +52,9 @@ import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.muyao.wanzaihyperos.ui.design.ai.AiBall
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
+import androidx.compose.foundation.layout.width
 
 /**
  * 多來源待辦（B6）。
@@ -152,7 +155,19 @@ fun TodoBoardPage(
                 // 顶栏那颗小标题是「全部待办」，首屏大字是「需要你处理」——
                 // 和消息页一样，顶栏与英雄区不是同一句话。
                 item(key = "hero") {
-                    Column(Modifier.fillMaxWidth().padding(top = Dims.tight, bottom = 2.dp)) {
+                    // 返工总单 B6：首个区块标题左边挂球。脸色走 ofList(state)：
+                    // 首次加载 => Loading，失败/登录过期 => Error，有内容 => Idle。
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = Dims.tight, bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        AiBall(
+                            state = AiBallStates.ofList(state),
+                            diameter = AiBall.DIAMETER_PAGE,
+                            hitSlop = AiBall.INLINE_SLOP,
+                        )
+                        Spacer(Modifier.width(9.dp))
+                        Column(Modifier.weight(1f)) {
                         Text(
                             text = "待办聚合",
                             fontSize = Type.micro,
@@ -174,7 +189,7 @@ fun TodoBoardPage(
                             color = colors.onSurfaceVariantSummary,
                             modifier = Modifier.padding(top = 2.dp),
                         )
-                    }
+                                            }}
                 }
                 // ── 来源筛子（稿 `.subnav` 那两颗）────────────────────────────
                 // 默认**都不选中 = 两组都列**（稿上默认就是两段都在）。

@@ -44,6 +44,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.muyao.wanzaihyperos.ui.design.ai.AiBall
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Row
 
 /**
  * 「账号」二级页（B4-06，业主 2026-10-23：设置页把六源收进二级页）。
@@ -129,7 +133,20 @@ fun AccountsPage(
                     it.status == AccountStatus.ObtainedNotActivated ||
                     it.status == AccountStatus.InWebOnly
             }
-            Column(Modifier.fillMaxWidth().padding(top = Dims.tight, bottom = 10.dp)) {
+            // 返工总单 B6：首个区块标题左边挂一颗 44dp 的球（稿 `.account-head
+            // .ball-button{justify-self:start}`）。脸色由本页真数据算：sources 还没
+            // 读到任何一条 => Loading；有一条 Unknown => 仍算不知道；都有结果 => Idle。
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = Dims.tight, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AiBall(
+                    state = AiBallStates.ofAccounts(sources.takeIf { it.isNotEmpty() }),
+                    diameter = AiBall.DIAMETER_PAGE,
+                    hitSlop = AiBall.INLINE_SLOP,
+                )
+                Spacer(Modifier.width(9.dp))
+                Column(Modifier.weight(1f)) {
                 Text(
                     text = "账号连接",
                     fontSize = Type.micro,
@@ -152,7 +169,7 @@ fun AccountsPage(
                     color = colors.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 2.dp),
                 )
-            }
+                            }}
         }
         // ★ 判据用**数据层的真实状态**，不用 `uiState.loggedIn`：后者全工程只有
         //   `WanzaiRoot` 两处置 true、**0 处置 false** ⇒ 点了「退出登录」六行变未登录、
