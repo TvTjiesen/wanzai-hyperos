@@ -60,9 +60,10 @@ class AboutRewriteOnceTest {
 
     // ── 3. 头像直接显示在关于页（业主 2026-11-09）────────────────────
     @Test
-    fun `关于页直接显示作者头像，不再是图标或虚线占位框`() {
+    fun `应用图标留在原位，头像只顶替作者行那枚小图标`() {
         val about = code("ui/about/AboutPage.kt")
-        assertTrue("关于页没画头像", "R.drawable.author_avatar" in about)
+        assertTrue("关于页没留应用图标（头像只该顶替作者行那枚小图标）", "R.drawable.ic_brand" in about)
+        assertTrue("关于页没把作者头像放到作者行前面", "avatar = true" in about)
         assertTrue("关于页还在画虚线占位框", "dashPathEffect" !in about)
         assertTrue("关于页还写着「你的图标」占位文案", "你的图标" !in about)
         assertTrue("头像资源不存在", File("$resRoot/drawable-nodpi/author_avatar.png").exists())

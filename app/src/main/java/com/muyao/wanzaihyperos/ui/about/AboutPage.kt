@@ -124,17 +124,18 @@ fun AboutPage(
                     bottom = inner.calculateBottomPadding() + 24.dp,
                 ),
         ) {
-            // ── 作者头像（业主 2026-11-09：头像直接显示在这一页）──────────
+            // ── 应用图标（业主给的原图，整图不裁；尺寸沿用稿的 112px 占位框）──
+            // ★ 2026-11-09 业主更正：**不要**把应用图标换成头像 —— 头像只作为「作者」
+            //   行前面那枚小图标；应用图标留在原位。
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Image(
-                    painter = painterResource(R.drawable.author_avatar),
-                    contentDescription = "柒合院作者的头像",
+                    painter = painterResource(R.drawable.ic_brand),
+                    contentDescription = "柒合院的图标",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .padding(vertical = 21.dp)
                         .size(99.dp)
-                        .clip(CircleShape)
-                        .border(1.dp, colors.dividerLine.copy(alpha = 0.6f), CircleShape),
+                        .clip(RoundedCornerShape(25.dp)),
                 )
             }
 
@@ -185,6 +186,7 @@ fun AboutPage(
                     mark = MarkIcon.Account,
                     title = "作者",
                     subtitle = "TvTjiesen · GitHub 主页与头像",
+                    avatar = true,
                     onClick = onOpenAuthor,
                 )
             }
@@ -250,6 +252,8 @@ internal fun AboutRow(
     mark: MarkIcon,
     title: String,
     subtitle: String,
+    /** 传 true 时这一行左边用作者头像，而不是 [mark] 那枚线性图标（业主 2026-11-09）。 */
+    avatar: Boolean = false,
     onClick: (() -> Unit)?,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -264,7 +268,16 @@ internal fun AboutRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(26.6.dp), contentAlignment = Alignment.Center) {
-            BodyMark(icon = mark, tint = colors.onSurfaceVariantSummary, size = 20.dp)
+            if (avatar) {
+                Image(
+                    painter = painterResource(R.drawable.author_avatar),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(20.dp).clip(CircleShape),
+                )
+            } else {
+                BodyMark(icon = mark, tint = colors.onSurfaceVariantSummary, size = 20.dp)
+            }
         }
         Spacer(Modifier.width(10.6.dp))
         Column(Modifier.weight(1f)) {
