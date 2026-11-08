@@ -129,6 +129,10 @@ fun SettingsSectionPage(
     onOpenAccounts: () -> Unit = {},
     /** 「动画与辅助显示」二级页（v2.1 稿 `screens/accessibility.png`）。 */
     onOpenAccessibility: () -> Unit = {},
+    /** 节次时间表搬到独立页后，首屏这一行只负责跳转（返工总单 A4）。 */
+    onOpenPeriods: () -> Unit = {},
+    /** 上课提醒搬到独立页（返工总单 A5）。 */
+    onOpenReminders: () -> Unit = {},
     /**
      * 刷新键（返回栈深度）。**光靠 `uiState.loggedIn` 不够**：它只会 false→true，
      * 已登录门户之后再登教务 / CJH52 / 智慧公寓，那个布尔不再变化 ⇒ 聚合行的「已登录 n 项」不会重算。
@@ -397,150 +401,22 @@ fun SettingsSectionPage(
                     // 原来那句「认得 N 节 · 你另填 N 节」把两件事塞进副标题，两行就截；
                     // 现在「你另填几节」放进展开后的编辑器里（那一屏本来就写着），右值只报学校节数。
                     subtitle = "学校时间为底，你的设置优先",
-                    onClick = { showPeriods = !showPeriods },
-                    trailing = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = com.muyao.wanzaihyperos.data.schedule.PeriodClock
-                                    .knownCount(UiPrefs.periodTimes).toString() + " 节",
-                                fontSize = Type.caption,
-                                color = colors.onSurfaceVariantSummary,
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                // ★ 这颗箭头是**这一行自己的**（它要跟着展开态在 › / ▾ 之间切），
-                                //   所以不能同时给 `trailingChevron = true` —— 那会在右边再画一颗，
-                                //   真机上量到过「11 节 › ›」两个箭头并排。
-                                text = if (showPeriods) "▾" else "›",
-                                fontSize = Type.title,
-                                color = colors.onSurfaceVariantSummary,
-                            )
-                        }
-                    },
+                    onClick = onOpenPeriods,
+                    // 返工总单 A4：这一行不再就地展开，改成跳独立页（稿 periods 是独立页）。
+                    // 原来那颗自绘的 ›/▾ 箭头随之删除 —— 现在恒为跳转，交给 trailingChevron。
+                    trailingChevron = true,
                 )
                 SettingRow(
                     icon = SettingIcon.Alarm,
                     tint = if (UiPrefs.classReminderEnabled) Tone.ok else Tone.quiet,
                     title = "上课提醒",
+                    // 返工总单 A5：提前多久 / 隐私 / 静音 / 诊断全部搬到独立页做三级。
+                    // 原来四件东西加一个静音选择器就地展开，一打开就把「存储」「关于」
+                    // 顶到屏幕外 —— 用户会以为设置项丢了。首屏只留这一行摘要。
                     subtitle = reminderSubtitle(context),
-                    trailing = {
-                        PillSwitch(
-                            checked = UiPrefs.classReminderEnabled,
-                            label = "上课提醒",
-                        ) {
-                            val on = !UiPrefs.classReminderEnabled
-                            val already = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.POST_NOTIFICATIONS,
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (on && !already) {
-                                // 先把开关落成开，权限回调立刻把真实结果写回来；
-                                // 不先落的话，权限框弹出去那一瞬界面还写着「关」，看着像没点上。
-                                UiPrefs.saveClassReminderEnabled(true)
-                                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            } else {
-                                UiPrefs.saveClassReminderEnabled(on)
-                            }
-                        }
-                    },
-                )
-                if (UiPrefs.classReminderEnabled) {
-                    ReminderLeadPicker(
-                        selected = UiPrefs.classReminderLeadMinutes,
-                        onSelect = { UiPrefs.saveReminderLead(it) },
-                    )
-                    // ── 建议二（业主 2026-11-07「五项新增设置全做」）──
-                    // 只在提醒真开着时才出现：关着提醒却给"隐私/静音"两个开关，
-                    // 等于给两个按了也没有效果的按钮。
-                    SettingRow(
-                        icon = SettingIcon.Shield,
-                        tint = Tone.ok,
-                        title = "通知里不显示课名与教室",
-                        subtitle = if (UiPrefs.reminderPrivate) {
-                            "锁屏只写「即将上课」，具体课程要进应用才看得到"
-                        } else {
-                            "锁屏直接显示课程、时间与教室"
-                        },
-                        trailing = {
-                            PillSwitch(checked = UiPrefs.reminderPrivate, label = "提醒隐私") {
-                                UiPrefs.saveReminderPrivate(!UiPrefs.reminderPrivate)
-                            }
-                        },
-                    )
-                    SettingRow(
-                        icon = SettingIcon.Moon,
-                        tint = if (UiPrefs.quietHoursEnabled) Tone.ok else Tone.quiet,
-                        title = "静音时段",
-                        subtitle = if (UiPrefs.quietHoursEnabled) {
-                            val s = "%02d:00".format(UiPrefs.quietHoursStart)
-                            val e = "%02d:00".format(UiPrefs.quietHoursEnd)
-                            "$s – $e 不发响，仍留一条无声摘要 · 只约束本应用"
-                        } else {
-                            "默认关。开启后这段时间的提醒不响铃，但不会吞掉"
-                        },
-                        trailing = {
-                            PillSwitch(checked = UiPrefs.quietHoursEnabled, label = "静音时段") {
-                                UiPrefs.saveQuietHoursEnabled(!UiPrefs.quietHoursEnabled)
-                            }
-                        },
-                    )
-                    if (UiPrefs.quietHoursEnabled) {
-                        QuietHoursPicker(
-                            start = UiPrefs.quietHoursStart,
-                            end = UiPrefs.quietHoursEnd,
-                            onSelect = { s, e -> UiPrefs.saveQuietHours(s, e) },
-                        )
-                    }
-                    // ── 建议四：提醒权限诊断（业主 2026-11-07「五项新增设置全做」）──
-                    // 只读：只报告系统此刻到底允许了什么，不代替用户去申请。
-                    // 「提醒没响」的四种原因（通知被关 / 渠道被关 / 没有精确闹钟 / 没排上）
-                    // 必须逐条给结论 —— 合成一句「请检查系统设置」等于什么都没说。
-                    SettingRow(
-                        icon = SettingIcon.Info,
-                        tint = if (showDiag) Tone.ok else Tone.quiet,
-                        title = "提醒为什么不响",
-                        subtitle = "逐条查：通知开关、提醒渠道、精确闹钟、排班条数",
-                        onClick = { showDiag = !showDiag },
-                        trailing = {
-                            Text(
-                                text = if (showDiag) "▾" else "›",
-                                fontSize = Type.title,
-                                color = colors.onSurfaceVariantSummary,
-                            )
-                        },
-                    )
-                    if (showDiag) {
-                        ReminderDiagnostics(context)
-                    }
-                }
-            }
-        }
-        item(key = "period-editor") {
-            SettingExpand(visible = showPeriods) {
-                SettingGroup {
-                    PeriodTimeEditor(rows = UiPrefs.periodTimes) { rows ->
-                        UiPrefs.savePeriodTimes(rows)
-                    }
-                    // 稿 v2.1 `periods.png` 底部第二颗按钮（第一颗「保存演示时间」是评审控件）。
-                    // 我们的编辑器是**改一格存一格**，所以不需要保存钮，但「清除个人覆盖」
-                    // 必须留着：填错了、或者想把整张表退回学校时间，只有这一个出口。
-                    if (UiPrefs.periodTimes.any { it.first.isNotBlank() || it.second.isNotBlank() }) {
-                        Text(
-                            text = "清除个人覆盖",
-                            fontSize = Type.caption,
-                            fontWeight = Type.weightTitle,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .padding(start = 14.dp, top = 2.dp, bottom = 8.dp)
-                                .clip(RoundedCornerShape(50))
-                                .clickable(onClickLabel = "清除我填过的节次时间") {
-                                    UiPrefs.savePeriodTimes(emptyList())
-                                }
-                                .padding(horizontal = 6.dp, vertical = 4.dp),
-                        )
-                    }
-                }
-            }
+                    onClick = onOpenReminders,
+                    trailingChevron = true,
+                )            }
         }
 
         // ---- 本地缓存（业主 2026-10-20 同意加缓存，這一條是我加的條件）------------
@@ -857,7 +733,7 @@ fun SettingsSectionPage(
  * 在这个开关上看不出任何区别 —— 他会以为开着就会响，然后不响。
  * `-1` = 还没排过（冷启动后还没走到调度那一步），这时候**不编条数**。
  */
-private fun reminderSubtitle(context: android.content.Context): String {
+internal fun reminderSubtitle(context: android.content.Context): String {
     // 稿 `settings`：未开启时这一行写「未开启，先确认通知权限」——先说要紧的那道闸门，
     // 而不是先描述功能（描述功能会让「关着」读起来像「已经能用，只是没开」）。
     if (!UiPrefs.classReminderEnabled) return "未开启，先确认通知权限"
@@ -883,7 +759,7 @@ private fun reminderSubtitle(context: android.content.Context): String {
  * 这两头都是坏选择，而滑杆的每一格都得由他自己判断对不对 —— 给三个能用的就够。
  */
 @Composable
-private fun ReminderLeadPicker(selected: Int, onSelect: (Int) -> Unit) {
+internal fun ReminderLeadPicker(selected: Int, onSelect: (Int) -> Unit) {
     val colors = MiuixTheme.colorScheme
     val isDark = com.muyao.wanzaihyperos.ui.design.liquid.isInDarkTheme()
     Row(
@@ -951,7 +827,7 @@ private fun ReminderLeadPicker(selected: Int, onSelect: (Int) -> Unit) {
  * 按"start > end 就跨天"处理，两边同一套语义。
  */
 @Composable
-private fun QuietHoursPicker(start: Int, end: Int, onSelect: (Int, Int) -> Unit) {
+internal fun QuietHoursPicker(start: Int, end: Int, onSelect: (Int, Int) -> Unit) {
     val colors = MiuixTheme.colorScheme
     Column(
         modifier = Modifier
@@ -1051,7 +927,7 @@ private fun QuietHourStep(symbol: String, label: String, onClick: () -> Unit) {
  * 合成一句「请检查系统设置」就是把四件事糊成一件，所以他下次还是不知道为什么。
  */
 @Composable
-private fun ReminderDiagnostics(context: android.content.Context) {
+internal fun ReminderDiagnostics(context: android.content.Context) {
     val colors = MiuixTheme.colorScheme
     val notif = androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
     val channel = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {

@@ -195,6 +195,10 @@ fun WanzaiMainShell(
     var showAppearance by remember { mutableStateOf(false) }
     // 「动画与辅助显示」：与外观页同一种承载方式（壳内全屏覆盖），不新增 Route。
     var showAccessibility by remember { mutableStateOf(false) }
+    // 返工总单 A4：节次时间表从设置项内联展开改成独立页（与外观/辅助显示同一套覆盖层）。
+    var showPeriods by remember { mutableStateOf(false) }
+    // 返工总单 A5：上课提醒独立页。
+    var showReminders by remember { mutableStateOf(false) }
     val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
 
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
@@ -417,6 +421,8 @@ fun WanzaiMainShell(
                                 onOpenLogin = onOpenLogin,
                                 onOpenAppearance = { showAppearance = true },
                                 onOpenAccessibility = { showAccessibility = true },
+                                onOpenPeriods = { showPeriods = true },
+                                onOpenReminders = { showReminders = true },
                                 onOpenJw = onOpenJw,
                                 onOpenZhgy = onOpenZhgy,
                                 onOpenSzty = onOpenSzty,
@@ -620,6 +626,85 @@ fun WanzaiMainShell(
                 ) {
                     com.muyao.wanzaihyperos.ui.main.pages.AccessibilityPage(
                         onClose = { showAccessibility = false },
+                    )
+                }
+            }
+            // 返工总单 A4：节次时间表独立页。进出场与外观/辅助显示完全一致 ——
+            // 它们是同一族「设置里的二级页」，切过去不该像换了个应用。
+            AnimatedVisibility(
+                visible = showPeriods,
+                enter = (if (motion.canMove) {
+                    slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = Motion.OVERLAY_IN_DAMPING,
+                            stiffness = Motion.OVERLAY_IN_STIFFNESS,
+                        ),
+                        initialOffsetY = { it / 14 },
+                    )
+                } else {
+                    fadeIn(tween(120))
+                }) + fadeIn(tween(200)),
+                exit = (if (motion.canMove) {
+                    slideOutVertically(
+                        animationSpec = spring(
+                            dampingRatio = Motion.OVERLAY_OUT_DAMPING,
+                            stiffness = Motion.OVERLAY_OUT_STIFFNESS,
+                        ),
+                        targetOffsetY = { it / 20 },
+                    )
+                } else {
+                    fadeOut(tween(120))
+                }) + fadeOut(tween(140)),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .align(Alignment.TopStart),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .containerBackground(isDark),
+                ) {
+                    com.muyao.wanzaihyperos.ui.main.pages.PeriodsPage(
+                        onClose = { showPeriods = false },
+                    )
+                }
+            }
+            // 返工总单 A5：上课提醒独立页（三级：首屏一行 → 本页 → 折叠诊断）。
+            AnimatedVisibility(
+                visible = showReminders,
+                enter = (if (motion.canMove) {
+                    slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = Motion.OVERLAY_IN_DAMPING,
+                            stiffness = Motion.OVERLAY_IN_STIFFNESS,
+                        ),
+                        initialOffsetY = { it / 14 },
+                    )
+                } else {
+                    fadeIn(tween(120))
+                }) + fadeIn(tween(200)),
+                exit = (if (motion.canMove) {
+                    slideOutVertically(
+                        animationSpec = spring(
+                            dampingRatio = Motion.OVERLAY_OUT_DAMPING,
+                            stiffness = Motion.OVERLAY_OUT_STIFFNESS,
+                        ),
+                        targetOffsetY = { it / 20 },
+                    )
+                } else {
+                    fadeOut(tween(120))
+                }) + fadeOut(tween(140)),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .align(Alignment.TopStart),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .containerBackground(isDark),
+                ) {
+                    com.muyao.wanzaihyperos.ui.main.pages.RemindersPage(
+                        onClose = { showReminders = false },
                     )
                 }
             }
