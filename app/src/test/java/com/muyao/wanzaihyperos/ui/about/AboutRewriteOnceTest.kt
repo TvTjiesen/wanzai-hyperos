@@ -137,4 +137,18 @@ class AboutRewriteOnceTest {
             }
         assertEquals("这些文件的代码里还残留旧名：$hits", 0, hits.size)
     }
+
+    // ── 8. 酷安那行要写清楚是什么 ──────────────────────────────────
+    @Test
+    fun `作者页的酷安那行要有描述，不能只丢一个地址`() {
+        // 2026-11-09 业主：「作者那页加上酷安的描述」。
+        // 只写 coolapk.com/u/22174009 的话，不玩酷安的评审根本不知道那是什么。
+        val author = code("ui/about/AuthorPage.kt")
+        val row = author.substringAfter("\"酷安主页\"").substringBefore("RowDivider")
+        assertTrue("酷安那行没写平台是什么", "酷安，安卓应用社区" in row)
+        assertTrue("酷安地址还留着吗", "coolapk.com/u/22174009" in row)
+        // 描述必须挂在酷安这行上，不能飘到别的行去。
+        val before = author.substringBefore("\"酷安主页\"")
+        assertTrue("描述跑到酷安行上面去了", "酷安，安卓应用社区" !in before)
+    }
 }

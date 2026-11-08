@@ -136,7 +136,10 @@ fun AuthorPage(
                     mark = MarkIcon.App,
                     title = "酷安主页",
                     subtitle = if (AboutLinks.coolapk.isNotBlank()) {
-                        "coolapk.com/u/22174009"
+                        // 2026-11-09 业主：「作者那页加上酷安的描述」——
+                        // 只丢一个地址等于什么都没说，补半句这个号在酷安是什么。
+                        // 不写「更新只发这里」「有问题必回」这类没发生过的事。
+                        "coolapk.com/u/22174009 · 酷安，安卓应用社区"
                     } else {
                         "尚未填写"
                     },
