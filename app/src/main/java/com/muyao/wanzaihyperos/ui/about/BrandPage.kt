@@ -160,7 +160,11 @@ fun BrandPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 Row(
                     modifier = Modifier.padding(Dims.cardPadding).fillMaxWidth(),
                     verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    // 四档宽度是固定的 32/48/64/96，合计 240dp；卡片内宽约 279dp。
+                    // 原来写死 14dp 间距 ⇒ 240 + 42 = 282dp，比容器还宽 3dp —— 默认字号下
+                    // 就已经顶着边，系统字号放大后更容易被挤出卡片。改成均分剩余空间，
+                    // 间距由容器自己算（这里是 ~13dp，视觉上与原稿一致，但永远放得下）。
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     listOf(32, 48, 64, 96).forEach { px ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
