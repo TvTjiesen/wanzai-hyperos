@@ -192,18 +192,21 @@ fun AboutPage(
             }
 
             // ── 最底下：用户协议与隐私政策 ────────────────────────────────
+            // 2026-11-09 业主（原话）：「把这一页底下的注释全部去掉，就是类似于开源许可下面的小字」
+            // → 「我他妈说的是用户协议和隐私政策下面的字」。
+            // 这两行原来各挂一句副标题（「使用本应用前请先读这一份」/
+            // 「说清楚本机存了什么、什么不会离开手机」），现在只留标题——
+            // 标题本身已经把事说清楚了，再补一句等于替读者做决定。
             FlushCard(modifier = Modifier.padding(top = 16.dp, bottom = 32.dp)) {
                 AboutRow(
                     mark = MarkIcon.File,
                     title = "用户协议",
-                    subtitle = "使用本应用前请先读这一份",
                     onClick = onOpenTerms,
                 )
                 RowDivider()
                 AboutRow(
                     mark = MarkIcon.Lock,
                     title = "隐私政策",
-                    subtitle = "说清楚本机存了什么、什么不会离开手机",
                     onClick = onOpenPrivacy,
                 )
             }
@@ -251,7 +254,8 @@ internal fun RowDivider() {
 internal fun AboutRow(
     mark: MarkIcon,
     title: String,
-    subtitle: String,
+    /** 留空就不画副标题（2026-11-09 业主让「下面的字」滚蛋的那几行）。 */
+    subtitle: String = "",
     /** 传 true 时这一行左边用作者头像，而不是 [mark] 那枚线性图标（业主 2026-11-09）。 */
     avatar: Boolean = false,
     onClick: (() -> Unit)?,
@@ -287,13 +291,15 @@ internal fun AboutRow(
                 lineHeight = Type.bodyEmphasis * 1.5f,
                 color = colors.onBackground,
             )
-            Text(
-                text = subtitle,
-                fontSize = Type.caption,
-                lineHeight = Type.caption * 1.5f,
-                color = colors.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 2.7.dp),
-            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    text = subtitle,
+                    fontSize = Type.caption,
+                    lineHeight = Type.caption * 1.5f,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 2.7.dp),
+                )
+            }
         }
         if (onClick != null) {
             Spacer(Modifier.width(8.dp))
