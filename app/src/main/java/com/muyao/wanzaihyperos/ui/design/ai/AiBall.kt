@@ -5,6 +5,8 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -96,6 +98,15 @@ fun AiBall(
      * 内容页那颗球只回答「这一页现在怎样」，播一次正好解释「刚刚刷新过」。
      */
     announceArrival: Boolean = false,
+    /**
+     * 是否投一层柔和投影（返工总单 D3，按 GPT 稿）。
+     *
+     * 稿 `style.css:84`：`.ball-button svg{filter:drop-shadow(0 6px 7px #3e455517)}`
+     * —— 色 #3e4555、透明度 0x17≈9%、y=6px、blur=7px；而 `.small-ball` /
+     * `.inline-ball` 明确 `filter:none`。字面照抄会是「所有球都发光」，
+     * 恰好相反。默认只在首页那颗（DIAMETER 及以上）投，页面内 44dp 不投。
+     */
+    castShadow: Boolean = diameter >= AiBall.DIAMETER,
 ) {
     val motion = rememberMotion()
     val scope = rememberCoroutineScope()
@@ -178,7 +189,23 @@ fun AiBall(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(diameter)) {
+        Canvas(
+            modifier = Modifier
+                .size(diameter)
+                .then(
+                    if (castShadow) {
+                        Modifier.shadow(
+                            elevation = 6.dp,
+                            shape = CircleShape,
+                            clip = false,
+                            ambientColor = Color(0x2E3E4555),
+                            spotColor = Color(0x2E3E4555),
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
             val d = size.minDimension
             val c = Offset(size.width / 2f, size.height / 2f)
             val squash = 1f - AiBall.PRESS_SCALE * press.value
