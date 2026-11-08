@@ -73,10 +73,11 @@ fun BrandPage(
         Column(
             Modifier
                 .fillMaxSize()
+                .padding(top = inner.calculateTopPadding())
                 .verticalScroll(scroll)
                 .padding(horizontal = Dims.screenH)
                 .padding(
-                    top = inner.calculateTopPadding() + 6.dp,
+                    top = 6.dp,
                     bottom = inner.calculateBottomPadding() + 24.dp,
                 ),
         ) {

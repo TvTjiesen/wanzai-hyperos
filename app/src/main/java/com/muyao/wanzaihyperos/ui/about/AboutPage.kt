@@ -103,11 +103,12 @@ fun AboutPage(
         Column(
             Modifier
                 .fillMaxSize()
+                .padding(top = inner.calculateTopPadding())
                 .verticalScroll(scroll)
                 .padding(horizontal = Dims.screenH)
                 .padding(
-                    top = inner.calculateTopPadding() + 6.dp,
-                    bottom = inner.calculateBottomPadding(),
+                    top = 6.dp,
+                    bottom = inner.calculateBottomPadding() + 24.dp,
                 ),
         ) {
             // ── 你的图标（稿 `.user-icon-slot`：112px 方框、虚线 1px、24px 圆角）──

@@ -61,11 +61,12 @@ fun LicensesPage(
         Column(
             Modifier
                 .fillMaxSize()
+                .padding(top = inner.calculateTopPadding())
                 .verticalScroll(scroll)
                 .padding(horizontal = Dims.screenH)
                 .padding(
-                    top = inner.calculateTopPadding() + 6.dp,
-                    bottom = inner.calculateBottomPadding(),
+                    top = 6.dp,
+                    bottom = inner.calculateBottomPadding() + 24.dp,
                 ),
         ) {
             // 稿（screens/licenses.png）是一段说明 + **一张卡**，不是三张分组卡：

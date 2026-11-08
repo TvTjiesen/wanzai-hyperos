@@ -93,8 +93,8 @@ fun PeriodsPage(
     ) { innerPadding ->
         LazyColumn(
             state = listState,
+            modifier = Modifier.padding(top = innerPadding.calculateTopPadding()),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                top = innerPadding.calculateTopPadding(),
                 bottom = innerPadding.calculateBottomPadding(),
             ),
         ) {

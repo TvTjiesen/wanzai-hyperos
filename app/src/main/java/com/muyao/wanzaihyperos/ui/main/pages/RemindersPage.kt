@@ -93,12 +93,12 @@ fun RemindersPage(
     ) { innerPadding ->
         LazyColumn(
             state = listState,
+            modifier = Modifier.padding(top = innerPadding.calculateTopPadding()),
             // 左右 16dp 放在 contentPadding 上：与设置页同一条正文列。
             // 不放在每个 item 上 —— 组标题与卡片若各自加，图标会被顶到屏幕边缘（2026-11-08 修）。
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
-                top = innerPadding.calculateTopPadding(),
                 bottom = innerPadding.calculateBottomPadding(),
             ),
         ) {

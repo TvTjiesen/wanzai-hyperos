@@ -103,11 +103,12 @@ fun WallpaperCropPage(
         Column(
             Modifier
                 .fillMaxSize()
+                .padding(top = inner.calculateTopPadding())
                 .verticalScroll(scroll)
                 .padding(horizontal = Dims.screenH)
                 .padding(
-                    top = inner.calculateTopPadding(),
-                    bottom = inner.calculateBottomPadding(),
+                    top = 6.dp,
+                    bottom = inner.calculateBottomPadding() + 24.dp,
                 ),
         ) {
             NoticeBlock(
