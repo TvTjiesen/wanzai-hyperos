@@ -1,45 +1,55 @@
 package com.muyao.wanzaihyperos.ui.design.ai
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.ui.draw.shadow
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.muyao.wanzaihyperos.ui.design.Tone
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import com.muyao.wanzaihyperos.ui.design.rememberMotion
+import com.muyao.wanzaihyperos.ui.design.Tone
+import com.muyao.wanzaihyperos.ui.main.HorizontalDragZones
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
 /**
@@ -106,7 +116,7 @@ fun AiBall(
      * `.inline-ball` 明确 `filter:none`。字面照抄会是「所有球都发光」，
      * 恰好相反。默认只在首页那颗（DIAMETER 及以上）投，页面内 44dp 不投。
      */
-    castShadow: Boolean = diameter >= AiBall.DIAMETER,
+    castShadow: Boolean = diameter >= AiBall.DIAMETER_FIELD,
 ) {
     val motion = rememberMotion()
     val scope = rememberCoroutineScope()
@@ -130,6 +140,39 @@ fun AiBall(
     val gazeY = remember { Animatable(0f) }
     val press = remember { Animatable(0f) }
 
+    // ── 拖动（返工总单 B7：手势第三层，只给首页那颗 96dp）──────────────
+    //
+    // 为什么只给 96dp：44dp 的页面内球紧挨着可点的行，一拖就把「点这一行」变成
+    // 「拖那颗球」，而且它没有可回的「球场」。首页那颗本来就在单独一块天空里，
+    // 拖出去 56dp 仍在同一块区域内。
+    //
+    // 位移只改绘制位置（`Modifier.offset`），不参与父布局测量 —— 否则拖球会把
+    // 整页内容挤动一格，松手再挤回来。
+    val canDrag = diameter >= AiBall.DIAMETER_FIELD
+    // 球没了（换板块 / 退出首页）就把豁免矩形撤掉：留着一个不存在的矩形，
+    // 会让那一小块区域的横向切板块永远失灵，而且没有任何东西看得见。
+    DisposableEffect(canDrag) {
+        onDispose { if (canDrag) HorizontalDragZones.set(AiBall.DRAG_ZONE_KEY, null) }
+    }
+    var dragX by remember { mutableFloatStateOf(0f) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+
+    // 松手回弹：同时把 x/y 归零（用 animate 驱动一个 0..1 的进度的两条线性插值，
+    // 而不是两个 Animatable —— 两条各跑各的会在中途「先回 x 再回 y」。
+    fun settleBack() {
+        val x0 = dragX
+        val y0 = dragY
+        if (x0 == 0f && y0 == 0f) return
+        scope.launch {
+            animate(0f, 1f, animationSpec = tween(300, easing = FastOutSlowInEasing)) { t, _ ->
+                dragX = x0 * (1f - t)
+                dragY = y0 * (1f - t)
+            }
+            dragX = 0f
+            dragY = 0f
+        }
+    }
+
     // 一次一个动作：做完就静止，等下一拍。停机时先把眼睛放回正中，
     // 免得停在「正在摇头」的半路上动不了。
     LaunchedEffect(shown, motion.canMove) {
@@ -149,6 +192,10 @@ fun AiBall(
     Box(
         modifier = modifier
             .size(diameter + hitSlop * 2)
+            .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
+            .onGloballyPositioned { coordinates ->
+                if (canDrag) HorizontalDragZones.set(AiBall.DRAG_ZONE_KEY, coordinates.boundsInRoot())
+            }
             .pointerInput(shown, motion.canMove) {
                 detectTapGestures(
                     onPress = {
@@ -172,6 +219,26 @@ fun AiBall(
                     },
                     onLongPress = {
                         previewIndex = if (previewIndex < 0) 0 else (previewIndex + 1) % AiBall.FACES.size
+                    },
+                )
+            }
+            // 拖动与点击分两个 pointerInput：点击那条在 Main 阶段，超过 touchSlop
+            // 时 detectTapGestures 自己会取消，所以「拖一下」不会顺带点亮一次点击。
+            //
+            // ⚠️ 父级「横向切板块」那条手势跑在 Initial 阶段（`SwipeToSwitchSection.kt`），
+            //   比任何子节点都早；它一旦 claim 就会 consume，子节点永远收不到拖动。
+            //   所以这里不跟它抢优先级，而是把球自己那块矩形登记进它的豁免表
+            //   （`HorizontalDragZones`，课表周条用的也是这条路）。
+            .pointerInput(canDrag) {
+                if (!canDrag) return@pointerInput
+                val limit = AiBall.DRAG_RANGE.toPx()
+                detectDragGestures(
+                    onDragEnd = { settleBack() },
+                    onDragCancel = { settleBack() },
+                    onDrag = { change, delta ->
+                        change.consume()
+                        dragX = (dragX + delta.x).coerceIn(-limit, limit)
+                        dragY = (dragY + delta.y).coerceIn(-limit, limit)
                     },
                 )
             }
@@ -298,6 +365,17 @@ object AiBall {
 
     /** 首页标题区的主视觉直径：96dp = 560dpi 下 336px，眼睛墨迹约 88x64px —— 那是一张脸。 */
     val DIAMETER_FIELD = 96.dp
+
+    /**
+     * 首页那颗球能被拖动多远（返工总单 B7）。
+     *
+     * 56dp 是「仍在同一块天空里」的上限：再往外就压到日期行或今天的课表，
+     * 那不是「球场内」，是把球拖到别人的区域里。
+     */
+    val DRAG_RANGE = 56.dp
+
+    /** 登记进 `HorizontalDragZones` 的键。首页只有一颗 96dp 的球，键固定即可。 */
+    const val DRAG_ZONE_KEY = "aiBallField"
 
     /** 单独摆放时的命中区外扩：36 + 6x2 = 48dp，正好到触控下限。 */
     val HIT_SLOP = 6.dp
