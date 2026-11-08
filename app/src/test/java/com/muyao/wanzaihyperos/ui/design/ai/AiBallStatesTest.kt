@@ -132,6 +132,64 @@ class AiBallStatesTest {
         )
     }
 
+    // ── 3b. 课间：马上要上课也要落到 Focus（返工总单 B9）─────────
+
+    @Test
+    fun 距下一节五十九分钟是注意力脸() {
+        assertEquals(
+            AiBallState.Focus,
+            AiBallStates.ofHome(
+                plan = plan(1, 3), loading = false, failure = null, ongoing = false,
+                minutesToNextClass = 59,
+            ),
+        )
+    }
+
+    @Test
+    fun 距下一节整六十分钟不算马上() {
+        assertEquals(
+            AiBallState.Idle,
+            AiBallStates.ofHome(
+                plan = plan(1, 3), loading = false, failure = null, ongoing = false,
+                minutesToNextClass = 60,
+            ),
+        )
+    }
+
+    @Test
+    fun 正在上课压过马上要上课() {
+        assertEquals(
+            AiBallState.Busy,
+            AiBallStates.ofHome(
+                plan = plan(2, 3), loading = false, failure = null, ongoing = true,
+                minutesToNextClass = 30,
+            ),
+        )
+    }
+
+    @Test
+    fun 待办到期与马上要上课都落注意力脸() {
+        assertEquals(
+            AiBallState.Focus,
+            AiBallStates.ofHome(
+                plan = plan(1, 3), loading = false, failure = null, ongoing = false,
+                urgentTodo = true, minutesToNextClass = 30,
+            ),
+        )
+    }
+
+    @Test
+    fun 认不出时间的课不触发课间脸() {
+        // 算不出分钟数就是 null —— 「不知道」不许长成「马上要上课」。
+        assertEquals(
+            AiBallState.Idle,
+            AiBallStates.ofHome(
+                plan = plan(1, 3), loading = false, failure = null, ongoing = false,
+                minutesToNextClass = null,
+            ),
+        )
+    }
+
     // ── 4. 课表页：两份来源里有一份能用就不算坏 ───────────────────
 
     @Test

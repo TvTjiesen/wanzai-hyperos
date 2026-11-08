@@ -103,7 +103,8 @@ fun AccountsPage(
     }
 
     SecondaryScaffold(
-        title = "账号",
+        // ★ 返工总单 A1：标题按稿写成「账号与连接」（原「账号」与设置页那一行不一致）。
+        title = "账号与连接",
         onBack = onBack,
         modifier = modifier,
     ) { inner ->
