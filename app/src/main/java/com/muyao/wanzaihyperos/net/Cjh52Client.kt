@@ -33,6 +33,16 @@ import kotlinx.serialization.json.put
 class Cjh52Client(
     private val transport: HzcuClient,
     private val tokenProvider: () -> String?,
+    /**
+     * 服务端明确说「这枚 token 不行」时回调一次。
+     *
+     * 存在的必要性：CJH52 的 token 有寿命，过期后服务端回 401。
+     * 如果本地会话不清，[com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate]
+     * 会继续认为 `isUsable = true` 而直接放行 —— 页面就永远停在
+     * 「登录状态已失效」，而它建议用户去重新登录，重新登录又不碰这枚旧码，
+     * 于是**再也恢复不了**。清掉它，下次进页闸门就会重新预热。
+     */
+    private val onUnauthorized: () -> Unit = {},
 ) {
 
     /**
@@ -41,7 +51,16 @@ class Cjh52Client(
      * @param path `/dapi/v2/...` 形式
      * @param body JSON 包体（该站的读接口几乎都是 POST + JSON）
      */
-    suspend fun post(path: String, body: JsonObject = buildJsonObject { }): JsonObject {
+    suspend fun post(path: String, body: JsonObject = buildJsonObject { }): JsonObject =
+        try {
+            postInner(path, body)
+        } catch (e: HzcuException.LoginExpired) {
+            // 清会话这一步必须在**抛出之前**做：上层拿到 LoginExpired 就只画错误页了。
+            runCatching { onUnauthorized() }
+            throw e
+        }
+
+    private suspend fun postInner(path: String, body: JsonObject): JsonObject {
         val token = tokenProvider()
         if (token.isNullOrEmpty()) {
             // 没有 token 就别发请求：实测无 Authorization 会回 code=401，

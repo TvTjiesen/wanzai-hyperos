@@ -57,14 +57,26 @@ class AppsTidyOnceTest {
         assertTrue("顶栏那颗的字应当跟着状态走：$fn", fn.contains(toggle))
     }
 
-    // ---- 2. 壳把状态传进去了，而且是按值读 --------------------------------
+    // ---- 2. 唯一那颗带状态，且状态是从偏好里读的 --------------------------
     @Test
-    fun `壳把状态传进顶栏那颗，并且按值读`() {
+    fun `唯一那颗整理开关按值读偏好`() {
+        // 2026-11-08 改判：板面（screens/apps.png）的顶栏只有「应用 + 搜索钮」，
+        // 「整理」在「常用」标题行右侧。所以壳里那颗必须**不存在**，唯一那颗在页面里。
         val shell = code(shellFile)
-        val call = sliceAfter(shell, "AppsTidyButton(", 260)
-        assertTrue("壳应当把当前状态传进去：$call", call.contains("tidy = UiPrefs.appsTidy.value"))
-        // `UiPrefs.appsTidy` 是 MutableState<Boolean>，少写 .value 编译就过不去；
-        // 这条钉的是「别再退回无参调用」。
-        assertFalse("顶栏那颗不许再无线程调用（它必须知道现在是整理还是整理完）：$call", call.contains("AppsTidyButton(onClick"))
+        // 注意：Assert 的消息参数是**先求值**的，所以这里不能调 sliceAfter(shell, "AppsTidyButton", …)
+        // —— 壳里一旦真的没有它（正是我们要的结果），锚点就找不到、测试会以「锚点没找到」
+        // 失败，而不是以「壳里又长出第二颗」失败。消息只写一句话，定位靠 grep。
+        assertFalse(
+            "壳里又长出第二颗「整理」了 —— 板面顶栏没有它，同一屏两颗开关同一个状态就又回来了",
+            shell.contains("AppsTidyButton("),
+        )
+        val page = code(pageFile)
+        val call = sliceAfter(page, "action = { AppsTidyButton(", 200)
+        assertTrue("「常用」行尾那颗应当把当前状态传进去：$call", call.contains("tidy = tidy"))
+        assertTrue(
+            "页面必须在组合作用域里读偏好（`val tidy = UiPrefs.appsTidy.value`），" +
+                "否则点「整理」界面不动（快照状态在非 @Composable lambda 里读不会订阅）",
+            page.contains("val tidy = UiPrefs.appsTidy.value"),
+        )
     }
 }

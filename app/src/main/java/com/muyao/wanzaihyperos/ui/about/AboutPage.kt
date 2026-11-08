@@ -5,6 +5,12 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +31,7 @@ import com.muyao.wanzaihyperos.data.Credits
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.AppColors
 import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
 import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import top.yukonga.miuix.kmp.basic.Text
@@ -57,27 +64,54 @@ fun AboutPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
         }
     }
 
-    Column(
-        modifier
-            .fillMaxSize()
-            // 独立路由页面：不铺底色就会露出 `GlassBackdropHost` 的占位灰（B4-06 量到 RGB 120）。
-            .background(AppColors.pageBrush(colors.background.luminance() < 0.5f))
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = Dims.screenH),
-    ) {
-        // ★ 2026-11-07：二级页也要让开状态栏（同 AccountsPage 那条，
-        //   原来「‹ 返回」压在系统时间底下）。
-        Spacer(Modifier.height(statusBarTopPadding() + 8.dp))
-        Text(
-            text = "‹ 返回",
-            fontSize = Type.body,
-            color = colors.primary,
-            modifier = Modifier
-                .clickable(onClickLabel = "返回设置") { onBack() }
-                .padding(vertical = 8.dp),
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(text = "关于", fontSize = Type.title, fontWeight = Type.weightTitle, color = colors.onBackground)
+    SecondaryScaffold(
+        title = "关于应用",
+        onBack = onBack,
+        modifier = modifier,
+    ) { inner ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Dims.screenH)
+                .padding(
+                    top = inner.calculateTopPadding(),
+                    bottom = inner.calculateBottomPadding(),
+                ),
+        ) {
+            // ── 图标 + 名称（稿 v2.1 `about.png` 顶部）────────────────────────
+            // 稿上这里写的是「你的图标 / 名称待定 / 非官方校园聚合客户端设计提案」——
+            // 那是命名还没定的时候。现在名字和图标都定稿了，就照实写定稿的结果，
+            // 并把「提案」两个字去掉：这不是提案了。
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Image(
+                    painter = painterResource(com.muyao.wanzaihyperos.R.drawable.ic_brand),
+                    contentDescription = "鲸集的应用图标",
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(14.dp)),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "鲸集",
+                        fontSize = Type.title,
+                        fontWeight = Type.weightTitle,
+                        color = colors.onBackground,
+                    )
+                    Text(
+                        text = "浙大城市学院校园聚合入口 · 学士服鲸鱼娘",
+                        fontSize = Type.micro,
+                        color = colors.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(Dims.cardGap))
+
         Text(
             text = "版本 ${com.muyao.wanzaihyperos.BuildConfig.VERSION_NAME}（${com.muyao.wanzaihyperos.BuildConfig.VERSION_CODE}）· 非官方客户端",
             fontSize = Type.caption,
@@ -91,8 +125,17 @@ fun AboutPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 Spacer(Modifier.height(Dims.tight))
                 LinkRow("酷安", AboutLinks.coolapk, enabled = AboutLinks.coolapk.isNotBlank()) { open(AboutLinks.coolapk) }
                 Spacer(Modifier.height(Dims.tight))
+                // 稿 v2.1 `about.png` 第三行「品牌与图标方案 / 名称、图标、遮罩与小尺寸」。
+                // 它是**说明**不是链接：稿上那个 `›` 通向品牌页，而品牌页是评审专用
+                // （原型里 3 个命名候选是设计阶段的东西）。名字已定稿，这里只把结果写在行上。
+                AboutInfoRow(
+                    title = "品牌与图标方案",
+                    subtitle = "鲸集 · 学士服鲸鱼娘 · 自适应图标（含圆形与五档密度）",
+                )
+                Spacer(Modifier.height(Dims.tight))
                 Text(
                     text = "资料来源：浙大城市学院门户与各业务系统，资料所有权归学校。" +
+                    "产品并非学校或 DeepSeek 官方出品；角色致意与正式授权不能混为一谈。" +
                         "本应用与学校无隶属关系，登录用的账号密码始终由你自己输入。",
                     fontSize = Type.caption,
                     color = colors.onSurfaceVariantSummary,
@@ -167,6 +210,7 @@ fun AboutPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.height(32.dp))
+        }
     }
 }
 
@@ -210,5 +254,19 @@ private fun CreditRow(c: Credit) {
             ),
         )
         Text(text = c.license, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
+    }
+}
+/** 关于页的一行「标题 + 说明」事实（不可点的信息行，不是链接）。 */
+@Composable
+private fun AboutInfoRow(title: String, subtitle: String) {
+    val colors = MiuixTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(text = title, fontSize = Type.body, color = colors.onBackground)
+        Text(
+            text = subtitle,
+            fontSize = Type.micro,
+            color = colors.onSurfaceVariantSummary,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }

@@ -198,6 +198,8 @@ fun GlassSurface(
     content: @Composable BoxScope.() -> Unit = {},
 ) {
     val surface = MiuixTheme.colorScheme.surface
+    // 通透度（外观页那颗滑块）：只乘垫底那层的 alpha，正文与描边不动。
+    val baseA = (baseAlpha * com.muyao.wanzaihyperos.ui.design.glass.glassOpacityFactor()).coerceIn(0f, 1f)
     // 底栏容器铺的是 `surfaceContainer.copy(alpha = 0.4f)`（LiquidGlassNavigationBar 的
     // containerColor）。这里以前铺 `surface`：差的那一点色调就是"两块玻璃不像同一套"的来源之一。
     val container = MiuixTheme.colorScheme.surfaceContainer
@@ -230,7 +232,7 @@ fun GlassSurface(
     // 采空就是浅色实心，最坏是"不糊"，绝不会再出黑块。
     Box(
         modifier = modifier
-            .background(surface.copy(alpha = baseAlpha), shape)
+            .background(surface.copy(alpha = baseA), shape)
             .then(
             if (liveBlur && backdrop != null && backdropIsLive(backdrop) && rememberSampleSettled(backdrop)) {
                 Modifier.drawBackdrop(

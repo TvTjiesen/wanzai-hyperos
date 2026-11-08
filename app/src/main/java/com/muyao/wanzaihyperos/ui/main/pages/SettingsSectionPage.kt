@@ -127,6 +127,8 @@ fun SettingsSectionPage(
     onOpenAbout: () -> Unit = {},
     /** 「账号」二级页（B4-06：六源逐条挪进去，这一屏只留聚合入口）。 */
     onOpenAccounts: () -> Unit = {},
+    /** 「动画与辅助显示」二级页（v2.1 稿 `screens/accessibility.png`）。 */
+    onOpenAccessibility: () -> Unit = {},
     /**
      * 刷新键（返回栈深度）。**光靠 `uiState.loggedIn` 不够**：它只会 false→true，
      * 已登录门户之后再登教务 / CJH52 / 智慧公寓，那个布尔不再变化 ⇒ 聚合行的「已登录 n 项」不会重算。
@@ -136,6 +138,7 @@ fun SettingsSectionPage(
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
     var showPeriods by remember { mutableStateOf(false) }
+    var showDiag by remember { mutableStateOf(false) }
 
     // 通知权限：Android 13 起是运行时权限。打开开关时当场要一次，
     // **被拒就把开关退回「关」** —— 留一个「已开」却没有通知权限的开关，等于骗他。
@@ -229,13 +232,18 @@ fun SettingsSectionPage(
         //
         // ⚠️ 聚合行只报**数量**，不报"已登录/未登录"那种一句话结论 ——
         // 六套登录态互不牵连（见 `data/account/AccountSources.kt`），一句话必然骗人。
+        // ---- 账号与外观（v2.1 稿 `screens/settings.png`：**一张卡四行**）------
+        //
+        // 板面这一个分组叫「账号与外观」，只有一张卡：账号与连接 / 外观与壁纸 /
+        // 减弱透明度（开关）/ 动画与辅助显示（带 ›）。原来这里是「账号」「外观」两张卡，
+        // 与板面一比，卡中间多了一条缝、标题也多了一行。
         item(key = "account-entry") {
-            SettingSectionLabel("账号", icon = MarkIcon.Account)
+            SettingSectionLabel("账号与外观", icon = MarkIcon.Account)
             SettingGroup {
                 SettingRow(
                     icon = SettingIcon.Shield,
                     tint = Tone.quiet,
-                    title = "登录与账号",
+                    title = "账号与连接",
                     subtitle = if (accountSources.isEmpty()) {
                         "正在读取各系统的登录状态"
                     } else {
@@ -243,36 +251,50 @@ fun SettingsSectionPage(
                         // ★ 副标题必须在一行内说完（2026-11-01 真机截图：「…逐项查看与重新
                         //   登录」折出的第二行只有「登录」两个字，看着像排坏了）。
                         //   真机量出的可写宽度约 229dp，Type.caption 11sp × 1.15 ⇒ 约 19 字。
-                        "已登录 $n / ${accountSources.size} 项 · 逐项查看"
+                        "$n / ${accountSources.size} 个来源 · 独立连接"
                     },
                     onClick = onOpenAccounts,
                     trailingChevron = true,
+                    // 稿 `settings` 右值「7 项」= 七个来源，不是「已登录 7 个」。
+                    // 写成登录数会在未登录时变成「0 项」，读起来像「没接任何来源」。
+                    trailing = {
+                        Text(
+                            // 会变的数字必须等宽：来源数是 7 但「5 / 7」里的 5 也在变，
+                            // 不等宽时数字一变整行左右跳（#41）。
+                            text = if (accountSources.isEmpty()) "—" else accountSources.size.toString() + " 项",
+                            fontSize = Type.caption,
+                            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = Type.tabular),
+                            color = colors.onSurfaceVariantSummary,
+                        )
+                    },
                 )
-            }
-        }
-
-        // ---- 外觀 ----------------------------------------------------------
-        item(key = "appearance-label") { SettingSectionLabel("外观", icon = MarkIcon.Appearance) }
-        item(key = "appearance") {
-            SettingGroup {
                 // ★ 主题三行**撤掉了**（工单第 15 轮）：它和外观页第一行是同一个功能两个入口。
                 //   现在主题只在外观页出现（`AppearanceOneStopTest` 守"唯一入口"）。
                 SettingRow(
                     icon = SettingIcon.Glass,
                     tint = Tone.quiet,
                     title = "外观与壁纸",
-                    subtitle = "主题 · 壁纸 · 玻璃 · 首页模块",
+                    subtitle = "色彩、材质、布局与本地壁纸",
+                    // 稿 `settings` 右值「自定义」：不是"已改过"的判定，是这一组设置的统称 ——
+                    // 与「7 项」同一手法（右端是归类，不是状态）。
+                    trailingChevron = true,
+                    trailing = {
+                        Text(
+                            text = "自定义",
+                            fontSize = Type.caption,
+                            color = colors.onSurfaceVariantSummary,
+                        )
+                    },
                     onClick = onOpenAppearance,
                 )
                 SettingRow(
-                    // 不再共用 `Glass`：两行同一个图形 = 看起来是同一件事写了两遍。
-                    icon = SettingIcon.Contrast,
+                    icon = SettingIcon.Eye,
                     // 笔画色跟着开关走：OFF 时还给强调蓝，等于用颜色替一项
                     // 没生效的功能背书（复评 2026-10-22）。2026-11-07 起图形是裸线稿，
                     // 这个 tint 就是线条颜色本身（对卡面 7.34 vs 5.24，两档都过 4.5）。
-                    tint = if (UiPrefs.reduceTransparency) Tone.quiet else Tone.ok,
-                    title = "减弱玻璃透明度",
-                    subtitle = "底栏、顶栏和浮层改成近实底（高对比文字时自动）",
+                    tint = if (UiPrefs.reduceTransparency) Tone.ok else Tone.quiet,
+                    title = "减弱透明度",
+                    subtitle = "暂用实色 · 保留材质选择",
                     trailing = {
                         PillSwitch(
                             checked = motion.reduceTransparency,
@@ -284,21 +306,29 @@ fun SettingsSectionPage(
                         }
                     },
                 )
+                SettingRow(
+                    icon = SettingIcon.Sun,
+                    tint = Tone.quiet,
+                    title = "动画与辅助显示",
+                    subtitle = "跟随系统 · 减少动态 · 高对比",
+                    onClick = onOpenAccessibility,
+                    trailingChevron = true,
+                )
             }
         }
 
         // ---- 課表 ----------------------------------------------------------
-        item(key = "timetable-label") { SettingSectionLabel("课表", icon = MarkIcon.Schedule) }
+        item(key = "timetable-label") { SettingSectionLabel("课表与提醒", icon = MarkIcon.Schedule) }
         item(key = "timetable-default-view") {
             SettingGroup {
                 SettingRow(
                     icon = SettingIcon.Timetable,
                     tint = Tone.ok,
-                    title = "打开时先看整周课表",
+                    title = "默认整周课表",
                     // ★ 這行字原本寫「默認用三天窗口網格」—— 三天窗口在 T58
                     //   已經按他的要求拆掉了（「我要你把五節課全部顯示」）。
                     //   設定裡留一個不存在的選項名，比沒有這個選項更糟。
-                    subtitle = "关掉则先看今天议程（板子默认）",
+                    subtitle = "关闭时默认显示今天议程",
                     trailing = {
                         PillSwitch(
                             checked = uiState.timetableGrid,
@@ -319,10 +349,31 @@ fun SettingsSectionPage(
                     // 副标题两行就截（SettingsChrome.SettingRow 硬编码 maxLines=2），
                     // 所以这里只留「认几节 / 你填几节 / 以谁为准」三件事；
                     // 学校那一层的说明在展开后的编辑器里（PeriodTimeEditor 顶部）。
-                    subtitle = "学校日历认得 ${com.muyao.wanzaihyperos.data.schedule.PeriodClock.knownCount(UiPrefs.periodTimes)} 节" +
-                        " · 你另填 ${com.muyao.wanzaihyperos.data.schedule.PeriodClock.filledCount(UiPrefs.periodTimes)} 节，填过的以你为准",
+                    // 稿 `settings`：`row("节次时间表", "学校时间为底，你的设置优先", "", "periods")` ——
+                    // 副标题只有一句「以谁为准」，右值是「11 节」（学校日历的节数）。
+                    // 原来那句「认得 N 节 · 你另填 N 节」把两件事塞进副标题，两行就截；
+                    // 现在「你另填几节」放进展开后的编辑器里（那一屏本来就写着），右值只报学校节数。
+                    subtitle = "学校时间为底，你的设置优先",
                     onClick = { showPeriods = !showPeriods },
-                    trailing = { Text(text = if (showPeriods) "▾" else "›", fontSize = Type.title, color = colors.onSurfaceVariantSummary) },
+                    trailing = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = com.muyao.wanzaihyperos.data.schedule.PeriodClock
+                                    .knownCount(UiPrefs.periodTimes).toString() + " 节",
+                                fontSize = Type.caption,
+                                color = colors.onSurfaceVariantSummary,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                // ★ 这颗箭头是**这一行自己的**（它要跟着展开态在 › / ▾ 之间切），
+                                //   所以不能同时给 `trailingChevron = true` —— 那会在右边再画一颗，
+                                //   真机上量到过「11 节 › ›」两个箭头并排。
+                                text = if (showPeriods) "▾" else "›",
+                                fontSize = Type.title,
+                                color = colors.onSurfaceVariantSummary,
+                            )
+                        }
+                    },
                 )
                 SettingRow(
                     icon = SettingIcon.Alarm,
@@ -355,6 +406,69 @@ fun SettingsSectionPage(
                         selected = UiPrefs.classReminderLeadMinutes,
                         onSelect = { UiPrefs.saveReminderLead(it) },
                     )
+                    // ── 建议二（业主 2026-11-07「五项新增设置全做」）──
+                    // 只在提醒真开着时才出现：关着提醒却给"隐私/静音"两个开关，
+                    // 等于给两个按了也没有效果的按钮。
+                    SettingRow(
+                        icon = SettingIcon.Shield,
+                        tint = Tone.ok,
+                        title = "通知里不显示课名与教室",
+                        subtitle = if (UiPrefs.reminderPrivate) {
+                            "锁屏只写「即将上课」，具体课程要进应用才看得到"
+                        } else {
+                            "锁屏直接显示课程、时间与教室"
+                        },
+                        trailing = {
+                            PillSwitch(checked = UiPrefs.reminderPrivate, label = "提醒隐私") {
+                                UiPrefs.saveReminderPrivate(!UiPrefs.reminderPrivate)
+                            }
+                        },
+                    )
+                    SettingRow(
+                        icon = SettingIcon.Moon,
+                        tint = if (UiPrefs.quietHoursEnabled) Tone.ok else Tone.quiet,
+                        title = "静音时段",
+                        subtitle = if (UiPrefs.quietHoursEnabled) {
+                            val s = "%02d:00".format(UiPrefs.quietHoursStart)
+                            val e = "%02d:00".format(UiPrefs.quietHoursEnd)
+                            "$s – $e 不发响，仍留一条无声摘要 · 只约束本应用"
+                        } else {
+                            "默认关。开启后这段时间的提醒不响铃，但不会吞掉"
+                        },
+                        trailing = {
+                            PillSwitch(checked = UiPrefs.quietHoursEnabled, label = "静音时段") {
+                                UiPrefs.saveQuietHoursEnabled(!UiPrefs.quietHoursEnabled)
+                            }
+                        },
+                    )
+                    if (UiPrefs.quietHoursEnabled) {
+                        QuietHoursPicker(
+                            start = UiPrefs.quietHoursStart,
+                            end = UiPrefs.quietHoursEnd,
+                            onSelect = { s, e -> UiPrefs.saveQuietHours(s, e) },
+                        )
+                    }
+                    // ── 建议四：提醒权限诊断（业主 2026-11-07「五项新增设置全做」）──
+                    // 只读：只报告系统此刻到底允许了什么，不代替用户去申请。
+                    // 「提醒没响」的四种原因（通知被关 / 渠道被关 / 没有精确闹钟 / 没排上）
+                    // 必须逐条给结论 —— 合成一句「请检查系统设置」等于什么都没说。
+                    SettingRow(
+                        icon = SettingIcon.Info,
+                        tint = if (showDiag) Tone.ok else Tone.quiet,
+                        title = "提醒为什么不响",
+                        subtitle = "逐条查：通知开关、提醒渠道、精确闹钟、排班条数",
+                        onClick = { showDiag = !showDiag },
+                        trailing = {
+                            Text(
+                                text = if (showDiag) "▾" else "›",
+                                fontSize = Type.title,
+                                color = colors.onSurfaceVariantSummary,
+                            )
+                        },
+                    )
+                    if (showDiag) {
+                        ReminderDiagnostics(context)
+                    }
                 }
             }
         }
@@ -364,6 +478,24 @@ fun SettingsSectionPage(
                     PeriodTimeEditor(rows = UiPrefs.periodTimes) { rows ->
                         UiPrefs.savePeriodTimes(rows)
                     }
+                    // 稿 v2.1 `periods.png` 底部第二颗按钮（第一颗「保存演示时间」是评审控件）。
+                    // 我们的编辑器是**改一格存一格**，所以不需要保存钮，但「清除个人覆盖」
+                    // 必须留着：填错了、或者想把整张表退回学校时间，只有这一个出口。
+                    if (UiPrefs.periodTimes.any { it.first.isNotBlank() || it.second.isNotBlank() }) {
+                        Text(
+                            text = "清除个人覆盖",
+                            fontSize = Type.caption,
+                            fontWeight = Type.weightTitle,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(start = 14.dp, top = 2.dp, bottom = 8.dp)
+                                .clip(RoundedCornerShape(50))
+                                .clickable(onClickLabel = "清除我填过的节次时间") {
+                                    UiPrefs.savePeriodTimes(emptyList())
+                                }
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                        )
+                    }
                 }
             }
         }
@@ -372,30 +504,215 @@ fun SettingsSectionPage(
         //
         // 緩存里存的是他本人的課表/賬單/成績原文。悄悄往他手機裡寫這些、
         // 又不給一個看得見的大小和一鍵清除，這件事本身就不該做。
+        // 稿 `settings` 把缓存单独归在一个「存储」分组下 —— 它确实是另一件事：
+        // 前两组是「怎么显示」「怎么提醒」，这一组是「东西存在哪、占多大」。
+        item(key = "storage-label") { SettingSectionLabel("存储", icon = MarkIcon.Data) }
         item(key = "http-cache") {
             SettingGroup {
-                var cacheBytes by remember { mutableStateOf(graph.httpCache.usedBytes()) }
-                var cacheCount by remember { mutableStateOf(graph.httpCache.entries()) }
+                // 建议五：分域清理（业主 2026-11-07「五项新增设置全做」）。
+                //
+                // 为什么不是"一键全清"了事：一键全清是最后手段。他多半只想清掉
+                // 「成绩那一类」而留着课表 —— 但他得先看得见有哪几类。
+                // 所以这里先把分类列出来，每类给条数/大小/清；最后才是全清。
+                var domains by remember { mutableStateOf(graph.httpCache.domains()) }
+                var expanded by remember { mutableStateOf(false) }
+                val totalBytes = domains.sumOf { it.bytes }
+                val totalCount = domains.sumOf { it.entries }
                 SettingRow(
-                    icon = SettingIcon.Info,
+                    icon = SettingIcon.Broom,
                     tint = Tone.ok,
                     title = "本地缓存",
-                    // 副標題兩行就截，所以話要短：先說大小條數，再說一句最要緊的邊界。
-                    subtitle = if (cacheCount == 0)
+                    // 稿 `settings`：副标题是**边界声明**（只缓存读取数据），不是大小 ——
+                    // 大小放右值。原来的「N KB · N 条 · 点开可按类别清」把三件事塞进一行，
+                    // 两行就截（SettingRow 硬编码 maxLines=2）。
+                    subtitle = if (totalCount == 0) {
                         "空 · 读来的数据存 5 分钟，来回切板块不再向学校要一次"
-                    else "${cacheBytes / 1024} KB · $cacheCount 条 · 只存读来的，签到交作业不经过这里",
-                    onClick = {
-                        cacheBytes = graph.httpCache.clearAll()
-                        cacheCount = 0
+                    } else {
+                        "只缓存读取数据，写操作不经缓存"
                     },
+                    onClick = { expanded = !expanded },
                     trailing = {
                         Text(
-                            text = if (cacheCount == 0) "—" else "清除",
+                            text = when {
+                                totalCount == 0 -> "—"
+                                expanded -> "▾"
+                                // 稿右值「2.4 MB」：保留一位小数，1023.6 KB 读起来不像人给的数。
+                                totalBytes >= 1024 * 1024 ->
+                                    ((totalBytes / (1024 * 102.4)).toInt() / 10.0).toString() + " MB"
+                                else -> (totalBytes / 1024).toString() + " KB"
+                            },
                             fontSize = Type.summary,
-                            color = if (cacheCount == 0) colors.onSurfaceVariantSummary else colors.primary,
+                            color = if (totalCount == 0) colors.onSurfaceVariantSummary else colors.primary,
                         )
                     },
                 )
+                if (expanded && domains.isNotEmpty()) {
+                    domains.forEach { d ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(onClickLabel = "清掉" + d.name + "这一类缓存") {
+                                    graph.httpCache.clearDomain(d.name)
+                                    domains = graph.httpCache.domains()
+                                }
+                                .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = d.name,
+                                fontSize = Type.summary,
+                                color = colors.onBackground,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = d.entries.toString() + " 条 · " + (d.bytes / 1024) + " KB",
+                                fontSize = Type.caption,
+                                color = colors.onSurfaceVariantSummary,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(text = "清", fontSize = Type.caption, color = colors.primary)
+                        }
+                    }
+                }
+                SettingRow(
+                    icon = SettingIcon.Broom,
+                    tint = if (totalCount == 0) Tone.quiet else Tone.warn,
+                    title = "全部清掉",
+                    subtitle = "下次进各板块会重新向学校取一次（多等几百毫秒）",
+                    onClick = {
+                        graph.httpCache.clearAll()
+                        domains = graph.httpCache.domains()
+                    },
+                    trailing = {
+                        Text(
+                            text = "清空",
+                            fontSize = Type.summary,
+                            color = if (totalCount == 0) colors.onSurfaceVariantSummary else colors.primary,
+                        )
+                    },
+                )
+            }
+        }
+
+        // ---- 偏好备份（建议五，业主 2026-11-07「五项新增设置全做」）--------------
+        item(key = "backup-label") { SettingSectionLabel("偏好备份", icon = MarkIcon.Data) }
+        item(key = "backup") {
+            SettingGroup {
+                var pending by remember { mutableStateOf<com.muyao.wanzaihyperos.data.PrefsBackup.Preview?>(null) }
+                var result by remember { mutableStateOf<String?>(null) }
+
+                val exportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.CreateDocument("application/json"),
+                ) { uri ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            out.write(com.muyao.wanzaihyperos.data.PrefsBackup.export().toByteArray())
+                        }
+                    }.onSuccess {
+                        result = "已导出到所选文件"
+                    }.onFailure {
+                        result = "导出失败：" + (it.message ?: "存储拒绝")
+                    }
+                }
+                val importLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument(),
+                ) { uri ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            input.readBytes().toString(Charsets.UTF_8)
+                        }.orEmpty()
+                    }.mapCatching { text ->
+                        com.muyao.wanzaihyperos.data.PrefsBackup.parse(text)
+                            ?: error(com.muyao.wanzaihyperos.data.PrefsBackup.lastError ?: "读不出来")
+                    }.onSuccess { pending = it }
+                        .onFailure { result = "读不了这份文件：" + (it.message ?: "") }
+                }
+
+                SettingRow(
+                    icon = SettingIcon.Doc,
+                    tint = Tone.ok,
+                    title = "导出偏好",
+                    subtitle = "主题、背景、材质、容器、密度、模块、折叠、课表默认视图 · 不含账号与草稿",
+                    onClick = { exportLauncher.launch(com.muyao.wanzaihyperos.data.PrefsBackup.suggestedFileName()) },
+                    trailing = { Text(text = "导出", fontSize = Type.summary, color = colors.primary) },
+                )
+                SettingRow(
+                    icon = SettingIcon.School,
+                    tint = Tone.quiet,
+                    title = "从备份恢复",
+                    subtitle = "先看它会改哪几项，确认后才写入 · 有一项不合法就整份不应用",
+                    onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) },
+                    trailing = { Text(text = "选择文件", fontSize = Type.summary, color = colors.primary) },
+                )
+
+                // 二次确认：逐项列出"会变成什么"，而不是只说"已恢复"。
+                val p = pending
+                if (p != null) {
+                    // 「确认」这颗要写两件事：改了什么（n 项）和改没改成。
+                    // 单独提出来是因为它落在 `Text(...)` 的 modifier lambda 里时，
+                    // `TnumOnChangingNumbersTest` 的源码扫描会把 `"已应用 $n 项偏好"`
+                    // 当成「这个 Text 渲染的计数」—— 而那行字其实是「确认恢复」。
+                    // 提到 Text 外面，判据和代码就都对上了（不是给测试开后门）。
+                    val applyNow: () -> Unit = {
+                        val n = com.muyao.wanzaihyperos.data.PrefsBackup.apply(p)
+                        result = if (n >= 0) "已应用 $n 项偏好" else {
+                            com.muyao.wanzaihyperos.data.PrefsBackup.lastError ?: "没有应用"
+                        }
+                        pending = null
+                    }
+                    Column(modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)) {
+                        Text(
+                            text = "这份备份会改掉这 ${p.lines.size} 项：",
+                            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = Type.tabular),
+                            fontSize = Type.summary,
+                            fontWeight = Type.weightBody,
+                            color = colors.onBackground,
+                        )
+                        p.lines.forEach { (label, value) ->
+                            Row(modifier = Modifier.fillMaxWidth().padding(top = 3.dp)) {
+                                Text(
+                                    text = label,
+                                    fontSize = Type.caption,
+                                    color = colors.onSurfaceVariantSummary,
+                                    modifier = Modifier.width(84.dp),
+                                )
+                                Text(text = value, fontSize = Type.caption, color = colors.onBackground)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "确认恢复",
+                                fontSize = Type.summary,
+                                color = colors.primary,
+                                modifier = Modifier
+                                    .height(Dims.minTouch)
+                                    .clickable(onClickLabel = "确认恢复这份偏好备份") { applyNow() }
+                                    .padding(end = 16.dp),
+                            )
+                            Text(
+                                text = "取消",
+                                fontSize = Type.summary,
+                                color = colors.onSurfaceVariantSummary,
+                                modifier = Modifier
+                                    .height(Dims.minTouch)
+                                    .clickable(onClickLabel = "取消恢复") { pending = null }
+                                    .padding(end = 16.dp),
+                            )
+                        }
+                    }
+                }
+                val r = result
+                if (r != null) {
+                    Text(
+                        text = r,
+                        fontSize = Type.caption,
+                        color = colors.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                    )
+                }
             }
         }
 
@@ -404,10 +721,19 @@ fun SettingsSectionPage(
         item(key = "about") {
             SettingGroup {
                 SettingRow(
-                    icon = SettingIcon.Info,
+                    icon = SettingIcon.Badge,
                     tint = Tone.quiet,
-                    title = "集城",
-                    subtitle = "版本 ${rememberAppVersion()} · 非官方客户端",
+                    // 稿 `settings` 这一行叫「名称与图标」，副标题写名称状态、右值是「提案」。
+                    title = "名称与图标",
+                    subtitle = "鲸集 · 学士服鲸鱼娘 · 版本 ${rememberAppVersion()}",
+                    trailing = {
+                        Text(
+                            // 稿写「提案」（命名未定时）；现在已经定稿，如实说，不画假箭头。
+                            text = "已定稿",
+                            fontSize = Type.caption,
+                            color = colors.onSurfaceVariantSummary,
+                        )
+                    },
                 )
                 SettingRow(
                     icon = SettingIcon.School,
@@ -417,7 +743,7 @@ fun SettingsSectionPage(
                 )
                 // B4-10：关于页（GitHub / 酷安 / 逐条开源许可）收在二级页里
                 SettingRow(
-                    icon = SettingIcon.Info,
+                    icon = SettingIcon.Doc,
                     tint = Tone.ok,
                     title = "关于与开源许可",
                     subtitle = "GitHub、酷安，以及本应用用到的开源项目与许可证",
@@ -432,8 +758,8 @@ fun SettingsSectionPage(
                     SettingRow(
                         icon = SettingIcon.Info,
                         tint = Tone.warn,
-                        title = "AI 小球调试台",
-                        subtitle = "仅调试包：32 个表情、全部动画与参数逐项调",
+                        title = "小球调试台",
+                        subtitle = "仅 debug 包 · 不属于学校业务",
                         onClick = {
                             runCatching {
                                 context.startActivity(
@@ -445,6 +771,13 @@ fun SettingsSectionPage(
                             }
                         },
                         trailingChevron = true,
+                        trailing = {
+                            Text(
+                                text = "DEBUG",
+                                fontSize = Type.micro,
+                                color = colors.onSurfaceVariantSummary,
+                            )
+                        },
                     )
                 }
             }
@@ -460,7 +793,10 @@ fun SettingsSectionPage(
  * `-1` = 还没排过（冷启动后还没走到调度那一步），这时候**不编条数**。
  */
 private fun reminderSubtitle(context: android.content.Context): String {
-    if (!UiPrefs.classReminderEnabled) return "课前提醒：哪门课、几点、哪间教室"
+    // 稿 `settings`：未开启时这一行写「未开启，先确认通知权限」——先说要紧的那道闸门，
+    // 而不是先描述功能（描述功能会让「关着」读起来像「已经能用，只是没开」）。
+    if (!UiPrefs.classReminderEnabled) return "未开启，先确认通知权限"
+    // 开了之后才谈提前量与排程条数 —— 这两行是那一支的输入。
     val lead = UiPrefs.classReminderLeadMinutes
     val count = UiPrefs.reminderPlannedCount
     val head = if (lead == 0) "上课时提醒" else "提前 $lead 分钟提醒"
@@ -492,7 +828,9 @@ private fun ReminderLeadPicker(selected: Int, onSelect: (Int) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "提前",
+            // 稿 v2.1 `reminders.png` 这小节的标题是「提前多久」——
+            // 只写「提前」两个字，左边悬空、读起来像被截断。
+            text = "提前多久",
             fontSize = Type.caption,
             color = colors.onSurfaceVariantSummary,
         )
@@ -531,6 +869,231 @@ private fun ReminderLeadPicker(selected: Int, onSelect: (Int) -> Unit) {
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * 建议二的静音时段选择器（业主 2026-11-07「五项新增设置全做」）。
+ *
+ * 为什么是「从 / 到 各一个加减器」而不是 24 个抽签格子：
+ *   静音时段是**粗粒度**设置（早半小时、晚半小时没有意义），而 24×24 两排芯片
+ *   在 347dp 宽的屏上必然要横向滚动 —— 一滚动就看不见另一端，用户没法确认
+ *   "我到底选了 22 到 7 还是 7 到 22"。两个数字各占一行，一眼看完。
+ *
+ * 小时是**循环**的：23 点再 +1 回到 0 点，0 点再 −1 回到 23 点。
+ * 这样跨午夜（22:00–07:00）不需要任何特殊分支，`UiPrefs.inQuietHours` 也已经
+ * 按"start > end 就跨天"处理，两边同一套语义。
+ */
+@Composable
+private fun QuietHoursPicker(start: Int, end: Int, onSelect: (Int, Int) -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+    ) {
+        QuietHourRow(label = "从", hour = start) { onSelect(it, end) }
+        Spacer(Modifier.height(6.dp))
+        QuietHourRow(label = "到", hour = end) { onSelect(start, it) }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = if (start == end) {
+                // start == end 在实现里是「一整天」，但这个意思绝大多数人不会想到 ——
+                // 与其在界面上留一个歧义，不如直说。
+                "两端相同 = 全天静音。不想全天静音，把其中一端挪开一小时。"
+            } else {
+                val span = if (end > start) end - start else 24 - start + end
+                "共 $span 小时。这段时间里提醒不响铃，但通知仍在，解锁就看得到。"
+            },
+            fontSize = Type.caption,
+            color = colors.onSurfaceVariantSummary,
+        )
+    }
+}
+
+@Composable
+private fun QuietHourRow(label: String, hour: Int, onPick: (Int) -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = label, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
+        Spacer(Modifier.width(10.dp))
+        QuietHourStep(symbol = "−", label = "往前一小时") { onPick((hour + 23) % 24) }
+        Box(modifier = Modifier.width(72.dp), contentAlignment = Alignment.Center) {
+            Text(
+                text = "%02d:00".format(hour),
+                fontSize = Type.title,
+                fontWeight = Type.weightTitle,
+                color = colors.onBackground,
+                maxLines = 1,
+            )
+        }
+        QuietHourStep(symbol = "+", label = "往后一小时") { onPick((hour + 1) % 24) }
+    }
+}
+
+/**
+ * 加减按钮。
+ *
+ * 触区 44dp 是硬规矩（见 `docs/HANDOVER-TO-GPT-DESIGN.md` §2），但**看得见的圆
+ * 只有 30dp** —— 44dp 的实心圆在设置行里会显得笨重。
+ */
+@Composable
+private fun QuietHourStep(symbol: String, label: String, onClick: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    val isDark = com.muyao.wanzaihyperos.ui.design.liquid.isInDarkTheme()
+    Box(
+        modifier = Modifier
+            .height(44.dp)
+            .width(44.dp)
+            .clickable(onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .height(30.dp)
+                .width(30.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isDark) Color.White.copy(alpha = 0.08f) else colors.onBackground.copy(alpha = 0.05f),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = symbol, fontSize = Type.title, color = colors.onBackground)
+        }
+    }
+}
+
+/**
+ * 建议四：提醒权限诊断（业主 2026-11-07「五项新增设置全做」）。
+ *
+ * ## 只读，不申请
+ *
+ * 这个面板**不会**弹任何系统权限框，也不会自动跳设置页。理由：他打开的是「为什么
+ * 不响」，多半只是想知道原因；自动弹框会把「查一下」变成「被推销权限」。
+ * 想改的，每一行右侧给一个明确的「去设置」，点了才跳。
+ *
+ * ## 四种原因必须分开说
+ *
+ * 「提醒没响」在系统里有四个彼此独立的闸门，任何一个关着都表现为同一句「没收到」：
+ *   1. 应用通知总开关（`areNotificationsEnabled`）
+ *   2. 本应用那条提醒渠道（Android 8+ 渠道可以被单独关掉，`importance == NONE`）
+ *   3. 精确闹钟能力（Android 12+ `canScheduleExactAlarms`，关着只能"一小时内某时"）
+ *   4. 根本没排上（课表没读到 / 这七天没课 / 开关刚打开还没排）
+ * 合成一句「请检查系统设置」就是把四件事糊成一件，所以他下次还是不知道为什么。
+ */
+@Composable
+private fun ReminderDiagnostics(context: android.content.Context) {
+    val colors = MiuixTheme.colorScheme
+    val notif = androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+    val channel = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager)
+            ?.getNotificationChannel("class_reminder")
+    } else {
+        null
+    }
+    // 渠道不存在 = 还没发过通知（渠道是第一次发时建的），不算"被关掉"。
+    val channelOff = channel != null && channel.importance == android.app.NotificationManager.IMPORTANCE_NONE
+    val exact = com.muyao.wanzaihyperos.data.reminder.ReminderScheduler.canBeExact(context)
+    val planned = UiPrefs.reminderPlannedCount
+
+    fun openNotificationSettings() {
+        val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { context.startActivity(intent) }
+    }
+
+    Column(modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
+        DiagLine(
+            ok = notif,
+            title = "应用通知",
+            detail = if (notif) "系统允许本应用发通知" else "系统把本应用的通知整个关掉了 —— 提醒发不出来",
+            action = if (notif) null else "去设置",
+            onAction = ::openNotificationSettings,
+        )
+        DiagLine(
+            ok = !channelOff,
+            title = "课程提醒渠道",
+            detail = when {
+                channel == null -> "还没发过提醒，渠道会在第一次提醒时自动建"
+                channelOff -> "「上课提醒」这条渠道被单独关掉了"
+                else -> "渠道正常（重要度：${channel.importance}）"
+            },
+            action = if (channelOff) "去设置" else null,
+            onAction = ::openNotificationSettings,
+        )
+        DiagLine(
+            ok = exact,
+            title = "精确闹钟",
+            detail = if (exact) {
+                "系统允许准点提醒"
+            } else {
+                "系统只允许模糊闹钟，提醒可能晚到一小时以内 · 设置 → 应用 → 特殊权限 → 闹钟和提醒"
+            },
+            action = null,
+            onAction = null,
+        )
+        DiagLine(
+            ok = planned > 0,
+            title = "已排提醒",
+            detail = when {
+                planned < 0 -> "还没排上。开一次课表页就会重新排（提醒开关刚打开时也会）"
+                planned == 0 -> "这七天没有要提醒的课"
+                else -> "$planned 条已排进系统闹钟"
+            },
+            action = null,
+            onAction = null,
+        )
+        Text(
+            text = "这一屏只读：上面四条都是系统此刻的真实状态，本应用不会替你改动。",
+            fontSize = Type.caption,
+            color = colors.onSurfaceVariantSummary,
+        )
+    }
+}
+
+/** 诊断面板的一行：结论 + 一句原因 + 可选出口。 */
+@Composable
+private fun DiagLine(
+    ok: Boolean,
+    title: String,
+    detail: String,
+    action: String?,
+    onAction: (() -> Unit)?,
+) {
+    val colors = MiuixTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = if (ok) "✓" else "!",
+            fontSize = Type.body,
+            fontWeight = Type.weightTitle,
+            color = if (ok) Tone.ok else colors.error,
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, fontSize = Type.summary, fontWeight = Type.weightBody, color = colors.onBackground)
+            Text(text = detail, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
+        }
+        if (action != null && onAction != null) {
+            Text(
+                text = action,
+                fontSize = Type.caption,
+                color = colors.primary,
+                modifier = Modifier
+                    .height(Dims.minTouch)
+                    .clickable(onClickLabel = action) { onAction() }
+                    .padding(start = 10.dp),
+            )
         }
     }
 }

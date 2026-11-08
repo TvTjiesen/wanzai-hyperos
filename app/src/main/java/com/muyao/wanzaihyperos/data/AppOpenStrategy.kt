@@ -42,6 +42,21 @@ sealed interface AppOpenPlan {
     data object ZhgyGate : AppOpenPlan
 
     /**
+     * 稿 `cjh.png`：**CJH52 學生服務目錄頁**。
+     *
+     * 門戶上「場景管理」那一格給的是 cjh52 的**根地址**（`/`）。
+     * 以前它走 [TempCode] 那條，直接開一個網頁；但六個子頁（課程 / 班級 / 通知 /
+     * 考試 / 成長 / 講座）都已經原生了，根地址還退回網頁等於把使用者送出 App。
+     *
+     * 所以根地址改走這一支 —— 落到目錄頁，再由使用者點進具體那一頁。
+     *
+     * ★ 只有**根地址**才這樣導。`/clazz`、`/notice` 這些具體路徑仍各自走
+     *   [NativeFeature]，`/course/student` 走 [NativeCourses] ——
+     *   從通知裡點進來的深連結不能被劫持回目錄。
+     */
+    data object CjhHome : AppOpenPlan
+
+    /**
      * B18：**教務系統原生頁**（考試信息 / 學生成績）。
      *
      * ### 為什麼只導這一條、而不是整個 `ijw` 域
@@ -296,6 +311,14 @@ object AppOpenStrategy {
             // 仍走 WebView —— 原生只做了課表，把別的也導過去只會得到空白頁。
             // 判據用「host + 路徑」而不是應用名：應用名在門戶上可能改，
             // 而 `/course/student` 是 cjh52 自己的路由（B0 路由表已核對）。
+            // ★ 稿 cjh.png：cjh52 的**根地址** → 學生服務目錄頁。
+            //
+            // 必須排在下面幾個「更具體的路徑」判斷**之前**也不會誤傷 ——
+            // 這支只認空路徑與 `/`，`/clazz`、`/notice`、`/course/student`
+            // 都不會命中（見 [isCjh52Home]）。
+            if (isCjh52Home(host, app.url)) {
+                return AppOpenPlan.CjhHome
+            }
             if (ENABLE_NATIVE_COURSES && isCjh52CoursePage(host, app.url)) {
                 return AppOpenPlan.NativeCourses(
                     tileUrl = app.url,
@@ -348,6 +371,23 @@ object AppOpenStrategy {
      * 路徑用**前綴**匹配（`/course/student` 之後可能帶 query，也可能帶 `/history` 子頁）——
      * 但 `/course/teacher`（教師端）不會命中，因為前綴是 `/course/student`。
      */
+    /**
+     * 是不是 cjh52 的**根地址**（門戶「場景管理」那一格）。
+     *
+     * 只認空路徑與 `/`，**不做前綴匹配**：`/clazz`、`/notice`、`/lecture`、
+     * `/course/student` 這些都是「使用者從別處點進來、心裡已經有目標」的深連結，
+     * 把他們劫持回目錄頁等於多點一次。
+     *
+     * 帶 query 的根地址（`/?token=…`）路徑部分仍是 `/`，所以照樣命中 ——
+     * 這也是入口最常見的形態（門戶拼完 tempcode 就是根地址 + query）。
+     */
+    private fun isCjh52Home(host: String?, url: String): Boolean {
+        val h = host?.lowercase() ?: return false
+        if (h != HzcuHosts.CJH52) return false
+        val path = runCatching { java.net.URI(url).path }.getOrNull() ?: return false
+        return path.isBlank() || path == "/"
+    }
+
     private fun isCjh52CoursePage(host: String?, url: String): Boolean {
         val h = host?.lowercase() ?: return false
         if (h != HzcuHosts.CJH52) return false

@@ -43,9 +43,17 @@ class ScanWiringTest {
     fun `签到页必须把中转槽取走并挂到选择卡上`() {
         val page = src("ui/tronclass/RollcallStationPage.kt")
         assertTrue("签到页没有取中转槽 ⇒ 从扫一扫带过来的码会丢", page.contains("ScanHandoff.take()"))
+        // 2026-11-08 改判据：四种入口（相机 / 相册 / 粘贴 / 全局扫一扫）现在收成**一条管道**
+        // `handleScanned(raw, target)`，中转槽也必须从这条管道走 —— 上一版这里自己解析一遍、
+        // 只在 `pending == null` 时才挂，和相机那条路行为不一致。所以这里钉的不是
+        // 「有没有 `ScanPending(...)` 这个字面量」，而是「有没有进同一条管道」。
+        assertTrue(
+            "中转槽取到的码没有进 handleScanned ⇒ 与相机/相册那几条路行为分叉",
+            page.contains("handleScanned(handed, null)"),
+        )
         assertTrue(
             "取到的码必须挂成 ScanPending（只挑不写），不能直接提交",
-            page.contains("pending = ScanPending(payload, null, RollcallQrCode.parse(handed))"),
+            page.contains("pending = ScanPending("),
         )
         assertFalse(
             "Handoff 不许绕过选择卡直接调用 answer —— 提交那一键必须由他按",
@@ -62,8 +70,10 @@ class ScanWiringTest {
         )
         assertTrue("副标题没参数化", scanner.contains("hint: String = "))
         assertTrue(
-            "通用扫码页自己的标题必须是「扫一扫」",
-            src("ui/tronclass/ScannerPage.kt").contains("title = \"扫一扫\""),
+            // 稿 v2.1 `scanner.png` 顶栏就是「通用扫一扫」——原来这里钉的是「扫一扫」，
+            // 那是照旧版板子写的。标题全称才说得清它跟签到站里那个扫码器不是一回事。
+            "通用扫码页自己的标题必须是「通用扫一扫」",
+            src("ui/tronclass/ScannerPage.kt").contains("title = \"通用扫一扫\""),
         )
     }
 }

@@ -19,13 +19,16 @@ import java.security.MessageDigest
  *    缓存一个写请求的响应等于把"提交成功"这句话存下来重复用，那是假回执。
  * 2. **只缓存 JSON**。被踢回登录页时服务器回的是 HTML，
  *    存下来下次直接回放，界面就会永远显示"上一次的数据"而不知道会话已经死了。
- * 3. **凭据/会话类端点不缓存**（[CACHEABLE] 的黑名单）：`/api/profile` 之类
+ * 3. **凭据/会话类端点不缓存**（[FORBIDDEN] 的黑名单）：`/api/profile` 之类
  *    带个人标识的虽然也只是他自己的数据，但缓存它没有收益，少一处就多一处安全。
  *
  * ## 这些文件里是他本人的课表/账单/成绩
  *
  * 存在 App 私有目录（别的 App 读不到），設定页给了一行**看得见的大小 + 一键清除**
  * —— 不能让他手机里悄悄存着一堆个人数据而他自己不知道、也清不掉。
+ *
+ * 2026-11-07 又加了一层：**按领域分开清**（[domains] / [clearDomain]）。
+ * 一键全清是最后手段；他多半只想清掉"成绩那一类"，留下课表。
  */
 class ResponseCache(
     dir: File,
@@ -56,17 +59,33 @@ class ResponseCache(
 
     fun put(path: String, body: String) {
         if (body.length > MAX_BODY) return               // 异常大的响应不存（别把他手机塞满）
-        runCatching { file(path).writeText(body) }
+        runCatching {
+            file(path).writeText(body)
+            // 侧车文件：把**原始路径**留下来。
+            //
+            // 为什么非存不可：正文文件名是 path 的 SHA-1（[file] 的注释解释了为什么不能
+            // 直接拿 URL 当文件名），而 SHA-1 **不可逆**。不另存一份原文，就永远只能
+            // 告诉他"这里有 312 KB"，说不出"这 312 KB 是课表还是成绩"，
+            // 也就谈不上按领域清理。
+            //
+            // 侧车里只有路径：没有正文、没有 cookie、没有 token。
+            meta(path).writeText(path)
+        }
     }
 
-    fun invalidate(path: String) { runCatching { file(path).delete() } }
+    fun invalidate(path: String) {
+        runCatching { file(path).delete() }
+        runCatching { meta(path).delete() }
+    }
 
-    /** 占了多少字节（設定页那一行显示用）。 */
+    /** 占了多少字节（設定页那一行显示用）。侧车不算 —— 它只有几十字节，算进去只是噪声。 */
     fun usedBytes(): Long = runCatching {
-        root.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
+        root.listFiles()?.filter { it.isFile && !it.name.endsWith(META) }?.sumOf { it.length() } ?: 0L
     }.getOrDefault(0L)
 
-    fun entries(): Int = runCatching { root.listFiles()?.count { it.isFile } ?: 0 }.getOrDefault(0)
+    fun entries(): Int = runCatching {
+        root.listFiles()?.count { it.isFile && !it.name.endsWith(META) } ?: 0
+    }.getOrDefault(0)
 
     /** @return 清掉的字节数（让界面能说「已清除 240 KB」，而不是只说「已清除」）。 */
     fun clearAll(): Long {
@@ -76,12 +95,70 @@ class ResponseCache(
     }
 
     /**
+     * 按领域分组的缓存占用（建议五：分域清理）。
+     *
+     * 分组键是**原始请求路径的第 3 段**（`/api/v2/todo/...` → `todo`），
+     * 不是文件大小、也不是时间 —— 用户要清的是"某一类数据"，只有路径能说出这件事。
+     *
+     * 没有侧车的旧条目统一归到 [UNKNOWN_DOMAIN]，界面上照实写「旧版未分类」，
+     * 而不是把它算进某一类里假装分得清。
+     */
+    fun domains(): List<CacheDomain> {
+        val files = runCatching {
+            root.listFiles()?.filter { it.isFile && !it.name.endsWith(META) }
+        }.getOrNull().orEmpty()
+        if (files.isEmpty()) return emptyList()
+        val bucket = HashMap<String, MutableList<File>>()
+        files.forEach { f ->
+            val key = f.name.removeSuffix(".json")
+            val path = runCatching {
+                File(root, key + META).takeIf { it.isFile }?.readText()
+            }.getOrNull()
+            val name = if (path.isNullOrBlank()) UNKNOWN_DOMAIN else domainOf(path)
+            bucket.getOrPut(name) { mutableListOf() }.add(f)
+        }
+        return bucket.map { (name, fs) ->
+            CacheDomain(name = name, entries = fs.size, bytes = fs.sumOf { it.length() })
+        }.sortedByDescending { it.bytes }
+    }
+
+    /** 清掉某一领域。@return 清掉的字节数。 */
+    fun clearDomain(name: String): Long {
+        var freed = 0L
+        runCatching {
+            root.listFiles()?.forEach { f ->
+                if (!f.isFile) return@forEach
+                if (f.name.endsWith(META)) {
+                    // 侧车跟着正文一起走：正文没了，侧车就是垃圾。
+                    val key = f.name.removeSuffix(META)
+                    if (!File(root, key + ".json").isFile) f.delete()
+                    return@forEach
+                }
+                val key = f.name.removeSuffix(".json")
+                val path = runCatching {
+                    File(root, key + META).takeIf { it.isFile }?.readText()
+                }.getOrNull()
+                val owner = if (path.isNullOrBlank()) UNKNOWN_DOMAIN else domainOf(path)
+                if (owner == name) {
+                    freed += f.length()
+                    f.delete()
+                    File(root, key + META).delete()
+                }
+            }
+        }
+        return freed
+    }
+
+    /**
      * 键 = 路径的 SHA-1。
      *
      * 為什麼不直接用 URL 当文件名：查询串里有 `?`、`&`、`%`、中文，
      * 拼出来的文件名在有的文件系统上直接创建失败（然后就是"缓存永远不生效"这种查不动的错）。
      */
     private fun file(path: String): File = File(root, sha1(path) + ".json")
+
+    /** 侧车：与 [file] 同键，后缀 [META]，内容是原始路径。 */
+    private fun meta(path: String): File = File(root, sha1(path) + META)
 
     private companion object {
         /**
@@ -95,8 +172,67 @@ class ResponseCache(
         )
         const val MAX_BODY = 2_000_000
 
+        /** 侧车后缀（不用 .json，免得被 entries() 当成一条缓存）。 */
+        const val META = ".path"
+
+        /** 没有侧车的旧条目（本功能上线前写下的）。 */
+        const val UNKNOWN_DOMAIN = "旧版未分类"
+
+        /** 路径里只有纯数字段的那些接口，统一显示成这个。 */
+        const val DIGIT_DOMAIN = "按 id 的接口"
+
+        /**
+         * 路径 → 用户看得懂的领域名。
+         *
+         * 只认第 3 段（`/api/v2/todo` → `todo`），认不出来就**保留原名** ——
+         * 不要乱翻译成「其他」：那会把两类数据混进一个桶，清一边顺手清掉另一边。
+         */
+        fun domainOf(path: String): String {
+            val segs = path.substringBefore('?').trim('/').split('/').filter { it.isNotBlank() }
+            val key = when {
+                segs.size >= 3 && segs[0] == "api" -> segs[2]
+                segs.size >= 2 && segs[0] == "api" -> segs[1]
+                segs.isNotEmpty() -> segs[0]
+                else -> UNKNOWN_DOMAIN
+            }
+            // 认不出就照实显示原始段，但**纯数字段**（`/api/v2/1/...` 这类按 id 走的接口）
+            // 显示成「按 id 的接口」—— 用户看不出 `1` 是什么，那是我们没给名字，不是他该猜的。
+            return LABELS[key] ?: if (key.all { it.isDigit() }) DIGIT_DOMAIN else key
+        }
+
+        val LABELS = mapOf(
+            "todo" to "待办",
+            "my-courses" to "我的课程",
+            "course" to "课程内容",
+            "calendar" to "校历与日程",
+            "notice" to "公告",
+            "assignment" to "作业",
+            "attendance" to "考勤",
+            "grade" to "成绩",
+            "todos" to "待办",
+            "profile" to "我的资料",
+            "my" to "我的资料",
+            "exam" to "考试安排",
+            "exams" to "考试安排",
+            "score" to "成绩",
+            "scores" to "成绩",
+        )
+
         fun sha1(s: String): String =
             MessageDigest.getInstance("SHA-1").digest(s.toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
     }
 }
+
+/**
+ * 一类缓存占用的快照。
+ *
+ * @param name 领域名（多半来自 [ResponseCache.domains] 的分组，已转成用户看得懂的中文）
+ * @param entries 条数
+ * @param bytes 字节数
+ */
+data class CacheDomain(
+    val name: String,
+    val entries: Int,
+    val bytes: Long,
+)

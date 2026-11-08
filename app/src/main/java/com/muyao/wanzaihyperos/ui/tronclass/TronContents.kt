@@ -32,7 +32,7 @@ import androidx.compose.runtime.collectAsState
  */
 
 /** 學在城院內部的二級頁面（不佔外殼的標籤）。 */
-private sealed interface TronSub {
+internal sealed interface TronSub {
     data object None : TronSub
     data object Rollcall : TronSub
     data class Homework(val courseId: Int, val courseName: String) : TronSub
@@ -67,7 +67,7 @@ private sealed interface TronSub {
 }
 
 @Composable
-fun TronHomeContent(
+internal fun TronHomeContent(
     repository: TronHomeRepository,
     homeworkRepository: HomeworkRepository,
     homeworkDetailRepository: com.muyao.wanzaihyperos.data.tronclass.HomeworkDetailRepository,
@@ -75,9 +75,16 @@ fun TronHomeContent(
     courseDetailRepository: com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository,
     scheduleRepository: com.muyao.wanzaihyperos.data.tronclass.ScheduleRepository,
     onOpenWeb: () -> Unit,
+    /** 目前打開的子頁（由外殼持有，見 [TronShellPage]）。 */
+    subState: TronSub,
+    /** 切換子頁。 */
+    onSub: (TronSub) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var sub by remember { mutableStateOf<TronSub>(TronSub.None) }
+    // 子頁狀態由外殼 [TronShellPage] 持有：子頁打開時外殼收起自己的頂欄與標籤列，
+    // 否則課程詳情會在學在城院的頂欄底下再畫一層頂欄（實機上是兩條返回箭頭）。
+    val sub = subState
+
     val state by repository.state.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -87,16 +94,16 @@ fun TronHomeContent(
     when (val s = sub) {
         TronSub.None -> TronHomeBody(
             repository = repository,
-            onOpenRollcall = { sub = TronSub.Rollcall },
-            onOpenSchedule = { sub = TronSub.Schedule },
-            onOpenCourse = { course -> sub = TronSub.Course(course) },
+            onOpenRollcall = { onSub(TronSub.Rollcall) },
+            onOpenSchedule = { onSub(TronSub.Schedule) },
+            onOpenCourse = { course -> onSub(TronSub.Course(course)) },
             onOpenWeb = onOpenWeb,
             modifier = modifier,
         )
 
         TronSub.Rollcall -> RollcallContent(
             repository = rollcallRepository,
-            onBack = { sub = TronSub.None },
+            onBack = { onSub(TronSub.None) },
             onOpenWeb = onOpenWeb,
             modifier = modifier,
         )
@@ -104,13 +111,13 @@ fun TronHomeContent(
         TronSub.Schedule -> {
             ScheduleContent(
                 repository = scheduleRepository,
-                onBack = { sub = TronSub.None },
+                onBack = { onSub(TronSub.None) },
                 onOpenCourse = { id, name ->
                     // 課表點課 → 進課程詳情。用**已取到的**課程清單那筆補齊教師等欄位：
                     // 課表格子本身只有課名與課號，不能自己造一個 TronCourse。
                     val known = (state as? ListState.Content)?.items?.firstOrNull()
                         ?.courses?.firstOrNull { it.id == id }
-                    sub = TronSub.Course(
+                    onSub(TronSub.Course(
                         known ?: com.muyao.wanzaihyperos.data.tronclass.TronCourse(
                             id = id,
                             name = name,
@@ -118,7 +125,7 @@ fun TronHomeContent(
                             teachingClass = "",
                             department = "",
                         ),
-                    )
+                    ))
                 },
                 onOpenWeb = onOpenWeb,
                 modifier = modifier,
@@ -132,9 +139,9 @@ fun TronHomeContent(
             }
             CourseDetailContent(
                 repository = courseDetailRepository,
-                onBack = { sub = TronSub.None },
+                onBack = { onSub(TronSub.None) },
                 // 「看全部作業」複用既有的作業頁（同一份資料不做兩個實作）。
-                onOpenHomework = { sub = TronSub.Homework(s.course.id, s.course.name) },
+                onOpenHomework = { onSub(TronSub.Homework(s.course.id, s.course.name)) },
                 onOpenWeb = onOpenWeb,
                 modifier = modifier,
             )
@@ -149,10 +156,10 @@ fun TronHomeContent(
             }
             HomeworkContent(
                 repository = homeworkRepository,
-                onBack = { sub = TronSub.None },
+                onBack = { onSub(TronSub.None) },
                 onOpenWeb = onOpenWeb,
                 onOpenHomework = { courseId, homeworkId, courseName, title ->
-                    sub = TronSub.HomeworkDetail(courseId, homeworkId, courseName, title)
+                    onSub(TronSub.HomeworkDetail(courseId, homeworkId, courseName, title))
                 },
                 modifier = modifier,
             )
@@ -170,7 +177,7 @@ fun TronHomeContent(
             HomeworkDetailBody(
                 repository = homeworkDetailRepository,
                 onOpenWeb = onOpenWeb,
-                header = { item { BackRow("返回", onBack = { sub = TronSub.Homework(s.courseId, s.courseName) }) } },
+                header = { item { BackRow("返回", onBack = { onSub(TronSub.Homework(s.courseId, s.courseName)) }) } },
                 modifier = modifier,
             )
         }

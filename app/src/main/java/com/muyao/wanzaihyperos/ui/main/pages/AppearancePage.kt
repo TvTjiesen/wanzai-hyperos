@@ -101,6 +101,7 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
+import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.time.LocalDate
 import java.time.LocalTime
@@ -135,6 +136,11 @@ fun AppearancePage(
     /** B4-14：主题也收进这一页（跟随系统 / 浅色 / 深色），改完立即生效。 */
     themeMode: com.muyao.wanzaihyperos.ui.AppThemeMode = com.muyao.wanzaihyperos.ui.AppThemeMode.System,
     onThemeMode: (com.muyao.wanzaihyperos.ui.AppThemeMode) -> Unit = {},
+    /**
+     * 「减少动态与高对比」那一行的出口（稿 `appearance` 的 `row(reduceMotion)` 带 ›）。
+     * 这里**不重复实现**那张表：`AccessibilityPage` 是唯一一处，外观页只负责开它。
+     */
+    onOpenAccessibility: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onClose)
@@ -293,7 +299,7 @@ fun AppearancePage(
                         }
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            text = "外观",
+                            text = "外观与壁纸",
                             // 板 `.subbar h2{font-size:22px;letter-spacing:-.02em}` × 0.886 ⇒ **20sp**。
                             // 子页标题比首页大日期（31sp）还大一档，层级就倒了
                             //（实测墨高 98px ≈ 30sp，是板的 1.5 倍）。
@@ -303,18 +309,38 @@ fun AppearancePage(
                             color = colors.onBackground,
                             modifier = Modifier.weight(1f),
                         )
-                        // 板子右上角是「实时预览」这颗状态胶囊；「恢复默认」按板子挪到页面底部。
-                        Text(
-                            text = "实时预览",
-                            fontSize = Type.micro,
-                            fontWeight = Type.weightTitle,
-                            color = colors.primary,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(colors.primary.copy(alpha = 0.10f))
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                        )
+                        // v2.1 稿顶栏只有 返回 + 标题 + 搜索（appearance.png / appearance-dark.png
+                        // 与 prototype 的 div.top-side 两颗 icon-button 一致）。旧板那颗「实时预览」
+                        // 胶囊在 v2.1 里挪进了预览卡自己的标题行（见 preview-heading），
+                        // 这里不再重复画一颗 —— 同一句话出现两次会读成「这页还没加载完」。
                     }
+                }
+            }
+
+            // 原型是 `div.preview-card > div.preview-heading`（首页预览 / 与当前设置同步）+ 小样，
+            // 再把「预览与当前材质同步；并非 Android 衍射效果的像素级复刻。」放在卡外。
+            // 这三样在旧版都没有：卡直接是 152dp 的天空小样，读者不知道它是「预览」，
+            // 也不知道它跟当前设置是同一份状态（会以为是静态图）。
+            item(key = "preview-heading") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 11.5.dp, bottom = 5.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    Text(
+                        text = "首页预览",
+                        fontSize = Type.summary,
+                        fontWeight = Type.weightTitle,
+                        letterSpacing = (-0.01).em,
+                        color = MiuixTheme.colorScheme.onBackground,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "与当前设置同步",
+                        fontSize = Type.micro,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
                 }
             }
 
@@ -334,12 +360,25 @@ fun AppearancePage(
                 )
             }
 
+            // 这句是原型的 `p.caption.muted`（卡下一行小字）。它说的是**边界**：预览跟材质
+            // 同源，但不是 Android 那层衍射效果逐像素复刻 —— 不写这句，读者会把预览当成
+            // 「真机上就该长这样」的承诺。
+            item(key = "preview-note") {
+                Text(
+                    text = "预览与当前材质同步；并非 Android 衍射效果的像素级复刻。",
+                    fontSize = Type.micro,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    // 行高不写死：Type.micro 配全局 1.55 倍小字行距（写死 15sp 会多一处改不动的字号）。
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                )
+            }
+
 
             // ---- 背景 ----------------------------------------------------
             // 业主 2026-10-29：「全局背景的颜色也改改，做个自定义界面把，让用户自己选择
             // 背景颜色，并且推荐几个主流的好看的颜色」。落点选在预览卡正下方 —— 换底色
             // 时上面那张卡同帧变色，不用滚到别处去看效果。
-            item(key = "background-label") { SubSection("背景", "五套主流色 · 深浅各一") }
+            item(key = "background-label") { SubSection("背景色") }
             item(key = "background-presets") {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     BackgroundPreset.entries.chunked(3).forEach { row ->
@@ -359,6 +398,18 @@ fun AppearancePage(
                         }
                     }
                 }
+            }
+
+            // 原型在色板下面还有一句 help（`.help`）：它讲的是「只换背景、不拿低对比灰字
+            // 换所谓高级感」这条纪律 —— 正是这套色板的设计前提，不写就只是五张色纸。
+            item(key = "background-help") {
+                Text(
+                    text = "五种背景各有浅、深版本。仅改变背景，不以低对比灰字换取“高级”。",
+                    fontSize = Type.micro,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    // 行高不写死：Type.micro 配全局 1.55 倍小字行距（写死 15sp 会多一处改不动的字号）。
+                    modifier = Modifier.padding(top = 6.dp),
+                )
             }
 
             // ---- 容器背景（业主 2026-11-07：「整个 app 的容器背景做两版」）----
@@ -401,10 +452,57 @@ fun AppearancePage(
                             onSelect = onThemeMode,
                         )
                     }
+                    // 稿顺序：主题 → 玻璃材质 → 通透度 → 壁纸柔化 → 壁纸暗度。
+                    // 玻璃三档落到**两件真实发生的事**上，不是画三个样子骗眼睛：
+                    //  · 关闭 = 减弱透明度（所有玻璃走近实底，连采样都不做）
+                    //  · 磨砂 = 仍然透光 + 糊，但**不折射**（折射量归 0）
+                    //  · 液态 = 透光 + 糊 + 折射
+                    CtlRow(label = "玻璃材质") {
+                        Segmented(
+                            options = listOf("液态" to "liquid", "磨砂" to "frost", "关闭" to "off"),
+                            // 读的是**当前真实材质状态**，不是单独一个字符串：
+                            // 设置页那个「减弱透明度」开关也会关掉玻璃，两处各读各的就会
+                            // 出现「界面说液态、屏幕上全是实底」。
+                            selectedValue = if (motion.reduceTransparency) "off" else UiPrefs.glassMode,
+                            onSelect = { mode ->
+                                UiPrefs.saveGlassMode(mode)
+                                MotionPrefs.setReduceTransparency(mode == "off")
+                                MotionPrefs.setRefractsGlass(mode == "liquid")
+                            },
+                        )
+                    }
+
+                    // 通透度（设计稿 v2.1「通透度 · 新增」）：50% = 原 App 液态/磨砂的
+                    // 透明度中值。它不是"再叠一层膜"，而是乘在 GlassSurface 的**垫底 alpha** 上
+                    // （liquid 栈 `baseAlpha` / glass 栈 `surfaceAlpha`），所以调这一根
+                    // 顶栏、焦点卡、搜索、底栏会一起变厚变薄，而正文与描边高光不受影响。
+                    CtlRow(label = "通透度") {
+                        Column {
+                            ValueSlider(
+                                value = UiPrefs.glassOpacity,
+                                max = 100,
+                                percent = true,
+                                onChange = { UiPrefs.saveGlassOpacity(it) },
+                            )
+                            Row(Modifier.padding(top = 3.dp)) {
+                                Text(
+                                    text = "更厚实",
+                                    fontSize = Type.micro,
+                                    color = colors.onSurfaceVariantSummary,
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    text = "更通透",
+                                    fontSize = Type.micro,
+                                    color = colors.onSurfaceVariantSummary,
+                                )
+                            }
+                        }
+                    }
                     CtlRow(label = "柔化") {
                         val soft = UiPrefs.wallpaperSoft
                         Segmented(
-                            options = listOf("关" to 0, "轻" to 26, "柔" to 60),
+                            options = listOf("关闭" to 0, "轻柔" to 26, "柔和" to 60),
                             selectedValue = if (soft == 0) 0 else if (soft <= 45) 26 else 60,
                             onSelect = { UiPrefs.saveWallpaperSoft(it) },
                         )
@@ -417,35 +515,13 @@ fun AppearancePage(
                             onChange = { UiPrefs.saveWallpaperDim(it) },
                         )
                     }
-                    CtlRow(label = "玻璃") {
-                        Segmented(
-                            options = listOf("液态" to "liquid", "磨砂" to "frost", "关闭" to "off"),
-                            // 读的是**当前真实材质状态**，不是单独一个字符串：
-                            // 设置页那个「减弱透明度」开关也会关掉玻璃，
-                            // 两处各读各的就会出现「界面说液态、屏幕上全是实底」。
-                            selectedValue = if (motion.reduceTransparency) "off" else UiPrefs.glassMode,
-                            onSelect = { mode ->
-                                UiPrefs.saveGlassMode(mode)
-                                // 三档落到**两件真实发生的事**上，不是画三个样子骗眼睛：
-                                //  · 关闭 = 减弱透明度 ⇒ 所有玻璃走近实底，连采样都不做
-                                //  · 磨砂 = 仍然透光 + 糊，但**不折射**（折射量归 0）
-                                //  · 液态 = 透光 + 糊 + 折射
-                                MotionPrefs.setReduceTransparency(mode == "off")
-                                MotionPrefs.setRefractsGlass(mode == "liquid")
-                                // ★ 第 1 轮审计（#12 假开关）：`saveGlassMode` 现在连带把
-                                //   `reduceTransparency` 也写盘了（同一决定的两面）。
-                                //   以前这里只改运行期 ⇒ 选「关闭」后重启，分段控件显示「关闭」
-                                //   而画面走磨砂。补一条断言在 `GlassModeWiringTest`。
-                            },
-                        )
-                    }
                     // ★ 业主 2026-10-22 13:2x 签字：三档只管**浮动面**，开关与返回键明确不做。
                     //   这句范围说明必须从 `GlassSurfaceId` 那份名单**拼**出来，不许在这里手写清单 ——
                     //   手写的那一句就是"覆盖全应用"这种兑现不了的承诺（第 2 轮踩过的假说法）。
                     //   只拼 `GLASS` 那几面：预览卡现在不是玻璃面（`GlassSurfaceKind.NOT_GLASS`），
                     //   把它写进"作用于"就是替它撒谎 —— 后面单独一句把它说清楚。
                     Text(
-                        text = "液态 / 磨砂 / 关闭 —— 作用于" +
+                        text = "只影响顶栏、首页焦点卡、搜索与底栏等承载层；正文保持清楚。本版本实际作用于" +
                             GlassSurfaceId.entries
                                 .filter { it.kind == GlassSurfaceKind.GLASS }
                                 .joinToString("、") { it.label } +
@@ -461,7 +537,7 @@ fun AppearancePage(
             // ---- 首頁 ----------------------------------------------------
             item(key = "home-label") { SubSection("首页", "立即生效") }
             item(key = "home-density") {
-                CtlRow(label = "密度", first = true) {
+                CtlRow(label = "界面密度", first = true) {
                     Segmented(
                         options = listOf("舒适" to "comfortable", "紧凑" to "compact"),
                         selectedValue = if (UiPrefs.homeDensity == "compact") "compact" else "comfortable",
@@ -477,14 +553,14 @@ fun AppearancePage(
                 // ⇒ 模块开关是一排**胶囊**，点一下就切；不是四行 switch。
                 Column {
                     Text(
-                        text = "至少留一块。全部关掉的首页只剩一片天空，那不是简洁，是坏了。",
+                        text = "至少保留一项。隐藏模块仅是个人显示偏好，不删除其功能入口。",
                         fontSize = Type.micro,
                         color = colors.onSurfaceVariantSummary,
                         lineHeight = 12.sp,
                         modifier = Modifier.padding(bottom = 7.dp),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(5.3.dp)) {
-                        ModuleChip("今日课程", "courses")
+                        ModuleChip("课程", "courses")
                         ModuleChip("签到", "rollcall")
                         ModuleChip("待办", "todos")
                         ModuleChip("校园跑", "szty")
@@ -496,13 +572,31 @@ fun AppearancePage(
             item(key = "apps-label") { SubSection("应用") }
             item(key = "apps") {
                 BorderedRow(
-                    title = "收起网页服务",
-                    subtitle = "应用页只留「原生应用」，网页服务排成一行入口。",
+                    title = "默认折叠网页服务",
+                    subtitle = "展开后仍可访问全部目录",
                 ) {
                     PillSwitch(
                         checked = UiPrefs.appsWebCollapsed,
-                        label = "收起网页服务",
+                        label = "默认折叠网页服务",
                     ) { UiPrefs.saveAppsWebCollapsed(!UiPrefs.appsWebCollapsed) }
+                }
+            }
+
+            item(key = "reduce-motion") {
+                // 稿 `appearance` 最后那张卡的第二行：`row("减少动态与高对比", "系统动画关闭优先级最高", "", "reduceMotion")`。
+                // 它**不是开关**：真正能改的是系统设置（本应用只读），所以给 › 而不是 switch ——
+                // 画成开关就是假按钮（工程里栽过：`MotionPrefs` 的只读项被画成可点）。
+                BorderedRow(
+                    title = "减少动态与高对比",
+                    subtitle = "系统动画关闭优先级最高",
+                    onClick = onOpenAccessibility,
+                ) {
+                    Icon(
+                        imageVector = MiuixIcons.ChevronForward,
+                        contentDescription = null,
+                        tint = colors.onSurfaceVariantSummary,
+                        modifier = Modifier.size(14.dp),
+                    )
                 }
             }
 
@@ -573,7 +667,7 @@ fun AppearancePage(
             //
             // 业主 2026-11-01「外观与壁纸界面壁纸的选项移到最下面」：壁纸是「看」的东西，
             // 排在外观页的最后。上面那些（主题 / 背景 / 柔化 / 暗度 / 玻璃 / 密度 / 模块）都是「调」。
-            item(key = "wallpaper-label") { SubSection("壁纸", "内置 5 张 · 相册") }
+            item(key = "wallpaper-label") { SubSection("壁纸", "内置与相册") }
             item(key = "wallpaper-presets") {
                 // 板 `.wps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 18px}`
                 // + `.wp{border-radius:13px;aspect-ratio:1/.92;border:1.5px solid transparent}`
@@ -669,6 +763,67 @@ fun AppearancePage(
                                 }
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                         )
+                    }
+                }
+            }
+
+            // ---- 另外两组颜色灵感（稿 `appearance` 的 `details`：默认收起）----
+            //
+            // 为什么收起：这两档是**强色**，业主原话「不作为默认工作界面；强色只在壁纸层」。
+            // 摊平会把六格壁纸变成八格，视线分不出「常用五档」与「灵感两档」。
+            item(key = "wallpaper-inspiration") {
+                var open by remember { mutableStateOf(false) }
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(Dims.chipCorner))
+                            .clickable(onClickLabel = if (open) "收起颜色灵感" else "展开颜色灵感") {
+                                open = !open
+                            }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "另外两组颜色灵感",
+                            fontSize = Type.body,
+                            fontWeight = Type.weightTitle,
+                            color = colors.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = if (open) "收起 ▴" else "新增可选 ▾",
+                            fontSize = Type.micro,
+                            color = colors.primary,
+                        )
+                    }
+                    if (open) {
+                        Text(
+                            text = "来自你提供的色值，不作为默认工作界面；强色只在壁纸层。",
+                            fontSize = Type.micro,
+                            color = colors.onSurfaceVariantSummary,
+                            lineHeight = 12.sp,
+                            modifier = Modifier.padding(bottom = 7.dp),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            listOf(
+                                "黄紫流光" to SkyPreset.AURORA,
+                                "粉色云雾" to SkyPreset.BLOSSOM,
+                            ).forEach { (name, value) ->
+                                WallpaperTile(
+                                    name = name,
+                                    preset = value,
+                                    wallpaper = null,
+                                    dim = UiPrefs.wallpaperDim,
+                                    soft = UiPrefs.wallpaperSoft,
+                                    on = effectivePreset == value,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    UiPrefs.saveWallpaperPreset(value.id)
+                                    note = null
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1094,6 +1249,11 @@ private fun <T : Any> Segmented(
 private fun BorderedRow(
     title: String,
     subtitle: String,
+    /**
+     * 整行可点（`null` = 这一行只是展示）。有它才能在行上挂 › 出口；
+     * 没有它的行**不要**传箭头 —— 那会画出一个点不动的箭头。
+     */
+    onClick: (() -> Unit)? = null,
     trailing: @Composable () -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -1102,6 +1262,13 @@ private fun BorderedRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(Dims.containerCorner))
             .border(1.dp, colors.dividerLine, RoundedCornerShape(Dims.containerCorner))
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClickLabel = title, onClick = onClick)
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = 10.6.dp, vertical = 8.9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1494,7 +1661,12 @@ private fun ValueSlider(
     LaunchedEffect(value) { local = value.toFloat() }
 
     fun apply(x: Float) {
-        local = (x / widthPx.coerceAtLeast(1)).coerceIn(0f, 1f) * max
+        // ★ 宽度还没量到时（`widthPx` 仍是初值 1）**什么都不做**。
+        // 原来直接 `x / 1`，任何一次早于 onSizeChanged 的拖动都会被夹到 1.0、
+        // 直接跳到 max —— 真机上表现为「碰一下滑块就冲到 100%」
+        // （2026-11-08 12:29 截图：通透度停在 100，而默认值是 50）。
+        if (widthPx <= 1) return
+        local = (x / widthPx).coerceIn(0f, 1f) * max
     }
 
     Row(
@@ -1697,6 +1869,41 @@ internal fun WallpaperCropFrame(
                     zoom = zoom,
                 )
             }
+            // ── 建议一：构图辅助（业主 2026-11-07「五项新增设置全做」）──────────────
+            //
+            // 只画**轮廓**，不画任何实体：他要在图上判断"人脸会不会被球挡住"，
+            // 画一块不透明色块就把要看的东西盖住了，等于没给辅助。
+            //
+            // 比例取自首页真实分层（347dp 宽下的实测，见 HOME-V2 首屏结构）：
+            //   球：左上、直径约 0.26w；「今天」大标题从 0.30h 起；焦点卡在 0.62h 处、
+            //   左右各留 0.06w。用**比例**而不是 dp，是因为取景框本身随屏宽缩放。
+            //
+            // 这些线**只在编辑态出现**，不进壁纸位图、也不落盘成新开关（§3 批准点）。
+            Canvas(Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+                val guideColor = Color.White.copy(alpha = 0.82f)
+                val shadowColor = Color.Black.copy(alpha = 0.28f)
+                val stroke = 1.6.dp.toPx()
+
+                fun ring(cx: Float, cy: Float, r: Float) {
+                    drawCircle(shadowColor, radius = r + 1.dp.toPx(), center = Offset(cx, cy), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                    drawCircle(guideColor, radius = r, center = Offset(cx, cy), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                }
+
+                fun band(l: Float, t: Float, r: Float, b: Float, corner: Float) {
+                    drawRoundRect(shadowColor, topLeft = Offset(l, t), size = Size(r - l, b - t),
+                        cornerRadius = CornerRadius(corner), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                    drawRoundRect(guideColor, topLeft = Offset(l, t), size = Size(r - l, b - t),
+                        cornerRadius = CornerRadius(corner), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                }
+
+                ring(w * 0.20f, h * 0.15f, w * 0.13f)
+                band(w * 0.08f, h * 0.30f, w * 0.62f, h * 0.375f, 6.dp.toPx())
+                band(w * 0.08f, h * 0.405f, w * 0.42f, h * 0.455f, 5.dp.toPx())
+                band(w * 0.06f, h * 0.62f, w * 0.94f, h * 0.86f, 20.dp.toPx())
+            }
+
         }
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp),

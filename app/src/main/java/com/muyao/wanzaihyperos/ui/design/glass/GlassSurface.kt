@@ -125,6 +125,9 @@ fun GlassSurface(
     //   以前调用方只能读 `LocalBarMaterial`，于是出了「代码说液态、画面是纸、字色按纸判」
     //   这种只有肉眼能发现的错。
     val effectiveMaterial = rememberEffectiveMaterial(backdrop, material, liveness)
+    // 通透度（外观页那颗滑块）必须在**组合期**读出：下面 `onDrawSurface` 是 DrawScope，
+    // 不是 @Composable 上下文，在那里调 `glassOpacityFactor()` 编译不过。
+    val opacityFactor = glassOpacityFactor()
 
     // ── 降級外觀：實心 + 1dp 低透明描邊 ──────────────────────────
     //
@@ -212,7 +215,7 @@ fun GlassSurface(
                     },
                     onDrawSurface = {
                         // 表面色要透。白感靠「模糊後的背景 + 高光」，不靠堆白漆。
-                        drawRect(color = surfaceColor.copy(alpha = effective.surfaceAlpha))
+                        drawRect(color = surfaceColor.copy(alpha = (effective.surfaceAlpha * opacityFactor).coerceIn(0f, 1f)))
                     },
                     layerBlock = {
                         if (pressedScale != 1f) {

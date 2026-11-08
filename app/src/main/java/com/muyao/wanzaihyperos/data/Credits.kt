@@ -61,6 +61,16 @@ object Credits {
             version = "改写，未固定上游版本",
             license = APACHE,
         ),
+        // AI 小球的表情向量与动画参数来自这个引擎（`ui/design/ai/AiBallState.kt:6`
+        // 与 `ui/design/ai/AiBall.kt:68` 的档头注释写明"MIT，未改一行"）。
+        // 2026-11-08 对稿发现：署名只躺在源码注释里 —— MIT 要求随分发保留，
+        // 用户与商店审核都看不到，所以补进这一栏。
+        Credit(
+            name = "grok-ball（AI 小球的表情向量与动画参数）",
+            coordinate = "github.com/tycoding/grok-ball",
+            version = "沿用现有表情向量，未固定上游版本",
+            license = "MIT（发布前保留许可原文）",
+        ),
     )
 
     /**

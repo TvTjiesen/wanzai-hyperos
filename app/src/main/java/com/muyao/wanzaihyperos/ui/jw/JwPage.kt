@@ -3,15 +3,21 @@ package com.muyao.wanzaihyperos.ui.jw
 import android.annotation.SuppressLint
 import android.view.ViewGroup
 import android.webkit.WebView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -23,12 +29,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.viewinterop.AndroidView
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.data.agoLabel
+import com.muyao.wanzaihyperos.data.metaOrNull
 import com.muyao.wanzaihyperos.data.jw.JwEngine
 import com.muyao.wanzaihyperos.data.jw.JwExamParser
 import com.muyao.wanzaihyperos.data.jw.JwExamSchedule
@@ -39,21 +50,27 @@ import com.muyao.wanzaihyperos.data.jw.JwRepository
 import com.muyao.wanzaihyperos.data.jw.JwScoreParser
 import com.muyao.wanzaihyperos.data.jw.JwScoreSummarizer
 import com.muyao.wanzaihyperos.net.HzcuException
+import com.muyao.wanzaihyperos.ui.common.FreshnessNote
 import com.muyao.wanzaihyperos.ui.design.AppCard
+import com.muyao.wanzaihyperos.ui.design.BodyMark
+import com.muyao.wanzaihyperos.ui.design.Mark
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.AppList
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.HintText
 import com.muyao.wanzaihyperos.ui.design.InfoItem
+import com.muyao.wanzaihyperos.ui.design.KeyValueRow
 import com.muyao.wanzaihyperos.ui.design.ResultBanner
 import com.muyao.wanzaihyperos.ui.design.Tone
 import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
+import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.infoItemsIndexed
 import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -136,7 +153,7 @@ fun JwPage(
     val veilProgress by com.muyao.wanzaihyperos.ui.design.rememberScrollProgress(listState)
 
     SecondaryScaffold(
-        title = "教务系统",
+        title = "教务查询",
         subtitle = "正方教学管理信息服务平台",
         onBack = onExit,
         scrollProgress = veilProgress,
@@ -151,12 +168,19 @@ fun JwPage(
                 .padding(top = innerPadding.calculateTopPadding()),
         ) {
             AppList(modifier = Modifier.fillMaxSize(), state = listState) {
+                item(key = "jw-hero") {
+                    SecHero(
+                        eyebrow = "ACADEMIC / 教务查询",
+                        title = "成绩与考试",
+                        sub = "教务账号独立认证，不冒用门户登录状态。",
+                    )
+                }
                 if (!hasCredential) {
                     // ── 還沒設過憑據 ──────────────────────────────────
-                    item {
-                        HintText(
-                            "教务系统没有免登，也没有续期，会话过期后只能用账号密码重新登录。\n" +
-                                "所以这里需要保存一次账号密码 —— 它只存在手机的加密存储里，" +
+                    item(key = "jw-gate-intro") {
+                        SecNotice(
+                            "教务系统没有免登，也没有续期，会话过期后只能用账号密码重新登录。" +
+                                "这里需要保存一次账号密码 —— 它只存在手机的加密存储里，" +
                                 "只有你自己在这台手机上清掉它才会消失。",
                         )
                     }
@@ -214,8 +238,34 @@ fun JwPage(
                         onTabSelected = { tab = it },
                         minWidth = 96.dp,
                         maxWidth = 96.dp,
-                        modifier = Modifier.padding(horizontal = Dims.screenH),
                     )
+                }
+
+                // ★ 刷新时**保留旧值**并说明它旧了（矩阵 30 的验收项）。
+                //   失败不整页清空：内容还在 [ListState.Content]，错误记在 meta.lastRefreshError。
+                val meta = state.metaOrNull
+                meta?.let { m ->
+                    item(key = "jw-freshness") {
+                        FreshnessNote(
+                            agoLabel(m.updatedAtMillis, System.currentTimeMillis()) +
+                                when {
+                                    m.refreshing -> " · 正在重新取"
+                                    m.stale -> " · 这是上次存的"
+                                    else -> ""
+                                },
+                        )
+                    }
+                    m.lastRefreshError?.let { problem ->
+                        val why = problem.message?.takeIf { it.isNotBlank() } ?: problem.userText
+                        item(key = "jw-refresh-problem") {
+                            Text(
+                                text = "这次没取到：$why（上面这些是上次取到的，下拉可以重试）",
+                                fontSize = Type.caption,
+                                lineHeight = Type.lineCaption,
+                                color = MiuixTheme.colorScheme.error,
+                            )
+                        }
+                    }
                 }
 
                 // ★ 失敗要**照實說**，不能落到「沒有查到」那一支 ——
@@ -271,10 +321,22 @@ fun JwPage(
                         if (nextExam != null) {
                             item(key = "exam-next") { NextExamCard(nextExam) }
                         }
-                        if (examUnknown > 0) {
-                            item(key = "exam-unknown") { HintText("另有 " + examUnknown + " 场学校没开放时间，排不进来。") }
+                        // ★ 整批都「沒放開」時，稿上的說法是這一句（`jw.png` restricted 分支，逐字）：
+                        //   「沒放開」是學校的答覆，不是取數失敗，更不是「沒有考試」。
+                        val allRestricted = allItems.isNotEmpty() && allItems.all { it.restricted }
+                        if (allRestricted) {
+                            item(key = "exam-restricted") {
+                                SecNotice("学校暂未放开查询；这是学校限制，不是网络故障。")
+                            }
+                        } else if (examUnknown > 0) {
+                            // 部分放開：說清楚有幾場排不進來，別讓人以為考試只有這些。
+                            item(key = "exam-unknown") {
+                                HintText("另有 " + examUnknown + " 场学校没开放时间，排不进来。")
+                            }
                         }
-                        item { SmallTitle(text = "考试（${allItems.size}）") }
+                        item(key = "exam-title") {
+                            SecSectionHead(title = "考试安排", meta = "共 ${allItems.size} 场", icon = MarkIcon.Clock)
+                        }
                         // ★ key 必須**真的唯一**：同一門課會有多場考試
                         //   （補考、期末考…），實測「大学物理(Ⅰ)」就出現兩次。
                         //   第一版用 `courseName + examName` → Compose 直接崩
@@ -285,10 +347,13 @@ fun JwPage(
                                 title = e.courseName,
                                 subtitle = listOfNotNull(
                                     e.examName.takeIf { it.isNotBlank() },
-                                    e.time.takeIf { it.isNotBlank() },
-                                    e.room.takeIf { it.isNotBlank() },
+                                    // ★ 「學校還沒放開」與「欄位是空的」都不能畫成空白：
+                                    //   空白在列表裡讀起來像「這場考試沒有時間/考場」。
+                                    e.time.takeIf { it.isNotBlank() } ?: "时间未公布",
+                                    e.room.takeIf { it.isNotBlank() } ?: "考场未公布",
                                 ).joinToString("　"),
-                                trailing = e.seat.takeIf { it.isNotBlank() && !e.restricted },
+                                // 座位同理：沒放開就寫「—」，不是留白、更不是 0。
+                                trailing = e.seat.takeIf { it.isNotBlank() && !e.restricted } ?: "—",
                                 trailingColor = MiuixTheme.colorScheme.primary,
                                 body = listOfNotNull(
                                     e.teacherName.takeIf { it.isNotBlank() }?.let { "教师 $it" },
@@ -305,7 +370,9 @@ fun JwPage(
                         if (!scoreSummary.isEmpty) {
                             item(key = "score-summary") { ScoreSummaryCard(scoreSummary) }
                         }
-                        item { SmallTitle(text = "成绩（${scoreItems.size}）") }
+                        item(key = "score-title") {
+                            SecSectionHead(title = "各科成绩", meta = "共 ${scoreItems.size} 门", icon = MarkIcon.Data)
+                        }
                         // ★ 同上：**重修**會讓同一個課名出現多次，所以用下標當 key。
                         infoItemsIndexed(scoreItems) { s ->
                             InfoItem(
@@ -323,10 +390,36 @@ fun JwPage(
                     }
                 }
 
-                item {
+                item(key = "jw-account-title") {
+                    SecSectionHead(title = "教务账号", meta = null, icon = MarkIcon.Account)
+                }
+                item(key = "jw-account-actions") {
+                    SecChipRow(
+                        chips = listOf(
+                            "刷新" to {
+                                scope.launch { runCatching { repository.load(feature, force = true) } }
+                            },
+                            "重新输入账号密码" to {
+                                session.clear()
+                                hasCredential = false
+                            },
+                        ),
+                    )
+                }
+                item(key = "jw-exam-tail") {
                     HintText(
                         "说明：考试时间与考场由学校决定是否开放查询；" +
                             "若显示“未放开不可查”，那是学校的答复，不是取数失败。",
+                    )
+                }
+                item(key = "jw-other") {
+                    // ★ 教材缴费不在这里做：它是**独立的 SSO 原站业务**，不属于教务查询页。
+                    //   本页没有「打开原站」的出口（`JwPage` 的签名里没有 onOpenWeb，
+                    //   加它要动 `WanzaiRoot`，那不在本轮可写范围）—— 所以只如实说明边界，
+                    //   不伪造一个点了没反应的按钮。
+                    SecNotice(
+                        "教材缴费属于独立的 SSO 原站业务，不是这个查询页能代办的；" +
+                            "也不在本页伪造它的表单。",
                     )
                 }
             }
@@ -356,66 +449,237 @@ fun JwPage(
 private const val TAB_EXAM = 0
 
 /**
- * 成績匯總卡：已修學分 / 加權平均分 / 加權績點。
+ * 這頁的標題區：eyebrow + 大標題 + 一句說明（照板 `jw.png` 的 `title()` 三行）。
  *
- * 為什麼要這張卡：本頁原本只有逐條列表 —— 想知道「我均分多少」得自己拿計算器。
- * 三個數字都是 [JwScoreSummarizer] 算的，算不出來就整張不畫（不是畫一排「—」）。
+ * 尺寸都由令牌算出來，不新造字號檔：
+ * `.eyebrow{11.29px}`×0.886 ⇒ [Type.caption]；`.hero-title{29.35px}`×0.886 ⇒ [Type.displayTitle]；
+ * `.muted` ⇒ [Type.caption] 灰。
+ *
+ * 各頁各自私有這一份（Zw/Szty/Zhgy/Busyness 同名同形）：它只有二十行，
+ * 而共用位置在 `ui/design`、那不在本輪可寫範圍 —— 先重複，等 Lead 決定要不要上提。
  */
 @Composable
-private fun ScoreSummaryCard(summary: com.muyao.wanzaihyperos.data.jw.JwScoreSummary) {
+private fun SecHero(eyebrow: String, title: String, sub: String) {
     val colors = MiuixTheme.colorScheme
-    AppCard(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text(
-                text = "学业概览",
-                style = MiuixTheme.textStyles.headline2,
-                color = colors.onSurface,
-            )
-            summary.credits?.let { c ->
-                Text(
-                    text = "已修 " + formatOne(c) + " 学分 · " + summary.creditCount + " 门",
-                    style = MiuixTheme.textStyles.body2,
-                    color = colors.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            if (summary.weightedScore != null || summary.weightedGradePoint != null) {
-                Row(modifier = Modifier.padding(top = 12.dp)) {
-                    summary.weightedScore?.let { v ->
-                        MetricCell(label = "加权平均分", value = formatOne(v))
-                    }
-                    summary.weightedGradePoint?.let { v ->
-                        Spacer(Modifier.width(20.dp))
-                        MetricCell(label = "加权绩点", value = String.format("%.2f", v))
-                    }
-                }
-            }
-            if (summary.excludedFromAverage > 0) {
-                Text(
-                    text = "另有 " + summary.excludedFromAverage + " 门是等第制或学分缺失，没进加权。",
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = Tone.quiet,
-                    modifier = Modifier.padding(top = 10.dp),
-                )
-            }
+    Column(modifier = Modifier.padding(bottom = Dims.tight)) {
+        Text(
+            text = eyebrow,
+            fontSize = Type.caption,
+            fontWeight = Type.weightTitle,
+            letterSpacing = 0.10.em,
+            color = colors.onSurfaceVariantSummary,
+            style = TextStyle(fontFeatureSettings = Type.tabular),
+        )
+        Text(
+            text = title,
+            fontSize = Type.displayTitle,
+            fontWeight = Type.weightTitle,
+            letterSpacing = (-0.02).em,
+            lineHeight = Type.lineDisplayTitle,
+            color = colors.onBackground,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        Text(
+            text = sub,
+            fontSize = Type.caption,
+            lineHeight = Type.lineCaption,
+            color = colors.onSurfaceVariantSummary,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+/**
+ * 板的 `.notice`：**左側一道細規則 + 極淡底色**，不是普通卡片。
+ *
+ * 照 `style.css`：
+ * `padding:12px 14px; border-left:2px solid; border-radius:0 12px 12px 0; color:var(--quiet)`，
+ * `.notice.error` 時整段換成 `--error` 色。
+ *
+ * 為什麼不直接用 [ResultBanner]：那是「一條結論橫幅」（有卡片底、居中語感），
+ * 而這裡是「一句需要被看見、但不該搶走標題的說明」。兩者在板裡也是兩種東西。
+ */
+@Composable
+private fun SecNotice(text: String, error: Boolean = false) {
+    val colors = MiuixTheme.colorScheme
+    val tint = if (error) colors.error else colors.onSurfaceVariantSummary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
+            .background(colors.surfaceContainer.copy(alpha = 0.55f)),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(tint),
+        )
+        Text(
+            text = text,
+            fontSize = Type.caption,
+            lineHeight = Type.lineCaption,
+            color = tint,
+            modifier = Modifier.padding(
+                start = Dims.loose,
+                end = Dims.cardPadding,
+                top = Dims.normal,
+                bottom = Dims.normal,
+            ),
+        )
+    }
+}
+
+/**
+ * 一排「芯片式」動作（板的 `.chip-list`）。
+ *
+ * 板是 `flex-wrap`，但一列擠不下時 Compose 沒有現成的換行容器
+ *（全工程也沒用過 `FlowRow`），所以這裡用可橫向滾動的 [androidx.compose.foundation.lazy.LazyRow]
+ * ——比硬塞兩列更不會在窄屏上把字壓扁，也保住了每個控件 ≥[Dims.minTouch] 的命中區。
+ */
+@Composable
+private fun SecChipRow(chips: List<Pair<String, () -> Unit>>) {
+    androidx.compose.foundation.lazy.LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(Dims.tight),
+    ) {
+        items(chips.size) { i ->
+            val (label, action) = chips[i]
+            TextButton(text = label, onClick = action)
         }
     }
 }
 
+/**
+ * 成績匯總：**兩格大字統計 + 一段口徑說明**（照板 `jw.png` 的 `.stat-grid` + `box`）。
+ *
+ * 三個數字都是 [JwScoreSummarizer] 算的；算不出來就**不畫那一格**，
+ * 而不是畫一個 `0` —— 「未知不是 0」是本工程第一條紅線。
+ */
 @Composable
-private fun MetricCell(label: String, value: String) {
+private fun ScoreSummaryCard(summary: com.muyao.wanzaihyperos.data.jw.JwScoreSummary) {
     val colors = MiuixTheme.colorScheme
     Column {
-        Text(
-            text = value,
-            style = MiuixTheme.textStyles.title2,
-            color = colors.primary,
+        SecSectionHead(
+            title = "学业统计",
+            icon = MarkIcon.Growth,
+            meta = if (summary.creditCount > 0) "已公布 ${summary.creditCount} 门" else null,
         )
-        Text(
-            text = label,
-            style = MiuixTheme.textStyles.footnote2,
-            color = colors.onSurfaceVariantSummary,
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = Dims.tight),
+            horizontalArrangement = Arrangement.spacedBy(Dims.cardGap),
+        ) {
+            summary.credits?.let { c ->
+                StatCell(
+                    label = "已修学分",
+                    value = formatOne(c),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            summary.weightedScore?.let { v ->
+                StatCell(
+                    label = "加权平均分",
+                    value = formatOne(v),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        AppCard(modifier = Modifier.padding(top = Dims.cardGap)) {
+            Column(modifier = Modifier.padding(horizontal = Dims.cardPadding, vertical = Dims.tight)) {
+                KeyValueRow(
+                    label = "加权绩点",
+                    // 讀不出來就寫「—」，不寫 0.00：「績點 0」是「掛科」，不是「沒取到」。
+                    value = summary.weightedGradePoint?.let { String.format("%.2f", it) } ?: "—",
+                    labelWidth = Dims.labelColumnLong,
+                )
+                KeyValueRow(
+                    label = "统计口径",
+                    value = "仅计已公布且有学分科目",
+                    labelWidth = Dims.labelColumnLong,
+                )
+            }
+        }
+        if (summary.excludedFromAverage > 0) {
+            Text(
+                text = "另有 " + summary.excludedFromAverage + " 门是等第制或学分缺失，没进加权。",
+                fontSize = Type.caption,
+                lineHeight = Type.lineCaption,
+                color = Tone.quiet,
+                modifier = Modifier.padding(top = Dims.tight),
+            )
+        }
+    }
+}
+
+/**
+ * 一格統計（板的 `.stat`）：小標 + 大字 + 沒有第三行。
+ *
+ * `.stat strong{26px}`×0.886 ⇒ `Type.displayTitle`（不新造字號檔）；
+ * `.stat small` 走 `Type.caption` 灰。用 `AppCard` 拿邊框與圓角，
+ * 不在這裡自繪卡片（`ui/design` 之外自繪會和別頁的觀感對不上）。
+ */
+@Composable
+private fun StatCell(label: String, value: String, modifier: Modifier = Modifier) {
+    val colors = MiuixTheme.colorScheme
+    AppCard(modifier = modifier) {
+        Column(modifier = Modifier.padding(horizontal = Dims.cardPadding, vertical = Dims.loose)) {
+            Text(
+                text = label,
+                fontSize = Type.caption,
+                color = colors.onSurfaceVariantSummary,
+            )
+            Text(
+                text = value,
+                fontSize = Type.displayTitle,
+                lineHeight = Type.lineDisplayTitle,
+                fontWeight = Type.weightBody,
+                letterSpacing = (-0.03).em,
+                color = colors.onBackground,
+                style = TextStyle(fontFeatureSettings = Type.tabular),
+                modifier = Modifier.padding(top = Dims.tight),
+            )
+        }
+    }
+}
+
+/**
+ * 分區標題（板的 `.section-heading`：`h3` 20.3px + 右側 `.meta` 12.42px）。
+ *
+ * `h3`×0.886 ⇒ `Type.title`；`.meta` ⇒ `Type.caption` 灰。
+ * Miuix 的 `SmallTitle` 只有一行字，放不下右側那條元信息，所以這裡自己排一行。
+ */
+@Composable
+private fun SecSectionHead(title: String, meta: String?, icon: MarkIcon = MarkIcon.Data) {
+    val colors = MiuixTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = Dims.sectionGap),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            // 正文前图标（业主：每个区块标题前一枚，选语义最近的，别全用 Info）。
+            BodyMark(icon = icon, tint = colors.primary, size = Mark.size)
+            Text(
+                text = title,
+                fontSize = Type.title,
+                fontWeight = Type.weightTitle,
+                color = colors.onBackground,
+            )
+        }
+        if (!meta.isNullOrBlank()) {
+            Text(
+                text = meta,
+                fontSize = Type.caption,
+                color = colors.onSurfaceVariantSummary,
+            )
+        }
     }
 }
 
@@ -429,49 +693,55 @@ internal fun formatOne(v: Double): String {
 @Composable
 private fun NextExamCard(next: NextExam) {
     val colors = MiuixTheme.colorScheme
-    AppCard(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
+    AppCard {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(Dims.cardPadding),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "最近一场",
-                    style = MiuixTheme.textStyles.footnote2,
+                    fontSize = Type.caption,
                     color = colors.onSurfaceVariantSummary,
                 )
                 Text(
                     text = next.courseName,
-                    style = MiuixTheme.textStyles.body1,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                    color = colors.onSurface,
+                    fontSize = Type.body,
+                    fontWeight = Type.weightBody,
+                    color = colors.onBackground,
                     maxLines = 2,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
+                    modifier = Modifier.padding(top = Dims.tight),
                 )
                 // 日期与时间都是服务端原文里切出来的，只拼不换 —— 换算一次就可能编。
                 Text(
                     text = listOfNotNull(
                         next.date.toString().replace("-", "/"),
                         next.startClock?.let { c -> if (next.endClock != null) c + "–" + next.endClock else c },
-                        next.room.takeIf { it.isNotBlank() },
+                        // ★ 考場沒開放時是 service 端的字串（含「未放开」），不是空串；
+                        //   空串時寫「未公布」而不是留白 —— 留白看起來像「在線下考場」。
+                        next.room.takeIf { it.isNotBlank() } ?: "考场未公布",
                     ).joinToString(" · "),
-                    style = MiuixTheme.textStyles.footnote2,
+                    fontSize = Type.caption,
+                    lineHeight = Type.lineCaption,
                     color = colors.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 4.dp),
+                    style = TextStyle(fontFeatureSettings = Type.tabular),
+                    modifier = Modifier.padding(top = Dims.tight),
                 )
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(Dims.loose))
             Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
                 Text(
                     text = if (next.daysAway == 0L) "今天" else if (next.daysAway == 1L) "明天" else next.daysAway.toString(),
-                    style = MiuixTheme.textStyles.title2,
+                    fontSize = Type.title,
+                    fontWeight = Type.weightTitle,
                     color = colors.primary,
+                    style = TextStyle(fontFeatureSettings = Type.tabular),
                 )
                 if (next.daysAway > 1L) {
                     Text(
                         text = "天",
-                        style = MiuixTheme.textStyles.footnote2,
+                        fontSize = Type.caption,
                         color = colors.onSurfaceVariantSummary,
                     )
                 }

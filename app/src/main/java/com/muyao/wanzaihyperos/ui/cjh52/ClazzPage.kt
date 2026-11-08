@@ -1,51 +1,42 @@
 package com.muyao.wanzaihyperos.ui.cjh52
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.ListState
-import com.muyao.wanzaihyperos.ui.design.AppCard
-import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.cjh52.ClazzInfo
 import com.muyao.wanzaihyperos.data.cjh52.ClazzRepository
-import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
+import com.muyao.wanzaihyperos.ui.design.AppList
+import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
+import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.Refresh
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * 我的班級（原生化）。
  *
- * 一張信息卡：班級名、專業、年級、學院、人數、班主任、輔導員。
- * 這是「看一次就夠」的頁面，不需要列表也不需要下拉刷新按鈕以外的東西。
+ * 稿 `classInfo.png`：頁頭三行 → 一組鍵值行（班級 / 院系·年級 / …）→「原站与状态」。
+ * 這是「看一次就夠」的頁面，不需要列表。
+ *
+ * ### 為什麼沒有卡片外框
+ *
+ * 稿上這一組資料是 `class="surface"` 的容器，而 `style.css` / `polish.css` 裡
+ * **沒有 `.surface` 規則** —— 也就是說稿子本身這塊就沒有邊框，只有行間細分割線。
+ * 以前這裡套了一張 [com.muyao.wanzaihyperos.ui.design.AppCard]，
+ * 對照截圖會發現整頁的節奏都變了（卡片陰影把「一組鍵值」讀成了「一張信息卡」）。
+ *
+ * ### 缺欄位寫「—」而不是留空
+ *
+ * 班級資料是學校接口回來的，人數/班主任/輔導員經常有空。留空會讓右側值列
+ * 看起來像渲染失敗；寫 0 更是撒謊。所以統一走 [orDash]。
  */
 @Composable
 fun ClazzPage(
@@ -54,6 +45,12 @@ fun ClazzPage(
     modifier: Modifier = Modifier,
     onFallbackToWeb: (() -> Unit)? = null,
     ready: Boolean = true,
+    /**
+     * 稿 `classInfo.png` 那枚「六项服务目录」的落點 —— 回 CJH52 服務目錄頁。
+     *
+     * 為 null 時不畫那一枚（獨立入口打開、棧裡沒有目錄頁時）。
+     */
+    onOpenDirectory: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val state by repository.state.collectAsState()
@@ -61,101 +58,93 @@ fun ClazzPage(
     val clazz = (state as? ListState.Content)?.items?.firstOrNull()
 
     LaunchedEffect(ready) {
-        if (ready && state is ListState.FirstLoad) repository.refresh()
+        if (ready && (state is ListState.FirstLoad || state is ListState.SessionExpired)) {
+            repository.refresh()
+        }
     }
 
-    ThemedScaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            SmallTopAppBar(
-                title = "我的班级",
-color = Color.Transparent,
-                subtitle = "来自场景管理（cjh52）",
-                navigationIcon = {
-                    IconButton(onClick = onExit) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { scope.launch { runCatching { repository.refresh() } } }) {
-                        Icon(
-                            imageVector = MiuixIcons.Refresh,
-                            contentDescription = "重新加载",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                },
-            )
-        },
+    val listState = rememberLazyListState()
+    val veilProgress by rememberScrollProgress(listState)
+    val refresh: () -> Unit = { scope.launch { runCatching { repository.refresh() } } }
+
+    SecondaryScaffold(
+        scrollProgress = veilProgress,
+        title = "我的班级",
+        onBack = onExit,
+        modifier = modifier,
     ) { innerPadding ->
-        if (clazz == null) {
-            StatePlaceholder(
-                state = pageState,
-                modifier = Modifier.padding(innerPadding),
-                onAction = onFallbackToWeb,
-                actionLabel = if (onFallbackToWeb != null) "改用网页版" else null,
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(innerPadding).fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (pageState == PageState.Stale) {
-                    item {
-                        Text(
-                            text = "这次没刷新成功，显示的是上一次的数据",
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        // ★ 頂欄不掛刷新鍵：稿 `classInfo.png` 的頂欄只有「返回」與「放大鏡」，
+        //   刷新是「原站與狀態」那排芯片裡的一枚。以前這裡掛了頂欄刷新，
+        //   同一頁就有兩個刷新入口，兩邊狀態還各轉各的。
+        //
+        //   稿 `classInfo.png`：這一頁的順序是「頁頭三行 → 班級資料 → 原站與狀態」。
+        //   所以 hero 與芯片行**不論有沒有資料都在**（它們是這一頁的骨架，
+        //   不是「有資料才長出來」的裝飾），只有中間那組鍵值行隨狀態變。
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding()),
+        ) {
+            AppList(modifier = Modifier.fillMaxSize(), state = listState) {
+                item(key = "clazz-hero") {
+                    CjhHero(
+                        eyebrow = "CJH52 / 学生服务",
+                        title = "我的班级",
+                        sub = "独立于教务与学在城院的原生阅读入口。",
+                    )
+                }
+                item(key = "clazz-stale") { CjhStaleNotice(pageState) }
+                if (clazz == null) {
+                    item(key = "clazz-state") {
+                        StatePlaceholder(
+                            state = pageState,
+                            onAction = onFallbackToWeb,
+                            actionLabel = if (onFallbackToWeb != null) "改用网页版" else null,
                         )
                     }
+                } else {
+                    item(key = "clazz-fields") { ClazzFields(clazz) }
                 }
-                item { ClazzCard(clazz) }
+                item(key = "clazz-origin") {
+                    CjhOriginSection(
+                        webLabel = "我的班级完整网页版",
+                        onOpenWeb = onFallbackToWeb,
+                        onRefresh = refresh,
+                        onOpenDirectory = onOpenDirectory,
+                    )
+                }
+                item(key = "clazz-source") { CjhSourceCaption("CJH52 接口") }
             }
         }
     }
 }
 
+/**
+ * 班級資料那一組鍵值行。
+ *
+ * 欄位是接口真有的六項（[ClazzInfo]），標籤沿用稿上的「班級 / 院系·年級」兩個口徑，
+ * 其餘按實際欄位名排 —— 稿上第三行「班級資料 / 公開樣例；不展示真實成員名單」
+ * 是原型自己的樣例聲明，我們拿的是真數據，照抄那行反而是假的，所以換成真欄位。
+ */
 @Composable
-private fun ClazzCard(clazz: ClazzInfo) {
-    val colors = MiuixTheme.colorScheme
-    AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = clazz.name,
-                style = MiuixTheme.textStyles.title2,
-                fontWeight = FontWeight.Bold,
-                color = colors.onSurface,
-            )
-            Spacer(Modifier.height(12.dp))
-            val rows = buildList {
-                if (clazz.collegeName.isNotBlank()) add("学院" to clazz.collegeName)
-                if (clazz.specialty.isNotBlank()) add("专业" to clazz.specialty)
-                if (clazz.grade.isNotBlank()) add("年级" to clazz.grade)
-                clazz.headcount?.let { add("人数" to "$it 人") }
-                if (clazz.teacherName.isNotBlank()) add("班主任" to clazz.teacherName)
-                if (clazz.counselorName.isNotBlank()) add("辅导员" to clazz.counselorName)
-            }
-            rows.forEach { (label, value) ->
-                Row(modifier = Modifier.padding(vertical = 4.dp)) {
-                    Text(
-                        text = label,
-                        style = MiuixTheme.textStyles.body2,
-                        color = colors.onSurfaceVariantSummary,
-                        // 固定標籤列寬，讓右邊的值對齊成一欄。
-                        modifier = Modifier.padding(end = 12.dp).width(72.dp),
-                    )
-                    Text(
-                        text = value,
-                        style = MiuixTheme.textStyles.body1,
-                        color = colors.onSurface,
-                    )
-                }
-            }
-        }
-    }
+private fun ClazzFields(clazz: ClazzInfo) {
+    CjhKvRow(label = "班级", value = orDash(clazz.name))
+    CjhKvRow(
+        label = "院系 / 年级",
+        value = orDash(
+            listOf(clazz.collegeName, clazz.grade)
+                .filter { it.isNotBlank() }
+                .joinToString(" / "),
+        ),
+    )
+    CjhKvRow(label = "专业", value = orDash(clazz.specialty))
+    CjhKvRow(
+        label = "人数",
+        value = clazz.headcount?.let { "$it 人" } ?: "—",
+    )
+    CjhKvRow(label = "班主任", value = orDash(clazz.teacherName))
+    CjhKvRow(label = "辅导员", value = orDash(clazz.counselorName))
 }
+
+/** 空白即未知 —— 統一寫全角破折號，不寫 0、不寫「暂无」。 */
+private fun orDash(value: String): String = value.ifBlank { "—" }

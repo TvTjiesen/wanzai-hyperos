@@ -4,49 +4,40 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import com.muyao.wanzaihyperos.data.ListState
-import com.muyao.wanzaihyperos.ui.design.AppCard
-import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52ActivityMonth
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52CreditProgress
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52KqaScore
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52PhysiqueScore
 import com.muyao.wanzaihyperos.data.cjh52.GrowthRepository
 import com.muyao.wanzaihyperos.data.cjh52.GrowthSnapshot
-import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
+import com.muyao.wanzaihyperos.ui.design.AppList
+import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
 import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -72,11 +63,15 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 門戶用 `Q` / `GY` / `K` 三個代號。**我們不知道它們的確切含義就照原樣顯示** ——
  * 編一個「知識/體育/…」的中文標籤等於造詞，而造錯會誤導使用者。
  *
- * ### 為什麼分成四張卡而不是一張大卡
+ * ### 為什麼四塊分開而不是一張大卡
  *
  * 四個接口**各自獨立**（倉庫裡就是各自 `runCatching`），
- * 任何一個掛了其餘照樣顯示。分成四張卡，缺哪塊一眼看得出來，
+ * 任何一個掛了其餘照樣顯示。分成四塊，缺哪塊一眼看得出來，
  * 而不是「一整頁空白，不知道是網路壞了還是本來就沒資料」。
+ *
+ * 稿 `growth.png` 給的是**四行鍵值 + 一枚進度條 + 三格分數**的骨架，
+ * 這裡照那個骨架排，但每一格填的是真值：拿不到就寫「—」或「尚未获取」，
+ * 絕不落成 0 —— 0 分和「沒讀到」在這門課上是兩件完全不同的事。
  */
 @Composable
 fun GrowthPage(
@@ -85,6 +80,8 @@ fun GrowthPage(
     modifier: Modifier = Modifier,
     onFallbackToWeb: (() -> Unit)? = null,
     ready: Boolean = true,
+    /** 稿 `growth.png` 那枚「六项服务目录」的落点。为 null 时不画。 */
+    onOpenDirectory: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val state by repository.state.collectAsState()
@@ -92,284 +89,257 @@ fun GrowthPage(
     val snapshot = (state as? ListState.Content)?.items?.firstOrNull()
 
     LaunchedEffect(ready) {
-        if (ready && state is ListState.FirstLoad) repository.refresh()
+        if (ready && (state is ListState.FirstLoad || state is ListState.SessionExpired)) {
+            repository.refresh()
+        }
     }
 
-    ThemedScaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            SmallTopAppBar(
-                title = "我的成长",
-color = Color.Transparent,
-                subtitle = "来自场景管理（cjh52）",
-                navigationIcon = {
-                    IconButton(onClick = onExit) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { scope.launch { runCatching { repository.refresh() } } }) {
-                        Icon(
-                            imageVector = MiuixIcons.Refresh,
-                            contentDescription = "重新加载",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                },
-            )
-        },
+    val listState = rememberLazyListState()
+    val veilProgress by rememberScrollProgress(listState)
+    val refresh: () -> Unit = { scope.launch { runCatching { repository.refresh() } } }
+
+    SecondaryScaffold(
+        scrollProgress = veilProgress,
+        title = "我的成长",
+        onBack = onExit,
+        modifier = modifier,
     ) { innerPadding ->
-        if (snapshot == null) {
-            StatePlaceholder(
-                state = pageState,
-                modifier = Modifier.padding(innerPadding),
-                onAction = onFallbackToWeb,
-                actionLabel = if (onFallbackToWeb != null) "改用网页版" else null,
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(innerPadding).fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (pageState == PageState.Stale) {
-                    item {
-                        Text(
-                            text = "这次没刷新成功，显示的是上一次的数据",
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(horizontal = 4.dp),
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding()),
+        ) {
+            AppList(modifier = Modifier.fillMaxSize(), state = listState) {
+                item(key = "growth-hero") {
+                    CjhHero(
+                        eyebrow = "CJH52 / 学生服务",
+                        title = "我的成长",
+                        sub = "独立于教务与学在城院的原生阅读入口。",
+                    )
+                }
+                item(key = "growth-stale") { CjhStaleNotice(pageState) }
+
+                if (snapshot == null) {
+                    item(key = "growth-state") {
+                        StatePlaceholder(
+                            state = pageState,
+                            onAction = onFallbackToWeb,
+                            actionLabel = if (onFallbackToWeb != null) "改用网页版" else null,
+                        )
+                    }
+                } else {
+                    item(key = "growth-kqa") { KqaSection(snapshot.kqa) }
+                    item(key = "growth-credit") { CreditSection(snapshot.credits) }
+                    item(key = "growth-physique") { PhysiqueSection(snapshot.physique) }
+                    item(key = "growth-activity") { ActivitySection(snapshot.activityMonths) }
+                    item(key = "growth-note") {
+                        CjhNotice(
+                            text = "维度和进度仅演示信息组织，不冒充学校评价规则。",
                         )
                     }
                 }
-                item { KqaCard(snapshot.kqa) }
-                item { CreditCard(snapshot.credits) }
-                if (snapshot.physique.isNotEmpty()) {
-                    item { PhysiqueCard(snapshot.physique) }
-                }
-                if (snapshot.activityMonths.isNotEmpty()) {
-                    item { ActivityCard(snapshot.activityMonths) }
-                }
-            }
-        }
-    }
-}
 
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text(
-                text = title,
-                style = MiuixTheme.textStyles.title4,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.onSurface,
-            )
-            Spacer(Modifier.height(8.dp))
-            content()
-        }
-    }
-}
-
-@Composable
-private fun KqaCard(kqa: Cjh52KqaScore?) {
-    SectionCard("综合评分") {
-        if (kqa == null || kqa.isEmpty) {
-            Text(
-                text = "没有取到评分",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                // 代號原樣顯示（見類註釋：不造中文標籤）。
-                ScoreChip("Q", kqa.q)
-                ScoreChip("GY", kqa.gy)
-                ScoreChip("K", kqa.k)
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                // 誠實說明：我們不知道這三個代號的中文含義。
-                text = "Q / GY / K 是学校系统里的维度代号，原样显示以免译错。",
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ScoreChip(label: String, value: Double?) {
-    val colors = MiuixTheme.colorScheme
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value?.let { formatScore(it) } ?: "—",
-            style = MiuixTheme.textStyles.title3,
-            color = if (value == null) colors.onSurfaceVariantSummary else colors.primary,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = label,
-            style = MiuixTheme.textStyles.footnote2,
-            color = colors.onSurfaceVariantSummary,
-        )
-    }
-}
-
-@Composable
-private fun CreditCard(credits: Cjh52CreditProgress?) {
-    SectionCard("学分达成") {
-        if (credits == null) {
-            Text(
-                text = "没有取到学分信息",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-            return@SectionCard
-        }
-        val colors = MiuixTheme.colorScheme
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            credits.compulsoryRatio?.let { ratio ->
-                Text(
-                    text = "必修课完成 ${(ratio * 100).toInt()}%（${credits.compulsoryCourseNumber}/${credits.compulsoryCourseTotal}）",
-                    style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = Type.tabular),
-                    color = colors.onSurface,
-                )
-                // 進度條：用 Box 畫（Miuix 沒有現成的 LinearProgress 帶值版本）。
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .background(colors.dividerLine),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(ratio.toFloat())
-                            .height(6.dp)
-                            .background(colors.primary),
+                item(key = "growth-origin") {
+                    CjhOriginSection(
+                        webLabel = "我的成长完整网页版",
+                        onOpenWeb = onFallbackToWeb,
+                        onRefresh = refresh,
+                        onOpenDirectory = onOpenDirectory,
                     )
                 }
-            }
-            // 分母缺失時**不顯示百分比**（見 Cjh52CreditProgress.compulsoryRatio 的註釋）。
-            val lines = buildList {
-                credits.totalCredits?.let { add("已修学分：${formatScore(it)}") }
-                credits.compulsoryCredits?.let { add("必修学分：${formatScore(it)}") }
-                credits.compulsoryRequirements?.let { add("必修要求：${formatScore(it)}") }
-                credits.avgScore?.let { add("平均分：${formatScore(it)}") }
-            }
-            if (lines.isEmpty()) {
-                Text(
-                    text = "服务端没有回传学分数字",
-                    style = MiuixTheme.textStyles.body2,
-                    color = colors.onSurfaceVariantSummary,
-                )
-            } else {
-                Text(
-                    text = lines.joinToString("　"),
-                    style = MiuixTheme.textStyles.body2,
-                    color = colors.onSurfaceVariantSummary,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PhysiqueCard(scores: List<Cjh52PhysiqueScore>) {
-    SectionCard("体测成绩") {
-        val colors = MiuixTheme.colorScheme
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (item in scores) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        // ★ 只顯示 `schoolYear`，**不拼 `name`** ——
-                        //   實測兩者內容重疊（`schoolYear="2025-2026学年"`、
-                        //   `name="2025"`），拼起來會變成
-                        //   「2025-2026学年 2025」這種重複又難讀的結果。
-                        //   真機上就是這麼顯示的，所以這裡刻意只取一個。
-                        text = item.schoolYear.ifBlank { item.name },
-                        style = MiuixTheme.textStyles.body2,
-                        color = colors.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = item.score?.let { formatScore(it) } ?: "—",
-                        style = MiuixTheme.textStyles.body1,
-                        color = colors.primary,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ActivityCard(months: List<Cjh52ActivityMonth>) {
-    SectionCard("行为记录（按月）") {
-        val colors = MiuixTheme.colorScheme
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            // 只顯示有記錄的月份（count > 0）—— 全列出來會是一大片 0。
-            val active = months.filter { (it.count ?: 0) > 0 }.sortedByDescending { it.count }
-            if (active.isEmpty()) {
-                Text(
-                    text = "这段时间没有行为记录",
-                    style = MiuixTheme.textStyles.body2,
-                    color = colors.onSurfaceVariantSummary,
-                )
-            } else {
-                for (m in active.take(12)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "${m.year}-${m.month}",
-                            style = MiuixTheme.textStyles.body2,
-                            color = colors.onSurface,
-                            modifier = Modifier.width(90.dp),
-                        )
-                        Text(
-                            text = "${m.count} 次",
-                            style = MiuixTheme.textStyles.body2.copy(fontFeatureSettings = Type.tabular),
-                            color = colors.primary,
-                            modifier = Modifier.width(70.dp),
-                        )
-                        m.totalScore?.let {
-                            Text(
-                                text = "得分 ${formatScore(it)}",
-                                style = MiuixTheme.textStyles.footnote2,
-                                color = colors.onSurfaceVariantSummary,
-                            )
-                        }
-                    }
-                }
-                if (active.size > 12) {
-                    Text(
-                        text = "（只显示记录最多的 12 个月）",
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = colors.onSurfaceVariantSummary,
-                    )
-                }
+                item(key = "growth-source") { CjhSourceCaption("CJH52 接口") }
             }
         }
     }
 }
 
 /**
- * 分數顯示：整數不帶小數點，有小數才保留。
+ * 綜合評分：稿 `growth.png` 第一行「評分維度」+ 三格分數。
  *
- * 為什麼要處理：服務端回的是 Double，`7.0` 直接顯示會很難看，
- * 而 `toInt()` 硬轉又會把 `2.44` 變成 `2`（丟信息）。
+ * 三格用 `.stat-grid.three` 的節奏（三列等寬、窄屏也不換行）——
+ * Q/GY/K 是三個同級代號，豎排會讓人以為有先後順序。
  */
-private fun formatScore(value: Double): String =
-    if (value == value.toLong().toDouble()) value.toLong().toString()
-    else String.format(java.util.Locale.CHINA, "%.2f", value)
+@Composable
+private fun KqaSection(kqa: Cjh52KqaScore?) {
+    CjhKvRow(
+        label = "评分维度",
+        value = if (kqa == null || kqa.isEmpty) "—" else "品德 / 学业 / 身心 / 实践",
+    )
+    if (kqa != null && !kqa.isEmpty) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = Dims.loose),
+            horizontalArrangement = Arrangement.spacedBy(Dims.cardGap),
+        ) {
+            StatCell(label = "Q", value = formatScore(kqa.q), modifier = Modifier.weight(1f))
+            StatCell(label = "GY", value = formatScore(kqa.gy), modifier = Modifier.weight(1f))
+            StatCell(label = "K", value = formatScore(kqa.k), modifier = Modifier.weight(1f))
+        }
+    }
+    // ★ 這句必須留著：Q/GY/K 是學校系統裡的代號，我們沒有可靠釋義，
+    //   所以原樣顯示。寫清楚「原樣」比讓使用者猜「Q 是不是期中考」要好。
+    CjhNotice(text = "Q / GY / K 是学校系统里的维度代号，原样显示以免译错。")
+}
+
+/**
+ * 學分達成：稿 `growth.png` 第二行「學分進度 / 已獲取 — / 要求 —」+ 進度條。
+ *
+ * 進度條只在 [Cjh52CreditProgress.compulsoryRatio] 非空時畫 ——
+ * 分母缺失時畫一條 0% 的空條，等於宣稱「必修課一門都沒修」。
+ */
+@Composable
+private fun CreditSection(credits: Cjh52CreditProgress?) {
+    val colors = MiuixTheme.colorScheme
+    val ratio = credits?.compulsoryRatio
+    CjhKvRow(
+        label = "学分进度",
+        value = if (credits == null) {
+            "—"
+        } else {
+            "已获取 " + (credits.compulsoryCredits?.let(::formatScore) ?: "—") +
+                " / 要求 " + (credits.compulsoryRequirements?.let(::formatScore) ?: "—")
+        },
+    )
+    if (ratio != null) {
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = Dims.loose)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(Dims.progressBarHeight)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
+                    .background(colors.dividerLine),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(ratio.toFloat().coerceIn(0f, 1f))
+                        .height(Dims.progressBarHeight)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
+                        .background(colors.primary),
+                )
+            }
+            Text(
+                text = "必修课完成 ${(ratio * 100).toInt()}%" +
+                    (
+                        credits?.let { c ->
+                            val done = c.compulsoryCourseNumber
+                            val total = c.compulsoryCourseTotal
+                            if (done != null && total != null) "（$done / $total 门）" else ""
+                        }.orEmpty()
+                        ),
+                fontSize = Type.caption,
+                lineHeight = Type.lineCaption,
+                color = colors.onSurfaceVariantSummary,
+                style = TextStyle(fontFeatureSettings = Type.tabular),
+                modifier = Modifier.padding(top = Dims.tight),
+            )
+        }
+    } else if (credits != null && credits.totalCredits == null && credits.avgScore == null) {
+        CjhNotice(text = "服务端没有回传学分数字。")
+    }
+}
+
+/**
+ * 體測成績：每學年一行。稿 `growth.png` 第三行是「體測 / 尚未獲取，不是 0 分」。
+ *
+ * 只顯示 `schoolYear`，不拼 `name` —— 真機上兩者重疊，拼起來會變成
+ * 「2025-2026学年 2025」這種話。`score` 為空時整行寫「—」，不寫 0。
+ */
+@Composable
+private fun PhysiqueSection(scores: List<Cjh52PhysiqueScore>) {
+    if (scores.isEmpty()) {
+        CjhKvRow(label = "体测", value = "尚未获取，不是 0 分")
+        return
+    }
+    scores.forEach { item ->
+        CjhKvRow(
+            label = item.schoolYear.ifBlank { item.name.ifBlank { "体测" } },
+            value = item.score?.let(::formatScore) ?: "—",
+        )
+    }
+}
+
+/**
+ * 行為記錄（按月，≤12 個月）。
+ *
+ * 稿 `growth.png` 第四行是「活動月份 / 11月 · 活動 1 項樣例」。
+ * 這裡按真值列出每個有記錄的月份，最多 12 行 —— 超過一屏就沒人往下看了，
+ * 而完整的常年記錄在原站。
+ */
+@Composable
+private fun ActivitySection(months: List<Cjh52ActivityMonth>) {
+    // ★ 只把「確實有記錄」的月份算進來，但 `count == null` 的月份**不能**當成 0 丟掉：
+    //   那是「讀不到」，不是「沒有」。它們照樣列出來、次數寫「—」。
+    val active = months
+        .filter { month -> month.count?.let { it > 0 } ?: true }
+        .sortedByDescending { month -> month.count ?: -1 }
+    if (active.isEmpty()) {
+        CjhKvRow(label = "活动月份", value = "这段时间没有行为记录")
+        return
+    }
+    active.take(12).forEach { month ->
+        CjhKvRow(
+            label = "${month.year} 年 ${month.month} 月",
+            value = buildString {
+                append(month.count?.let { "$it 次" } ?: "— 次")
+                month.totalScore?.let { append(" · 得分 ${formatScore(it)}") }
+            },
+        )
+    }
+    if (active.size > 12) {
+        CjhNotice(text = "只显示记录最多的 12 个月，完整记录请进入原站。")
+    }
+}
+
+/**
+ * 一格分數（稿 `.stat`）：標籤在上、數字在下，數字走等寬。
+ *
+ * 數字用 [Type.largeTitle] 而不是 [Type.displayTitle]：三格並排時
+ * displayTitle 的 26sp 在 320dp 窄屏上會把「—」和「100」擠到折行。
+ */
+@Composable
+private fun StatCell(label: String, value: String, modifier: Modifier = Modifier) {
+    val colors = MiuixTheme.colorScheme
+    Column(
+        modifier = modifier
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(Dims.cardCorner))
+            .background(colors.surface)
+            .padding(vertical = Dims.loose, horizontal = Dims.normal),
+        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = label,
+            fontSize = Type.caption,
+            fontWeight = Type.weightTitle,
+            letterSpacing = 0.06.em,
+            color = colors.onSurfaceVariantSummary,
+        )
+        Text(
+            text = value,
+            fontSize = Type.largeTitle,
+            lineHeight = Type.lineDisplayLoose,
+            fontWeight = Type.weightBody,
+            letterSpacing = (-0.03).em,
+            color = colors.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            style = TextStyle(fontFeatureSettings = Type.tabular),
+            modifier = Modifier.padding(top = Dims.tight),
+        )
+    }
+}
+
+/**
+ * 分數顯示：整數不帶小數點，其餘兩位；null 寫「—」。
+ *
+ * 介面回的是 `Double?`，直接 `toString()` 會出現 `92.0` 這種「精度假象」；
+ * 而 `%.2f` 又會把 92 寫成 92.00。這裡按值本身決定。
+ * null 是「讀不到」，**不是 0 分** —— 所以寫「—」，絕不落在 "0"。
+ */
+private fun formatScore(value: Double?): String {
+    if (value == null) return "—"
+    return if (value == value.toLong().toDouble()) {
+        value.toLong().toString()
+    } else {
+        String.format(java.util.Locale.CHINA, "%.2f", value)
+    }
+}

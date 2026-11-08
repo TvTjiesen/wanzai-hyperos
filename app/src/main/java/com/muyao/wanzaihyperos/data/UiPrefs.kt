@@ -47,6 +47,16 @@ object UiPrefs {
     private const val KEY_REMINDER_LEAD = "reminder_lead"
     private const val KEY_REMINDER_COUNT = "reminder_count"
 
+    // ── 建议二：提醒隐私与本 App 静音时段（业主 2026-11-07「五项新增设置全做」）──
+    // 为什么单独两档而不是一个"勿扰"布尔：用户要的是两件事 ——
+    //   · 隐私：通知里不出现课程名与教室（锁屏被别人看到）
+    //   · 时段：夜里这段时间别响（但仍排程，静默摘要在，不吞掉事实）
+    // 合成一个开关就说不清"我关了到底是不发、还是发但不显示课名"。
+    private const val KEY_REMINDER_PRIVATE = "reminder_private"
+    private const val KEY_QUIET_ENABLED = "quiet_enabled"
+    private const val KEY_QUIET_START = "quiet_start"
+    private const val KEY_QUIET_END = "quiet_end"
+
     // ── 外观 / 首页（v2）─────────────────────────────────────────────
     private const val KEY_WALLPAPER_PRESET = "wallpaper_preset"
     private const val KEY_BACKGROUND_PRESET = "background_preset"
@@ -68,6 +78,7 @@ object UiPrefs {
     private const val KEY_WALLPAPER_ZOOM = "wallpaper_zoom"
     private const val KEY_HOME_DENSITY = "home_density"
     private const val KEY_GLASS_MODE = "glass_mode"
+    private const val KEY_GLASS_OPACITY = "glass_opacity"
     private const val KEY_HOME_MODULES = "home_modules"
 
     /**
@@ -134,6 +145,32 @@ object UiPrefs {
     var reminderPlannedCount by mutableStateOf(-1)
         private set
 
+    /**
+     * 提醒隐私：通知里**不出现课程名与教室**，只说"即将上课"。
+     *
+     * 默认 true。理由：这不是功能开关，是**泄露面** —— 默认不泄露比默认方便更对；
+     * 想看课名的人主动关掉它只要一步，反过来（默认显示、事后才知道锁屏被看到）没法挽回。
+     */
+    var reminderPrivate by mutableStateOf(true)
+        private set
+
+    /**
+     * 静音时段：这段时间内**不发声音**，但仍保留一条无声摘要。
+     *
+     * 默认关（22:00–07:00 只是候选值，不替他开着）。
+     * ★ 只约束本 App 的上课提醒；不碰系统勿扰，也不宣称影响别的客户端。
+     */
+    var quietHoursEnabled by mutableStateOf(false)
+        private set
+
+    /** 静音开始时（0..23，整点）。 */
+    var quietHoursStart by mutableStateOf(22)
+        private set
+
+    /** 静音结束时（0..23，整点）。跨午夜是正常情况（22 → 7）。 */
+    var quietHoursEnd by mutableStateOf(7)
+        private set
+
     // ── 首页外观（v2「外观」子页）───────────────────────────────────
     //
     // 这几项和「主题模式」一样是**纯界面偏好**，所以都落在这一个文件里：
@@ -160,7 +197,21 @@ object UiPrefs {
     private val HOME_DENSITIES = listOf("comfortable", "compact")
     private val GLASS_MODES = listOf("liquid", "frost", "off")
 
-    private val WALLPAPER_PRESETS = listOf("auto", "morning", "dusk", "night", "album")
+    /**
+     * 壁纸预设白名单。
+     *
+     * ★ G01（本轮修复）：这里原来漏了 `slate`。
+     *
+     * `SkyPreset` 里明明有 `SLATE("slate","青灰",…)`，外观页也给了「青灰」那张
+     * 磁贴，但 `saveWallpaperPreset` 用 `name.takeIf { it in WALLPAPER_PRESETS } ?: "auto"`
+     * 过滤 —— 于是**选青灰落盘变 auto**，重启后回到"跟随时刻"。
+     * 用户看到的是"挑了青灰，第二天自己变回去了"。
+     *
+     * 注意：`slate` 属于**壁纸**域，不属于**背景色**域。`BACKGROUND_PRESETS` 里
+     * 依然不能有它（那是五套页面底色，青灰是天空，两回事）。
+     */
+    private val WALLPAPER_PRESETS =
+        listOf("auto", "morning", "dusk", "night", "slate", "aurora", "blossom", "album")
 
     /** 背景预设的可接受值。与 `ui/design/BackgroundPreset.entries` 的 id 一一对应；
      *  这里是**字符串白名单**而不是直接引用枚举：偏好层不 import UI 层（同一纪律，见 `saveReduceTransparency`）。 */
@@ -238,6 +289,18 @@ object UiPrefs {
      */
     val appsTidy = mutableStateOf(false)
 
+    /**
+     * 玻璃面通透度：0..100，默认 **50**（= 原 App 液态/磨砂的透明度中值）。
+     *
+     * 业主 2026-11-07 对稿：设计稿 appearance 页有「通透度 · 新增」滑块，
+     * 左「更厚实」右「更通透」，默认 50%。落点不是再画一层膜，而是
+     * `ui/design/liquid/IosChrome.kt` 里 `GlassSurface` 那颗 `baseAlpha` 乘一个系数 ——
+     * 所有玻璃面（顶栏纱 / 首页焦点卡 / 搜索 / 底栏）同源，
+     * 与设计稿「只影响承载层，正文保持清楚」那句一致。
+     */
+    var glassOpacity by mutableStateOf(50)
+        private set
+
     var glassMode by mutableStateOf("liquid")
         private set
 
@@ -298,6 +361,10 @@ object UiPrefs {
         classReminderLeadMinutes = p.getInt(KEY_REMINDER_LEAD, ClassReminderPlan.DEFAULT_LEAD_MINUTES)
             .takeIf { it in ClassReminderPlan.LEAD_CHOICES } ?: ClassReminderPlan.DEFAULT_LEAD_MINUTES
         reminderPlannedCount = p.getInt(KEY_REMINDER_COUNT, -1)
+        reminderPrivate = p.getBoolean(KEY_REMINDER_PRIVATE, true)
+        quietHoursEnabled = p.getBoolean(KEY_QUIET_ENABLED, false)
+        quietHoursStart = p.getInt(KEY_QUIET_START, 22).coerceIn(0, 23)
+        quietHoursEnd = p.getInt(KEY_QUIET_END, 7).coerceIn(0, 23)
         periodTimes = (p.getString(KEY_PERIOD_TIMES, "") ?: "")
             .split("|")
             .mapNotNull { row ->
@@ -327,6 +394,7 @@ object UiPrefs {
         wallpaperRev = p.getInt(KEY_WALLPAPER_REV, 0)
         homeDensity = (p.getString(KEY_HOME_DENSITY, "comfortable") ?: "comfortable")
             .takeIf { it in HOME_DENSITIES } ?: "comfortable"
+        glassOpacity = p.getInt(KEY_GLASS_OPACITY, 50).coerceIn(0, 100)
         glassMode = (p.getString(KEY_GLASS_MODE, "liquid") ?: "liquid")
             .takeIf { it in GLASS_MODES } ?: "liquid"
         val modules = (p.getString(KEY_HOME_MODULES, null))
@@ -442,6 +510,40 @@ object UiPrefs {
         prefs()?.edit()?.putInt(KEY_REMINDER_COUNT, count)?.apply()
     }
 
+    fun saveReminderPrivate(on: Boolean) {
+        reminderPrivate = on
+        prefs()?.edit()?.putBoolean(KEY_REMINDER_PRIVATE, on)?.apply()
+    }
+
+    fun saveQuietHoursEnabled(on: Boolean) {
+        quietHoursEnabled = on
+        prefs()?.edit()?.putBoolean(KEY_QUIET_ENABLED, on)?.apply()
+    }
+
+    fun saveQuietHours(start: Int, end: Int) {
+        quietHoursStart = start.coerceIn(0, 23)
+        quietHoursEnd = end.coerceIn(0, 23)
+        prefs()?.edit()
+            ?.putInt(KEY_QUIET_START, quietHoursStart)
+            ?.putInt(KEY_QUIET_END, quietHoursEnd)
+            ?.apply()
+    }
+
+    /**
+     * 现在这一刻是否落在静音时段里。
+     *
+     * 跨午夜要处理对：22→7 表示 [22,24) ∪ [0,7)，不是 "22 ≤ h < 7"（那个式子永远为假）。
+     */
+    fun inQuietHours(hourOfDay: Int): Boolean {
+        if (!quietHoursEnabled) return false
+        val h = hourOfDay.coerceIn(0, 23)
+        return if (quietHoursStart <= quietHoursEnd) {
+            h in quietHoursStart until quietHoursEnd
+        } else {
+            h >= quietHoursStart || h < quietHoursEnd
+        }
+    }
+
     // ── 外观 / 首页 ─────────────────────────────────────────────────
 
     fun saveWallpaperPreset(name: String) {
@@ -536,6 +638,16 @@ object UiPrefs {
             ?.apply()
     }
 
+    /**
+     * 存通透度。取值夹到 0..100；写盘与运行期状态一次完成，
+     * 不另留"调用点记得再推一次"的第二份责任。
+     */
+    fun saveGlassOpacity(v: Int) {
+        val n = v.coerceIn(0, 100)
+        glassOpacity = n
+        prefs()?.edit()?.putInt(KEY_GLASS_OPACITY, n)?.apply()
+    }
+
     fun saveHomeDensity(name: String) {
         val v = name.takeIf { it in HOME_DENSITIES } ?: "comfortable"
         homeDensity = v
@@ -581,6 +693,7 @@ object UiPrefs {
         //   盘里 glassMode 还是 "off"，分段控件显示「关闭」而画面走液态 —— 又一枚假开关。
         //   运行期那一份（`MotionPrefs`）由调用点推：偏好层不 import UI 层，这条纪律不动。
         glassMode = "liquid"
+        glassOpacity = 50
         // 这一项也长在同一张外观页上（「收起网页服务」），漏了它「恢复默认」就不完整：
         // 应用页仍然是收起的，用户会以为按钮没生效（审查 2026-10-21）。
         appsWebCollapsed = false
@@ -595,6 +708,7 @@ object UiPrefs {
             ?.putInt(KEY_HOME_MODULES_REV, HOME_MODULES_REV)
             ?.putBoolean(KEY_REDUCE_TRANSPARENCY, false)
             ?.putString(KEY_GLASS_MODE, "liquid")
+            ?.putInt(KEY_GLASS_OPACITY, 50)
             ?.putBoolean(KEY_APPS_WEB_COLLAPSED, false)
             ?.apply()
     }

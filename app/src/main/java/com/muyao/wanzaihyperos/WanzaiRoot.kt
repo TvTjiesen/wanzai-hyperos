@@ -5,6 +5,8 @@ import com.muyao.wanzaihyperos.ui.cjh52.ExamPage
 import com.muyao.wanzaihyperos.ui.cjh52.NoticePage
 import com.muyao.wanzaihyperos.ui.cjh52.ClazzPage
 import com.muyao.wanzaihyperos.ui.cjh52.LecturePage
+import com.muyao.wanzaihyperos.ui.cjh52.CjhHomePage
+import com.muyao.wanzaihyperos.data.DemoCatalog
 import com.muyao.wanzaihyperos.ui.tronclass.TronShellPage
 import com.muyao.wanzaihyperos.ui.todo.TodoBoardPage
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
@@ -32,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.data.AppOpenPlan
 import com.muyao.wanzaihyperos.data.AppOpenStrategy
+import com.muyao.wanzaihyperos.data.HzcuHosts
 import com.muyao.wanzaihyperos.data.tronclass.ScanHandoff
 import com.muyao.wanzaihyperos.data.CountValue
 import com.muyao.wanzaihyperos.data.PortalApp
@@ -102,6 +105,9 @@ private fun cjh52FeaturePath(feature: String): String = when (feature) {
     "EXAM" -> "/examination"
     "GROWTH" -> "/development/home"
     "CLAZZ" -> "/clazz/student"
+    // ★ 以前缺这一条：爱讲座点「改用网页版」会落到 cjh52 的根路径（首页），
+    //   而不是讲座页。与 AppOpenStrategy.nativeFeatureOf 的 "/lecture" 前缀对应。
+    "LECTURE" -> "/lecture"
     else -> "/"
 }
 
@@ -355,6 +361,11 @@ fun WanzaiApp(
                 // docs/B1-WALKTHROUGH.md §3。
                 is AppOpenPlan.NativeFeature -> backStack.add(Route.Cjh52Feature(plan.feature))
 
+                // ★ 稿 cjh.png：cjh52 的**根地址**（門戶「場景管理」那一格）→ 學生服務目錄頁。
+                //
+                // 之前它落到 TempCode 那一支，直接開了個網頁；而我們已經把六個子頁都做成原生了，
+                // 根地址還回到網頁等於把使用者送出去。
+                is AppOpenPlan.CjhHome -> backStack.add(Route.CjhHome)
                 // B17：智慧公寓 → 閘門頁（沒憑據就請使用者貼連結）。
                 is AppOpenPlan.ZhgyGate -> backStack.add(Route.Zhgy)
 
@@ -648,6 +659,8 @@ fun WanzaiApp(
                     onOpenSearch = { backStack.add(Route.Search) },
                     onOpenSection = { /* 板塊切換由主殼內部處理 */ },
                     onOpenJw = { backStack.add(Route.Jw) },
+                    // 課表頁頁尾「學在城院 · 本週 / 全部」：進原生 TronClass。
+                    onOpenTron = { backStack.add(Route.TronHome(tileUrl = "https://" + HzcuHosts.TRONCLASS_MOBILE)) },
                     onOpenTimetable = { uiState.selectedTab = 1 },
                     onOpenMessages = { uiState.selectedTab = 2 },
                     onOpenTodos = { backStack.add(Route.TodoBoard) },
@@ -773,6 +786,22 @@ fun WanzaiApp(
                 )
             }
 
+            // ★ 稿 cjh.png：CJH52 學生服務**目錄頁**。
+            //
+            // 六個原生子頁各有各的預熱閘門，所以這一頁**自己不需要閘門**：
+            // 它不取數、只導航。真正的取數（與可能失敗的預熱）發生在子頁上，
+            // 那也是使用者能看見「哪一頁沒進來」的地方 —— 目錄頁先失敗反而更難查。
+            entry<Route.CjhHome> {
+                CjhHomePage(
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenCourses = { backStack.add(Route.Courses) },
+                    onOpenClazz = { backStack.add(Route.Cjh52Feature("CLAZZ")) },
+                    onOpenNotices = { backStack.add(Route.Cjh52Feature("NOTICE")) },
+                    onOpenExams = { backStack.add(Route.Cjh52Feature("EXAM")) },
+                    onOpenGrowth = { backStack.add(Route.Cjh52Feature("GROWTH")) },
+                    onOpenLectures = { backStack.add(Route.Lectures()) },
+                )
+            }
             // ★ B1：原生課表頁。
             //
             // 語義上的返回 = 回上一頁（可能是首頁，也可能是搜尋頁）。
@@ -805,6 +834,10 @@ fun WanzaiApp(
                         repository = app.courses,
                         onExit = { backStack.removeLastOrNull() },
                         ready = ready,
+                        // 稿 `cjhCourses.png`：那顆「CJH52 查课表」通向門戶的查課表
+                        // （ID 153），**不是**本頁的資料源 —— 兩條路各自獨立保留。
+                        onOpenTimetable = { openApp(DemoCatalog.frequent.first { it.id == 153 }) },
+                        onOpenDirectory = { backStack.add(Route.CjhHome) },
                         // 原生拿不到資料時的出口：換回 WebView（那條是已驗證的路）。
                         onFallbackToWeb = {
                             scope.launch {
@@ -874,6 +907,9 @@ fun WanzaiApp(
                             }
                         }
                     }
+                    // 目錄頁出口：稿上每頁都有那枚「六项服务目录」，
+                    // 從子頁一鍵回到 CJH52 的六項服務清單。
+                    val toDirectory: () -> Unit = { backStack.add(Route.CjhHome) }
                     when (route.feature) {
                         // B16：愛講座。**重用同一個預熱閘門** ——
                         // cjh52 的 token 必須先由 WebView 載入一次才生效，
@@ -883,24 +919,28 @@ fun WanzaiApp(
                             onBack = { backStack.removeLastOrNull() },
                             onOpenWeb = fallback,
                             modifier = Modifier,
+                            onOpenDirectory = toDirectory,
                         )
                         "EXAM" -> ExamPage(
                             repository = app.exams,
                             onExit = { backStack.removeLastOrNull() },
                             ready = ready,
                             onFallbackToWeb = fallback,
+                            onOpenDirectory = toDirectory,
                         )
                         "GROWTH" -> GrowthPage(
                             repository = app.growth,
                             onExit = { backStack.removeLastOrNull() },
                             ready = ready,
                             onFallbackToWeb = fallback,
+                            onOpenDirectory = toDirectory,
                         )
                         "CLAZZ" -> ClazzPage(
                             repository = app.clazz,
                             onExit = { backStack.removeLastOrNull() },
                             ready = ready,
                             onFallbackToWeb = fallback,
+                            onOpenDirectory = toDirectory,
                         )
                         // 認不出來的名字 → 回退到通知頁（而不是崩）。
                         // 導航狀態會被系統保存/恢復，用名字就是為了讓「枚舉改名」
@@ -910,6 +950,7 @@ fun WanzaiApp(
                             onExit = { backStack.removeLastOrNull() },
                             ready = ready,
                             onFallbackToWeb = fallback,
+                            onOpenDirectory = toDirectory,
                         )
                     }
                 }
@@ -953,6 +994,10 @@ fun WanzaiApp(
                             ),
                         )
                     },
+                    // ★ 門戶「我的事務」（`Route.Busyness`）以前在整個工程裡**零入口**：
+                    //   頁面寫好了、路由註冊了，卻沒有任何一處 `backStack.add` —— 用戶永遠到不了。
+                    //   待辦看板裡那一組「門戶 · 審批」就是以它為數據源的，所以入口掛在這裡。
+                    onOpenBills = { backStack.add(Route.Busyness()) },
                 )
             }
 
@@ -1106,6 +1151,9 @@ fun WanzaiApp(
                     url = route.url,
                     title = route.title,
                     onExit = { backStack.removeLastOrNull() },
+                    // 稿 `zyReplay.png`：未匹配時那顆「选择智云课程」=
+                    // 退回上一頁（也就是課程清單），別把人困在死路。
+                    onPickCourse = { backStack.removeLastOrNull() },
                 )
             }
 

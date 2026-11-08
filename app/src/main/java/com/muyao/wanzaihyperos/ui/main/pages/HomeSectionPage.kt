@@ -208,7 +208,7 @@ fun HomeSectionPage(
     // ★ 2026-11-07：容器背景 = 「只留最外层」时，这一屏身后**没有天光**。
     //
     // 真机踩到（`[local]\y_home_bare_s.png`）：切到 bare 之后整片纸底透上来，
-    // 而上面那行「集城」、大日期「今天」、「周六 11 月 7 日」、状态行、焦点卡字色
+    // 而上面那行「鲸集」、大日期「今天」、「周六 11 月 7 日」、状态行、焦点卡字色
     // 全都还在用 `look.ink` —— 相册档与夜航档那一支是**纯白**，
     // 于是白字压白纸：整屏上半段几乎读不出来。
     //
@@ -263,24 +263,20 @@ fun HomeSectionPage(
         }
     }
 
-    LaunchedEffect(Unit) {
+    // 「重新读取全部来源」：与首屏那一发同一批来源。抽成 lambda 是为了两处永远同步 ——
+    // 以后加了新来源，只改这里一处，首屏与按钮都不会漏。只重取，不动偏好与登录态。
+    val refreshAll: () -> Unit = {
         graph.fetch { graph.rollcall.refresh() }
         graph.fetch { graph.todoBoard.refresh() }
         graph.fetch { graph.schedule.refresh() }
-        // 校園跑：沒接過數智體育時 refresh 會直接落 Empty（不打網、不佔節流閘門），
-        // 所以不必先在這兒判憑據 —— 那一發正是把「還沒接」從「正在取」裡分出來的動作。
         graph.fetch { graph.szty.refresh() }
-        // ★ 教务那份的取数以前**只在课表页发起**（独立审计 v3 #4 第 1 轮 A-3）。
-        //   冷启动第一帧落在的是首页 —— 首页于是永远停在 FirstLoad，
-        //   判据「第一帧起就是教务那份」在他人人都会看到的那一屏上根本不成立。
-        //   有磁盘快照时 `JwTimetableRepository` 在 init 里就播种好了，第一帧直接是教务那份。
-        // ★ 但这一发**只在课表页那只隐藏 WebView 已经挂载时才发**（独立审计 v3 #4 第 2 轮第 4 条）：
-        //   教务爬取要先过 `JwEngine.awaitAttached()`，首页没有那只 WebView ⇒ 干等 5 秒
-        //   再报一次 EngineNotReady，白失败不说，还把「正在取」这句界面证明不了的话挂满整屏。
-        //   没挂载就一律不发 —— 那一屏画的是学在城院那份，副行照实标出来。
         if (graph.jwEngine.isAttached) {
             graph.fetch { graph.jwTimetable.refresh() }
         }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshAll()
     }
 
     // ── 今天要用的那份課表 ────────────────────────────────────────
@@ -585,14 +581,15 @@ fun HomeSectionPage(
 
                 // 有课板块时「去签到」已经在「此刻」卡里，不再重复一张横幅；
                 // 只有他把「今日课程」模块关掉时，这里才单独兜住签到入口。
-                if ("rollcall" in UiPrefs.homeModules && openRollcall != null &&
-                    "courses" !in UiPrefs.homeModules
-                ) {
+                // 稿 `home` 在焦点卡下面单独有一格「课堂签到」+「进入」+ 一句说明。
+                // 原来这里只在「今日课程」模块关掉时才出现（当时怕和「此刻」卡里的签到重复）。
+                // 但两件事不是一件事：卡里那是「下一节课」，这里是「现在有没有要签的到」。
+                // 所以改成只要开着签到模块就有这一格；没有进行中的签到时如实说没有。
+                if ("rollcall" in UiPrefs.homeModules) {
                     item(key = "rollcall-open") {
-                        RollcallBanner(
-                            title = openRollcall.title,
-                            deadline = openRollcall.endTime,
-                            onClick = onOpenRollcall,
+                        RollcallSection(
+                            open = openRollcall,
+                            onOpen = onOpenRollcall,
                         )
                     }
                 }
@@ -622,11 +619,31 @@ fun HomeSectionPage(
                 // 板子：课表 / 消息 / 应用交给底栏，首页不再重复一排快捷入口。
                 // 签到入口在「此刻」卡里（有签到才出现），待办在「要处理」里。
 
+                // 稿 `home` 页尾两个按钮：先给「去看消息」，再给「重取一遍」。
+                // 第二个不是下拉刷新的替代品 —— 下拉刷的是这一页，这个是四个来源都重取，
+                // 因为首页最常出的问题是「某一份没取到」，而那一份未必归这张卡管。
+                item(key = "bottom-actions") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(Dims.cardGap),
+                    ) {
+                        BottomActionButton(
+                            text = "查看消息与通知",
+                            onClick = onOpenMessages,
+                            modifier = Modifier.weight(1f),
+                        )
+                        BottomActionButton(
+                            text = "重新读取全部来源",
+                            onClick = refreshAll,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
                 item(key = "tail") { Spacer(Modifier.height(8.dp)) }
             }
         }
 
-        // 顶栏那一行：左「集城」，右「第 N 周」（搜索钮由顶栏自己画在最右）。
+        // 顶栏那一行：左「鲸集」，右「第 N 周」（搜索钮由顶栏自己画在最右）。
         // 叠在内容之上、顶栏之下；滚动时和顶栏纱一起退场，不会和折叠后的小标题打架。
         val headerAlpha = (1f - chrome.progress * 2.2f).coerceIn(0f, 1f)
         if (headerAlpha > 0.01f) {
@@ -640,7 +657,7 @@ fun HomeSectionPage(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "集城",
+                    text = "鲸集",
                     fontSize = Type.caption,
                     color = look.ink.copy(alpha = 0.82f),
                 )
@@ -1248,14 +1265,14 @@ private fun TodayTimelineCard(
                     modifier = Modifier.padding(end = 7.dp),
                 )
                 Text(
-                    text = "今天",
+                    text = "今天的安排",
                     fontSize = Type.body,
                     fontWeight = Type.weightTitle,
                     color = colors.onBackground,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = "整周 ›",
+                    text = if (week == null) "整周" else "第 " + week + " 周",
                     fontSize = Type.caption,
                     color = colors.primary,
                     modifier = Modifier.clickable(onClickLabel = "打开课表") { onOpenTimetable() },
@@ -1475,6 +1492,104 @@ private fun RollcallBanner(title: String, deadline: String, onClick: () -> Unit)
     }
 }
 
+/**
+ * 首页「课堂签到」一格（稿 `home`：`h3 课堂签到` + `button.btn 进入` + 一句 notice）。
+ *
+ * 与 [RollcallBanner] 的区别：Banner 只在**真有一场进行中的签到**时才有东西可画；
+ * 这一格是**常驻分区**——没有要签的到也是一种状态，如实说没有，比整格消失更可信
+ * （消失会让人以为是加载失败）。
+ */
+@Composable
+private fun RollcallSection(
+    open: TronRollcall?,
+    onOpen: () -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp, bottom = 2.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BodyMark(
+                // MarkIcon 里没有「签到」这一枚；签到站的入口形状是扫码，用 Scan。
+                icon = MarkIcon.Scan,
+                tint = colors.primary,
+                modifier = Modifier.padding(end = 7.dp),
+            )
+            Text(
+                text = "课堂签到",
+                fontSize = Type.body,
+                fontWeight = Type.weightTitle,
+                color = colors.onBackground,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "进入",
+                fontSize = Type.caption,
+                color = colors.primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClickLabel = "进入签到站") { onOpen() }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        if (open == null) {
+            Text(
+                text = "现在没有进行中的签到。",
+                fontSize = Type.secondary,
+                color = colors.onSurfaceVariantSummary,
+            )
+        } else {
+            RollcallBanner(
+                title = open.title,
+                deadline = open.endTime,
+                onClick = onOpen,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        // 稿原文。它说的是一件**产品承诺**（这一页不会替你签到），所以逐字照抄。
+        Text(
+            text = "进入签到站查看最新状态；本页不自动发起签到。",
+            fontSize = Type.micro,
+            color = colors.onSurfaceVariantSummary,
+        )
+    }
+}
+
+/**
+ * 页尾那颗描边按钮（稿 `.bottom-action .btn.outline`）。
+ *
+ * 为什么自己画而不用 Miuix 的 TextButton：稿上这两颗是 44dp 高、圆角 12、1dp 描边、文字用主色，
+ * 而 TextButton 的默认高度是 36dp、没有描边。改全局 Button 令牌会牵动所有页面（`DesignTokensTest`
+ * 钉着那一档），所以只在这一处按稿画。
+ */
+@Composable
+private fun BottomActionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MiuixTheme.colorScheme
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, colors.primary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+            .clickable(onClickLabel = text) { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            fontSize = Type.secondary,
+            color = colors.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** 要处理：只列前三件，剩下的去待办页。 */
 @Composable
 private fun TodoSummaryCard(
@@ -1522,12 +1637,22 @@ private fun TodoSummaryCard(
                     color = colors.onBackground,
                     modifier = Modifier.weight(1f),
                 )
-                Text(
-                    text = countText,
-                    fontSize = Type.caption,
-                    color = colors.onSurfaceVariantSummary,
-                    style = TextStyle(fontFeatureSettings = Type.tabular),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = countText,
+                        fontSize = Type.caption,
+                        color = colors.onSurfaceVariantSummary,
+                        style = TextStyle(fontFeatureSettings = Type.tabular),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    // 稿 `home` 这一格的 meta 是「全部待办 ›」。计数是我们多出来的一条：
+                    // 取不到时是「—」而不是 0（ListState 红线），所以两个都留：先给数，再给出口。
+                    Text(
+                        text = "全部待办 ›",
+                        fontSize = Type.caption,
+                        color = colors.primary,
+                    )
+                }
             }
             Spacer(Modifier.height(6.dp))
             when {
@@ -1633,13 +1758,15 @@ private fun TodoSummaryCard(
 }
 
 /**
- * 校园跑：首页只放「跑了多少 / 还差多少」这一件事。
+ * 首页「校园跑」一格。
  *
- * 为什么体育课签到不一起搬上来：签到是**有课才看**的低频块（而且「此刻」卡里
- * 已经有去签到的入口），校园跑是**每个星期都在变**的那个数 —— 它才该出现在第一屏。
- * 整页（体测九项、逐次签到）点一下进数智体育。
+ * 稿 `home` 的结构是：`h3 校园跑` + meta `记录 ›`，然后一张 paper：
+ * `本学期累计` / `仅查看记录` / 大数字 + `/ N km` / 进度条 / 一行来源说明。
  *
- * 未知不得当成 0（data/ListState.kt 的红线）：取不到就写取不到，不画 0.0 公里。
+ * 改之前是把公里数放在标题右端、下面挂一个 25dp 的彩色方块 + 一句状态 —— 那是
+ * 「列表条目」的骨架，而这格在稿上是一张**成绩卡**（数字要大，进度要有形）。
+ *
+ * 红线不变（`data/ListState.kt`）：取不到就写「—」，不画 0.0 公里、不画空进度条当真。
  */
 @Composable
 private fun RunSummaryCard(
@@ -1652,8 +1779,6 @@ private fun RunSummaryCard(
     val snapshot = (state as? ListState.Content)?.items?.firstOrNull()
     val run = snapshot?.run
     val stale = (state as? ListState.Content)?.meta?.stale == true
-    // 同 TodoSummaryCard：FirstLoad 单独不足以说明「正在取」（SlotSource.kt 开头那条纪律），
-    // 由调用点把「没有结论 + 有一笔在途」合起来交给 fetching。
     val expired = state is ListState.SessionExpired
     val error = (state as? ListState.Failed)?.error?.userText
     val km = run?.runKm
@@ -1667,15 +1792,17 @@ private fun RunSummaryCard(
         km == null -> "这份汇总里没有公里数字"
         else -> runRequirementText(run) + if (stale) " · 这是上次存的" else ""
     }
+    val ratio = if (km != null && target != null && target > 0) {
+        (km / target).coerceIn(0.0, 1.0)
+    } else {
+        null
+    }
     Column(
         Modifier
             .fillMaxWidth()
             .clickable(onClickLabel = "打开校园跑") { onClick() }
             .padding(top = 2.dp, bottom = 2.dp),
     ) {
-        // 与同页「要处理」「今天」同一套骨架：一句粗体小标题，右边一个跟着它的读数，再往下才是明细行。
-        // 改之前这里套着 AppCard、数字是 MiuixTheme 的 title2、底下还压一条 6dp 横条 —— 三样都是这一页
-        // 别处没有的构件，所以它看着像从别的页面搬来的卡（业主 2026-11-01 第 1 条）。
         Row(verticalAlignment = Alignment.CenterVertically) {
             BodyMark(
                 icon = MarkIcon.Run,
@@ -1689,38 +1816,79 @@ private fun RunSummaryCard(
                 color = colors.onBackground,
                 modifier = Modifier.weight(1f),
             )
-            // 里程是这一页唯一「每次刷新都可能变」的数字 ⇒ 它走码表滚动，
-            // 变了能看见，而不是原地换一次字（2026-11-01 抖音那条的「滚动码表」）。
-            OdometerText(
-                text = if (km == null) "—" else kmText(km) + " 公里",
-                fontSize = Type.body,
-                fontWeight = Type.weightTitle,
+            Text(
+                text = "记录 ›",
+                fontSize = Type.caption,
                 color = colors.primary,
-                style = TextStyle(fontFeatureSettings = Type.tabular),
             )
         }
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "本学期累计",
+                fontSize = Type.body,
+                fontWeight = Type.weightTitle,
+                color = colors.onBackground,
+                modifier = Modifier.weight(1f),
+            )
+            // 稿原文「仅查看记录」：这一格点进去也只能看，不能补跑或修改。
+            Text(
+                text = "仅查看记录",
+                fontSize = Type.micro,
+                color = colors.onSurfaceVariantSummary,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            // 里程是这一页唯一「每次刷新都可能变」的数字 ⇒ 它走码表滚动，
+            // 变了能看见，而不是原地换一次字（2026-11-01 抖音那条的「滚动码表」）。
+            OdometerText(
+                text = if (km == null) "—" else kmText(km),
+                fontSize = 30.sp,
+                fontWeight = Type.weightTitle,
+                color = colors.primary,
+                style = TextStyle(fontFeatureSettings = Type.tabular),
+            )
+            Text(
+                text = if (target == null) " 公里" else " / " + kmText(target) + " km",
+                fontSize = Type.caption,
+                color = colors.onSurfaceVariantSummary,
+                modifier = Modifier.padding(start = 6.dp, bottom = 4.dp),
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        // 进度条：只在**两个数都真取到**时才画。缺一个就画不出来 ——
+        // 用 0 长度冒充「还没跑」与用满格冒充「已达标」都是编。
+        if (ratio != null) {
             Box(
-                modifier = Modifier
-                    .size(25.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.primary.copy(alpha = 0.11f)),
-                contentAlignment = Alignment.Center,
+                Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(colors.primary.copy(alpha = 0.13f)),
             ) {
-                TileGlyph(TileIcon.Run, colors.primary, Modifier.size(13.dp))
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = status,
-                    fontSize = Type.secondary,
-                    color = if (error != null || expired) colors.error else colors.onSurfaceVariantSummary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                Box(
+                    Modifier
+                        .fillMaxWidth(ratio.toFloat())
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(colors.primary),
                 )
             }
+            Spacer(Modifier.height(6.dp))
         }
+        // 稿是「数智体育 · 合成样例，不是你的跑步记录」。我们是真取数，所以写来源与状态：
+        // 同一行既交代数据从哪来，也交代这次有没有取到 —— 不另开一行说失败。
+        Text(
+            // 底行：来源 + 状态。status 里已经出现「数智体育」就不再前缀一次 ——
+            // 真机上先量到过「数智体育 · 还没接上数智体育 · 点一下去接」：
+            // 第一次修用 startsWith 判，但未接入那支的 status 是「还没接上数智体育 · 点一下去接」，
+            // 首字是「还」不是「数」，前缀又加了一遍（2026-11-08 12:26 大字号截图复现）。
+            // 判「是否已经提到来源」要看 contains，不是 startsWith。
+            text = if (status.contains("数智体育")) status else "数智体育 · " + status,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

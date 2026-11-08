@@ -1,7 +1,17 @@
 package com.muyao.wanzaihyperos.ui.todo
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.em
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,33 +30,27 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.ui.design.AppCard
-import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
+import com.muyao.wanzaihyperos.ui.design.BodyMark
+import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
+import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
+import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import com.muyao.wanzaihyperos.data.todo.TodoBoard
 import com.muyao.wanzaihyperos.data.todo.TodoGroup
 import com.muyao.wanzaihyperos.data.todo.TodoItem
 import com.muyao.wanzaihyperos.data.todo.TodoNext
 import com.muyao.wanzaihyperos.data.todo.TodoRepository
 import com.muyao.wanzaihyperos.data.todo.UrgentTodo
-import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
 import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -84,6 +88,15 @@ fun TodoBoardPage(
      * 或落到一個根本不是作業的詳情頁。判據在 [com.muyao.wanzaihyperos.data.todo.TodoItem.actionable]。
      */
     onOpenHomework: (TodoItem) -> Unit = {},
+    /**
+     * 開「門戶 · 我的事務」（審批那一頁）。
+     *
+     * ★ 為什麼這一頁需要它：門戶的審批條目在這一頁**刻意不可點**（見 [TodoItem.actionable]）——
+     *   點它們會拿錯 id 去發寫請求。但「不可點」不能變成「沒地方去」：
+     *   以前 `Route.Busyness` 在整個工程裡**沒有任何一處 `backStack.add`**，
+     *   用戶根本到不了那一頁。這顆按鈕就是那個出口（接線在 `WanzaiRoot.kt`，Lead 負責）。
+     */
+    onOpenBills: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -91,60 +104,128 @@ fun TodoBoardPage(
     val pageState = state.toPageState()
     val board = (state as? ListState.Content)?.items?.firstOrNull()
 
+    /** 來源篩子：null = 兩組都列（稿上的預設）；不是 null 就只看那一組。 */
+    var filter by remember { mutableStateOf<com.muyao.wanzaihyperos.data.todo.TodoSource?>(null) }
+
+    // 清單滾動狀態提到這裡：頂欄漸變紗靠它算進度。
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val veilProgress by com.muyao.wanzaihyperos.ui.design.rememberScrollProgress(listState)
+    val colors = MiuixTheme.colorScheme
+
     LaunchedEffect(Unit) {
         if (state is ListState.FirstLoad) repository.refresh()
     }
 
-    ThemedScaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            SmallTopAppBar(
-                title = "全部待办",
-color = Color.Transparent,
-                subtitle = "按来源分组",
-                navigationIcon = {
-                    IconButton(onClick = onExit) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { scope.launch { runCatching { repository.refresh() } } }) {
-                        Icon(
-                            imageVector = MiuixIcons.Refresh,
-                            contentDescription = "重新加载",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                },
-            )
-        },
+    // 頂欄走共享殼（SecondaryScaffold）：漸變、安全區、返回鍵、欄高只由設計層決定一次。
+    com.muyao.wanzaihyperos.ui.design.SecondaryScaffold(
+        title = "全部待办",
+        subtitle = "按来源分组",
+        onBack = onExit,
+        modifier = modifier,
+        scrollProgress = veilProgress,
+        onRefresh = { scope.launch { runCatching { repository.refresh() } } },
     ) { innerPadding ->
         if (board == null) {
             StatePlaceholder(
                 state = pageState,
-                modifier = Modifier.padding(innerPadding),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = innerPadding.calculateTopPadding()),
             )
         } else {
             LazyColumn(
                 modifier = Modifier
-                    .padding(innerPadding)
-                    .fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .fillMaxSize()
+                    // 安全區只讓一次：頂欄高度（含狀態列）由殼給。
+                    .padding(top = innerPadding.calculateTopPadding()),
+                state = listState,
+                contentPadding = PaddingValues(
+                    start = Dims.screenH,
+                    end = Dims.screenH,
+                    bottom = Dims.screenV,
+                    top = Dims.screenV,
+                ),
+                verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
             ) {
+                // ── 首屏英雄区（稿 v2.1 `todos.png` 顶部三行）──────────────────
+                // 稿：「待办聚合 / 需要你处理 / 课程作业与门户事务 · 独立来源」。
+                // 顶栏那颗小标题是「全部待办」，首屏大字是「需要你处理」——
+                // 和消息页一样，顶栏与英雄区不是同一句话。
+                item(key = "hero") {
+                    Column(Modifier.fillMaxWidth().padding(top = Dims.tight, bottom = 2.dp)) {
+                        Text(
+                            text = "待办聚合",
+                            fontSize = Type.micro,
+                            letterSpacing = 0.08.em,
+                            fontWeight = Type.weightTitle,
+                            color = colors.primary,
+                        )
+                        Text(
+                            text = "需要你处理",
+                            fontSize = Type.displayTitle,
+                            fontWeight = Type.weightTitle,
+                            letterSpacing = (-0.01).em,
+                            color = colors.onBackground,
+                            modifier = Modifier.padding(top = 3.dp),
+                        )
+                        Text(
+                            text = "课程作业与门户事务 · 独立来源",
+                            fontSize = Type.micro,
+                            color = colors.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+                // ── 来源筛子（稿 `.subnav` 那两颗）────────────────────────────
+                // 默认**都不选中 = 两组都列**（稿上默认就是两段都在）。
+                // 点一下只看那一组，再点一下回到全部 —— 这是真筛子，不是装饰按钮。
+                item(key = "source-filter") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        TodoSourceChip(
+                            text = "门户审批",
+                            on = filter == com.muyao.wanzaihyperos.data.todo.TodoSource.PORTAL,
+                            onClick = {
+                                filter = if (filter == com.muyao.wanzaihyperos.data.todo.TodoSource.PORTAL) {
+                                    null
+                                } else {
+                                    com.muyao.wanzaihyperos.data.todo.TodoSource.PORTAL
+                                }
+                            },
+                        )
+                        TodoSourceChip(
+                            text = "课程作业",
+                            on = filter == com.muyao.wanzaihyperos.data.todo.TodoSource.TRONCLASS,
+                            onClick = {
+                                filter = if (filter == com.muyao.wanzaihyperos.data.todo.TodoSource.TRONCLASS) {
+                                    null
+                                } else {
+                                    com.muyao.wanzaihyperos.data.todo.TodoSource.TRONCLASS
+                                }
+                            },
+                        )
+                    }
+                }
+
                 item {
                     Text(
                         text = board.knownTotal?.let { "共 $it 条待办" }
                             ?: "部分来源未取到，总数未知",
                         style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = Type.tabular),
                         color = MiuixTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(horizontal = 4.dp),
+                        modifier = Modifier.padding(horizontal = Dims.tight),
                     )
                 }
+                // ── 門戶審批的出口 ──────────────────────────────────────
+                //
+                // 這一頁的審批條目**刻意不可點**（見 [TodoItem.actionable]）——
+                // 點它們會拿錯 id 去發寫請求，或落到一個根本不是作業的詳情頁。
+                // 但「不可點」不能變成「沒地方去」：Route.Busyness（門戶我的事務）
+                // 以前在整個工程裡沒有一處 backStack.add，用戶根本到不了。
+                // 這顆按鈕就是那個出口；接線在 WanzaiRoot.kt（Lead 負責）。
+                item(key = "portal") { PortalApprovalEntry(board, onOpenBills) }
                 // 「最近要交的那一件」摆最上面。
                 // 分组是必要的（两边的「办」法不同），但分组之后就看不出「今天最该先动哪件」——
                 // 真机上 19 条作业散在两组里，要自己滚动比对日期。
@@ -154,9 +235,27 @@ color = Color.Transparent,
                 if (urgent != null) {
                     item(key = "urgent") { UrgentCard(urgent, onOpenHomework) }
                 }
-                items(board.groups, key = { it.source.name }) { group ->
+                items(board.groups.filter { filter == null || it.source == filter }, key = { it.source.name }) { group ->
                     SourceSection(group, onOpenHomework)
                 }
+                item(key = "reload") {
+                    // 稿 v2.1 頁尾：「重新讀取各來源」。
+                    // 這裡是**重取**，不是「刷新快取」——兩個來源各自一個請求，
+                    // 所以文案寫「各來源」而不是「刷新這頁」。
+                    val reloadColors = MiuixTheme.colorScheme
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, reloadColors.primary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                            .clickable(onClickLabel = "重新读取各来源") { scope.launch { runCatching { repository.refresh() } } },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(text = "重新读取各来源", fontSize = Type.secondary, color = reloadColors.primary)
+                    }
+                }
+
                 item {
                     Text(
                         text = "分组展示是因为两边的“办”法不同（作业要交、审批要批）。" +
@@ -167,6 +266,62 @@ color = Color.Transparent,
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * 門戶審批的入口（一顆真的能按的按鈕）。
+ *
+ * ### 為什麼它必須存在
+ *
+ * 這一頁的審批條目**刻意不可點**：`TodoItem.actionable` 只對學在城院的 `type == homework`
+ * 為真（見 `TronTodo.toTodoItem`）。點一條審批會拿 `billid` 去當作業 id 發請求。
+ *
+ * 但「條目不可點」不等於「用戶不該有去處」——以前 `Route.Busyness` 在整個工程裡
+ * 沒有一處 `backStack.add`，門戶那 12 條審批在 App 裡**完全到不了**。
+ * 所以出口放在這裏，且**如實寫明哪一部分要進門戶**：
+ * 作業那幾條在這一頁能點開，審批那幾條得過門戶（那裏才有批的權限與確認）。
+ *
+ * 門戶沒有審批條目時**不顯示這張卡**（不給一顆通向空頁的按鈕）。
+ */
+@Composable
+private fun PortalApprovalEntry(board: TodoBoard, onOpenBills: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    val portal = board.groups.firstOrNull { it.source == com.muyao.wanzaihyperos.data.todo.TodoSource.PORTAL }
+    // 取不到 / 一條都沒有 → 這顆按鈕沒有意義，不如不留。
+    val hasAny = portal != null && !portal.failed && portal.items.isNotEmpty()
+    if (!hasAny) return
+
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // 命中區 ≥44dp：整張卡可點，而不是只有右邊那幾個字。
+                .clickable(onClickLabel = "打开门户我的事务") { onOpenBills() }
+                .padding(Dims.cardPadding),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BodyMark(icon = MarkIcon.Card, tint = colors.primary)
+            Spacer(Modifier.size(Dims.tight))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "门户 · 审批",
+                    style = MiuixTheme.textStyles.body1,
+                    color = colors.onSurface,
+                )
+                Text(
+                    // 如實：這一頁只列得出來，批要回門戶批。
+                    text = "本页只列出审批条目标题，处理请回门户",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = colors.onSurfaceVariantSummary,
+                )
+            }
+            Text(
+                text = "去门户 ›",
+                style = MiuixTheme.textStyles.footnote2,
+                color = colors.primary,
+            )
         }
     }
 }
@@ -194,11 +349,18 @@ private fun UrgentCard(urgent: UrgentTodo, onOpen: (TodoItem) -> Unit) {
                     },
                 ),
         ) {
-            Text(
-                text = "最近要交",
-                style = MiuixTheme.textStyles.footnote2,
-                color = colors.onSurfaceVariantSummary,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BodyMark(
+                    icon = MarkIcon.Clock,
+                    tint = if (urgent.overdue) colors.error else colors.primary,
+                )
+                Spacer(Modifier.size(Dims.tight))
+                Text(
+                    text = "最近要交",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = colors.onSurfaceVariantSummary,
+                )
+            }
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -242,6 +404,14 @@ private fun SourceSection(group: TodoGroup, onOpenHomework: (TodoItem) -> Unit) 
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                BodyMark(
+                    icon = when (group.source) {
+                        com.muyao.wanzaihyperos.data.todo.TodoSource.TRONCLASS -> MarkIcon.Course
+                        com.muyao.wanzaihyperos.data.todo.TodoSource.PORTAL -> MarkIcon.Card
+                    },
+                    tint = colors.primary,
+                )
+                Spacer(Modifier.size(Dims.tight))
                 Text(
                     text = group.source.label,
                     style = MiuixTheme.textStyles.title4,
@@ -343,5 +513,38 @@ private fun TodoRow(item: TodoItem, onOpen: (TodoItem) -> Unit) {
                 color = colors.onSurfaceVariantSummary,
             )
         }
+    }
+}
+
+/**
+ * 待辦頁的來源篩子（稿 v2.1 `.subnav` 那兩顆）。
+ *
+ * 為什麼不做成 [top.yukonga.miuix.kmp.basic.FilterChip]：這裡只有兩顆、
+ * 且預設**都不選**（未選 = 兩組都列）。FilterChip 的視覺假定「總有一個選中」，
+ * 用它表達「不選 = 全部」會讓人以為有一顆是預設選中的。
+ */
+@Composable
+private fun TodoSourceChip(text: String, on: Boolean, onClick: () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(50))
+            .background(if (on) colors.primary else colors.surface.copy(alpha = 0.55f))
+            .border(
+                width = 1.dp,
+                color = if (on) colors.primary else colors.dividerLine,
+                shape = RoundedCornerShape(50),
+            )
+            .clickable(onClickLabel = text) { onClick() }
+            .padding(horizontal = 13.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            fontSize = Type.caption,
+            fontWeight = if (on) Type.weightTitle else Type.weightBody,
+            color = if (on) colors.onPrimary else colors.onSurfaceVariantSummary,
+        )
     }
 }

@@ -63,7 +63,6 @@ import com.muyao.wanzaihyperos.ui.design.liquid.backdropIsLive
 import com.muyao.wanzaihyperos.ui.main.pages.AppearancePage
 import com.muyao.wanzaihyperos.ui.main.pages.AppsSectionPage
 import com.muyao.wanzaihyperos.data.UiPrefs
-import com.muyao.wanzaihyperos.ui.main.pages.AppsTidyButton
 import com.muyao.wanzaihyperos.ui.main.pages.HomeSectionPage
 import com.muyao.wanzaihyperos.ui.main.pages.NotifySectionPage
 import com.muyao.wanzaihyperos.ui.main.pages.SettingsSectionPage
@@ -121,6 +120,8 @@ fun WanzaiMainShell(
     onOpenSearch: () -> Unit,
     onOpenSection: (MainSection) -> Unit,
     onOpenJw: () -> Unit,
+    /** 課表頁頁尾「學在城院 · 本週 / 全部」（稿 v2.1 三顆出口之一）。 */
+    onOpenTron: () -> Unit = {},
     onOpenTimetable: () -> Unit,
     onOpenMessages: () -> Unit,
     onOpenTodos: () -> Unit,
@@ -192,6 +193,8 @@ fun WanzaiMainShell(
      * （否則他會以為還在板塊裡、卻點不動）。
      */
     var showAppearance by remember { mutableStateOf(false) }
+    // 「动画与辅助显示」：与外观页同一种承载方式（壳内全屏覆盖），不新增 Route。
+    var showAccessibility by remember { mutableStateOf(false) }
     val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
 
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
@@ -388,6 +391,7 @@ fun WanzaiMainShell(
                                 graph = graph,
                                 uiState = uiState,
                                 onOpenJw = onOpenJw,
+                                onOpenTron = onOpenTron,
                             )
 
                             MainSection.Notify -> NotifySectionPage(
@@ -412,6 +416,7 @@ fun WanzaiMainShell(
                                 onOpenSettings = onOpenSettings,
                                 onOpenLogin = onOpenLogin,
                                 onOpenAppearance = { showAppearance = true },
+                                onOpenAccessibility = { showAccessibility = true },
                                 onOpenJw = onOpenJw,
                                 onOpenZhgy = onOpenZhgy,
                                 onOpenSzty = onOpenSzty,
@@ -472,16 +477,10 @@ fun WanzaiMainShell(
                         liveBlur = btnLive,
                     )
                     }
-                    // 板 `.topbar .meta .tidybtn`：**「整理」是应用页顶栏右边那颗**，
-                    // 上一版被我塞进「常用」那一行的行尾，位置比板上低了两层。
-                    if (MainSection.entries[section] == MainSection.Apps) {
-                        // ★ 第 1 轮 B-10 / 第 3 轮必修 7：这颗以前叫「整理」却跳**外观页**。
-                        //   现在它是全页唯一的整理开关（页内那颗撤了），所以字跟着状态走。
-                        AppsTidyButton(
-                            tidy = UiPrefs.appsTidy.value,
-                            onClick = { UiPrefs.appsTidy.value = !UiPrefs.appsTidy.value },
-                        )
-                    }
+                    // 「整理」不在顶栏：板 `.topbar` 只有标题与搜索钮，
+                    // 而 `apps.png` 里那颗「整理」是**「常用」标题行右侧**的文字按钮。
+                    // 上一版按注释（写的是 `.topbar .meta .tidybtn`）把它放在顶栏，
+                    // 真机截图与板面一比就露馅：板面顶栏根本没有这颗。
                 },
             )
 
@@ -570,6 +569,54 @@ fun WanzaiMainShell(
                             uiState.themeMode = it
                             com.muyao.wanzaihyperos.data.UiPrefs.saveThemeMode(it.name)
                         },
+                        // 稿 `appearance` 最后一行「减少动态与高对比 ›」的出口。
+                        // 外观页自己不开第二张表，只把这一跳交给壳 —— 两个覆盖层同一种承载方式。
+                        onOpenAccessibility = {
+                            showAppearance = false
+                            showAccessibility = true
+                        },
+                    )
+                }
+            }
+            // ── 动画与辅助显示：同一种承载方式（壳内覆盖层，不新增 Route）──────
+            //
+            // 它与外观页是「展示偏好」的两半：一半决定**看起来怎样**，一半决定
+            // **动起来怎样**。所以用同一套进出场参数，切过去不会像换了个应用。
+            AnimatedVisibility(
+                visible = showAccessibility,
+                enter = (if (motion.canMove) {
+                    slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = Motion.OVERLAY_IN_DAMPING,
+                            stiffness = Motion.OVERLAY_IN_STIFFNESS,
+                        ),
+                        initialOffsetY = { it / 14 },
+                    )
+                } else {
+                    fadeIn(tween(120))
+                }) + fadeIn(tween(200)),
+                exit = (if (motion.canMove) {
+                    slideOutVertically(
+                        animationSpec = spring(
+                            dampingRatio = Motion.OVERLAY_OUT_DAMPING,
+                            stiffness = Motion.OVERLAY_OUT_STIFFNESS,
+                        ),
+                        targetOffsetY = { it / 20 },
+                    )
+                } else {
+                    fadeOut(tween(120))
+                }) + fadeOut(tween(140)),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .align(Alignment.TopStart),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .containerBackground(isDark),
+                ) {
+                    com.muyao.wanzaihyperos.ui.main.pages.AccessibilityPage(
+                        onClose = { showAccessibility = false },
                     )
                 }
             }

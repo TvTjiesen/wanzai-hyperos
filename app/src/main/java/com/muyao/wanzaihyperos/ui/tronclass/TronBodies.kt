@@ -1,35 +1,24 @@
 package com.muyao.wanzaihyperos.ui.tronclass
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.input.KeyboardType
 import com.muyao.wanzaihyperos.data.ListState
-import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.data.tronclass.HomeworkRepository
-import com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind
 import com.muyao.wanzaihyperos.data.tronclass.RollcallRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronHomeRepository
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
+import com.muyao.wanzaihyperos.ui.cjh52.CjhChipFlow
+import com.muyao.wanzaihyperos.ui.cjh52.CjhChipSpec
 import com.muyao.wanzaihyperos.ui.design.ActionRow
 import com.muyao.wanzaihyperos.ui.design.AppList
 import com.muyao.wanzaihyperos.ui.design.BackRow
@@ -37,20 +26,10 @@ import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.HintText
 import com.muyao.wanzaihyperos.ui.design.InfoItem
 import com.muyao.wanzaihyperos.ui.design.KeyValueRow
-import com.muyao.wanzaihyperos.ui.design.ResultBanner
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.infoItems
-import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -82,32 +61,42 @@ fun TronHomeBody(
         return
     }
 
+    val scope = rememberCoroutineScope()
+
     AppList(modifier = modifier) {
-        home.nextDue?.let { due ->
-            item {
-                HintText("最近要交：${due.title}（${due.localTimeText.ifBlank { "—" }}）")
-            }
-        }
-
-        item { SmallTitle(text = "常用") }
         item {
-            ActionRow(
-                title = "签到",
-                subtitle = "查看进行中的签到并签到",
-                action = "查看与签到",
-                onClick = onOpenRollcall,
-            )
-        }
-        item {
-            ActionRow(
-                title = "课表",
-                subtitle = "本周与整学期的上课时间",
-                action = "查看",
-                onClick = onOpenSchedule,
+            TronHero(
+                eyebrow = "LEARNING / 学在城院",
+                title = "学习，有条不紊",
+                sub = "课程、待交与课堂动态，各有归处。",
+                icon = MarkIcon.Course,
             )
         }
 
-        item { SmallTitle(text = "我的课（${home.courses.size}）") }
+        // 稿上的那一排 chip：课表 / 签到 / 刷新。
+        // 「刷新」是真的刷 —— 這一頁的資料只有它自己那一份，
+        // 按下就重新打一次接口；外殼那顆下拉刷新刷的是整頁（含這個板塊）。
+        item {
+            CjhChipFlow(
+                modifier = Modifier.padding(horizontal = Dims.screenH),
+                chips = listOf(
+                    CjhChipSpec("学在课表", onOpenSchedule),
+                    CjhChipSpec("签到站", onOpenRollcall),
+                    CjhChipSpec(
+                        "刷新",
+                        { scope.launch { runCatching { repository.refresh() } } },
+                    ),
+                ),
+            )
+        }
+
+        item {
+            TronSection(
+                text = "我的课程",
+                icon = MarkIcon.Course,
+                trailing = { SectionMeta("本学期 · ${home.courses.size} 门") },
+            )
+        }
         if (home.courses.isEmpty()) {
             item { HintText("没有取到课程") }
         } else {
@@ -118,14 +107,20 @@ fun TronHomeBody(
                         listOfNotNull(
                             c.teachingClass.takeIf { it.isNotBlank() },
                             c.department.takeIf { it.isNotBlank() },
-                        ).joinToString("　")
+                        ).joinToString(" · ")
                     },
                     onClick = { onOpenCourse(c) },
                 )
             }
         }
 
-        item { SmallTitle(text = "待交作业（${home.todos.size}）") }
+        item {
+            TronSection(
+                text = "最近要交",
+                icon = MarkIcon.Todo,
+                trailing = { SectionMeta("截止优先") },
+            )
+        }
         if (home.todos.isEmpty()) {
             item { HintText("没有待交作业") }
         } else {
@@ -135,18 +130,37 @@ fun TronHomeBody(
                     subtitle = listOfNotNull(
                         t.courseName.takeIf { it.isNotBlank() },
                         t.localTimeText.takeIf { it.isNotBlank() },
-                    ).joinToString("　"),
+                    ).joinToString(" · "),
+                    // 右側掛截止時間：稿上這裡是「已有 N 次提交 / 尚未正式提交」，
+                    // 但 `/api/todos` 不給提交次數（TronTodo 沒有這個欄位），
+                    // 不知道就不能編 —— 只放能從這條資料算出來的截止時間。
+                    trailing = t.localTimeText.takeIf { it.isNotBlank() },
                 )
             }
         }
 
+        item { TronSection(text = "完整学习入口", icon = MarkIcon.App) }
         item {
-            HintText("需要讨论、测验、点名、成绩等功能？可以用网页版。")
+            CjhChipFlow(
+                modifier = Modifier.padding(horizontal = Dims.screenH),
+                chips = listOf(
+                    CjhChipSpec("讨论 / 测验 / 学习记录网页版", onOpenWeb),
+                ),
+            )
         }
-        item {
-            ActionRow(title = "更多功能", action = "改用网页版", onClick = onOpenWeb)
-        }
+
+        item { HintText("来源：学在城院接口 · 以原站为准") }
     }
+}
+
+/** 區塊標題右邊那行小字（稿上的 `span.meta`）。 */
+@Composable
+private fun SectionMeta(text: String) {
+    Text(
+        text = text,
+        style = MiuixTheme.textStyles.footnote2,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+    )
 }
 
 /**
@@ -274,24 +288,14 @@ fun HomeworkListPage(
     onOpenHomework: (courseId: Int, homeworkId: Int, courseName: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ThemedScaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            SmallTopAppBar(
-                title = "作业",
-                color = Color.Transparent,
-                subtitle = courseName.ifBlank { "学在城院" },
-                navigationIcon = {
-                    IconButton(onClick = onExit) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(Dims.iconNav),
-                        )
-                    }
-                },
-            )
-        },
+    com.muyao.wanzaihyperos.ui.design.SecondaryScaffold(
+        title = "作业",
+        subtitle = courseName.ifBlank { "学在城院" },
+        onBack = onExit,
+        modifier = modifier,
+        // 這一層沒有自己的資料：刷新由裡面的 [HomeworkContent] 自己管
+        //（它已經有 LaunchedEffect 首刷 + 「改用網頁版」出口）。
+        onRefresh = null,
     ) { innerPadding ->
         HomeworkContent(
             repository = repository,
@@ -300,6 +304,7 @@ fun HomeworkListPage(
             onOpenHomework = onOpenHomework,
             modifier = Modifier
                 .fillMaxSize()
+                // 安全區只讓一次：頂欄高度（含狀態列）由殼給。
                 .padding(top = innerPadding.calculateTopPadding()),
         )
     }

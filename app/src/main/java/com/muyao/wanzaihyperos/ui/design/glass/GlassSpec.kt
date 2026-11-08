@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.design.glass
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -114,4 +115,24 @@ class GlassSpecTuning(initial: GlassSpec) {
         surfaceTint = spec.surfaceTint
         frostBlur = spec.frostBlur
     }
+}
+
+/**
+ * 玻璃面通透度系数：**50 ⇒ 1f**（原值），100 ⇒ 1.38（更厚实），0 ⇒ 0.62（更通透）。
+ *
+ * 业主 2026-11-07 对稿：设计稿外观页有「通透度 · 新增」滑块，默认 50%，
+ * 左「更厚实」右「更通透」，说明写「只影响顶栏、首页焦点卡、搜索与底栏等承载层；
+ * 正文保持清楚」。
+ *
+ * 所以这个系数只乘**垫底那一层的 alpha**：
+ *  · liquid 栈 → `ui/design/liquid/IosChrome.kt` 的 `baseAlpha`
+ *  · glass 栈 → `ui/design/glass/BarOptics.kt` 给出来的 `surfaceAlpha`
+ * 正文、描边高光、折射量都不动 —— 调"厚薄"不该顺手把字也调淡。
+ *
+ * 读的是 `UiPrefs.glassOpacity`（mutableStateOf）⇒ 拖动滑块时所有玻璃面同一帧跟着变。
+ */
+@Composable
+fun glassOpacityFactor(): Float {
+    val v = com.muyao.wanzaihyperos.data.UiPrefs.glassOpacity
+    return 1f + (v - 50) / 50f * 0.38f
 }

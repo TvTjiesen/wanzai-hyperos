@@ -40,7 +40,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.muyao.wanzaihyperos.ui.design.BodyMark
 import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.Type
 import androidx.compose.ui.viewinterop.AndroidView
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
@@ -99,6 +101,14 @@ fun WebShellPage(
      * 一般 WebView 不需要 —— 它們的登入態在網頁自己那邊。
      */
     onClearCredential: (() -> Unit)? = null,
+    /**
+     * 顶栏副标题。默认显示**当前地址的主机名** —— 这是本页的常态口径：
+     * 让使用者随时看得见「我现在看的是哪个域的页面」。
+     *
+     * 只有**回放页**这种「地址背了 ID、但使用者更想知道是哪门课」的场景才覆盖它
+     * （v2.1 稿：`设计史 · 官方播放出口`）。默认值仍是主机名，其它调用点不受影响。
+     */
+    subtitle: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -202,7 +212,7 @@ fun WebShellPage(
                 SmallTopAppBar(
                     title = title,
 color = Color.Transparent,
-                    subtitle = hostOf(currentUrl),
+                    subtitle = subtitle ?: hostOf(currentUrl),
                     navigationIcon = {
                         IconButton(onClick = onExit) {
                             Icon(
@@ -266,15 +276,26 @@ color = Color.Transparent,
                 //   至少知道「App 里显示已登录」和「这个网页要学校登录」是两件事，
                 //   而且登过一次之后这台手机就记住了（WebView cookie 跨会话持久化）。
                 needsWebLogin?.let { hint ->
-                    Text(
-                        text = hint,
-                        fontSize = Type.caption,
-                        color = colors.onSurfaceVariantSummary,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(colors.surfaceContainer.copy(alpha = 0.6f))
                             .padding(horizontal = Dims.screenH, vertical = 8.dp),
-                    )
+                    ) {
+                        // 正文前图标：这条讲的是「这个网页要它自己的一套登录」，用 Account。
+                        BodyMark(
+                            icon = MarkIcon.Account,
+                            tint = colors.onSurfaceVariantSummary,
+                        )
+                        Text(
+                            text = hint,
+                            fontSize = Type.caption,
+                            color = colors.onSurfaceVariantSummary,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
         },
@@ -439,11 +460,21 @@ color = Color.Transparent,
                                     modifier = Modifier.size(30.dp),
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
-                                Text(
-                                    text = "正在打开…",
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = colors.onSurfaceVariantSummary,
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    // 正文前图标：这行字说的是「网页正在打开」，用 Web。
+                                    BodyMark(
+                                        icon = MarkIcon.Web,
+                                        tint = colors.onSurfaceVariantSummary,
+                                    )
+                                    Text(
+                                        text = "正在打开…",
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = colors.onSurfaceVariantSummary,
+                                    )
+                                }
                             }
                         }
 
@@ -471,14 +502,26 @@ color = Color.Transparent,
                                         .padding(horizontal = 12.dp),
                                 ) {
                                     Column(modifier = Modifier.padding(14.dp)) {
-                                        Text(
-                                            text = "如果这个入口需要校园网或 WebVPN，连上校园网后重试。" +
-                                                "另有一些系统（如学在城院、CJH52）有自己的一套登录，" +
-                                                "与本 App 的学校统一身份认证不互通，" +
-                                                "即使网络可达也会要求先登录一次。",
-                                            style = MiuixTheme.textStyles.footnote2,
-                                            color = colors.onSurfaceVariantSummary,
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.Top,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
+                                            // 正文前图标：这条讲的是「连不上」或「原站要另行登录」，用 Warn。
+                                            BodyMark(
+                                                icon = MarkIcon.Warn,
+                                                tint = colors.onSurfaceVariantSummary,
+                                                modifier = Modifier.padding(top = 2.dp),
+                                            )
+                                            Text(
+                                                text = "如果这个入口需要校园网或 WebVPN，连上校园网后重试。" +
+                                                    "另有一些系统（如学在城院、CJH52）有自己的一套登录，" +
+                                                    "与本 App 的学校统一身份认证不互通，" +
+                                                    "即使网络可达也会要求先登录一次。",
+                                                style = MiuixTheme.textStyles.footnote2,
+                                                color = colors.onSurfaceVariantSummary,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                        }
                                         TextButton(
                                             text = "退出并返回",
                                             onClick = onExit,

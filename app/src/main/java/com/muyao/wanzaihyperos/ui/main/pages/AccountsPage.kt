@@ -2,9 +2,12 @@ package com.muyao.wanzaihyperos.ui.main.pages
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -33,6 +36,7 @@ import com.muyao.wanzaihyperos.ui.design.SettingGroup
 import com.muyao.wanzaihyperos.ui.design.SettingIcon
 import com.muyao.wanzaihyperos.ui.design.SettingRow
 import com.muyao.wanzaihyperos.ui.design.Tone
+import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
 import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import kotlinx.coroutines.Dispatchers
@@ -98,44 +102,71 @@ fun AccountsPage(
         AccountTarget.None -> Unit
     }
 
-    Column(
-        modifier
-            .fillMaxSize()
-            // 这一页是独立路由（不在主壳的 Box 里），得自己铺页面底色 ——
-            // 不铺就是一层透明，背后 `GlassBackdropHost` 的占位灰会直接露出来（实测 RGB 120）。
-            .background(AppColors.pageBrush(colors.background.luminance() < 0.5f))
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = Dims.screenH),
-    ) {
-        // ★ 2026-11-07：二级页也要让开状态栏。
-        //
-        // 原来这里直接 `Spacer(8.dp)` 就开画，真机上「‹ 返回」和「账号」双双压在
-        // 「14:48 / 抖音 / OPPO」那排系统图标底下（截图 `[local]\fin_app_s.png`）。
-        // 主壳那五页都走 `statusBarTopPadding()`，只有这两个独立路由页漏了。
-        Spacer(Modifier.height(statusBarTopPadding() + 8.dp))
-        Text(
-            text = "‹ 返回",
-            fontSize = Type.body,
-            color = colors.primary,
-            modifier = Modifier
-                .clickable(onClickLabel = "返回设置") { onBack() }
-                .padding(vertical = 8.dp),
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(text = "账号", fontSize = Type.title, fontWeight = Type.weightTitle, color = colors.onBackground)
+    SecondaryScaffold(
+        title = "账号",
+        onBack = onBack,
+        modifier = modifier,
+    ) { inner ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Dims.screenH)
+                .padding(
+                    top = inner.calculateTopPadding(),
+                    bottom = inner.calculateBottomPadding(),
+                ),
+        ) {
+        // ── 首屏英雄区（稿 v2.1 `accounts.png` 顶部三行）──────────────
+        // 稿：「账号连接 / 校园账号 / 1 / 7 个来源已设置 · 不是服务器在线证明」。
+        // 第三行那句是**反过来说明**的：写「登录成功」会让人以为别的来源跟着通了。
+        run {
+            // 「已设置」只算三种确有其事的：有凭据、码已拿到但未激活、网页内独立登录。
+            // `Unknown`（还没读到）**不算**——把读不到说成「没设置」和说成「设置了」都是撒谎。
+            val done = sources.count {
+                it.status == AccountStatus.LoggedIn ||
+                    it.status == AccountStatus.ObtainedNotActivated ||
+                    it.status == AccountStatus.InWebOnly
+            }
+            Column(Modifier.fillMaxWidth().padding(top = Dims.tight, bottom = 10.dp)) {
+                Text(
+                    text = "账号连接",
+                    fontSize = Type.micro,
+                    letterSpacing = androidx.compose.ui.unit.TextUnit(0.08f, androidx.compose.ui.unit.TextUnitType.Em),
+                    fontWeight = Type.weightTitle,
+                    color = colors.primary,
+                )
+                Text(
+                    text = "校园账号",
+                    fontSize = Type.displayTitle,
+                    fontWeight = Type.weightTitle,
+                    color = colors.onBackground,
+                    // 首屏大字是这一页的标题：给 heading 语义，读屏可以直接跳到这里，
+                    // 而不是逐个读完七个来源才发现「这是一页账号」。
+                    modifier = Modifier.padding(top = 3.dp).semantics { heading() },
+                )
+                Text(
+                    text = done.toString() + " / " + sources.size + " 个来源已设置 · 不是服务器在线证明",
+                    fontSize = Type.micro,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
         // ★ 判据用**数据层的真实状态**，不用 `uiState.loggedIn`：后者全工程只有
         //   `WanzaiRoot` 两处置 true、**0 处置 false** ⇒ 点了「退出登录」六行变未登录、
         //   头部还写着「当前身份 …」（工单第 14 轮点名的那条自相矛盾）。
         val anySignedIn = sources.any { it.status == AccountStatus.LoggedIn }
-        Text(
-            text = if (anySignedIn && uiState.displayAccount.isNotBlank()) {
-                "当前身份 ${uiState.displayAccount} · 各系统登录态互不牵连，哪一项掉了只影响它自己"
-            } else {
-                "各系统登录态互不牵连：哪一项掉了只影响它自己"
-            },
-            fontSize = Type.caption,
-            color = colors.onSurfaceVariantSummary,
-        )
+        // 身份单独一行；「各系统互不牵连」那句已经在英雄区第三行说过（
+        // 「不是服务器在线证明」），这里再写一遍就是同一句话占两行。
+        if (anySignedIn && uiState.displayAccount.isNotBlank()) {
+            Text(
+                text = "当前身份 " + uiState.displayAccount,
+                fontSize = Type.caption,
+                color = colors.onSurfaceVariantSummary,
+                style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = Type.tabular),
+            )
+        }
 
         Spacer(Modifier.height(Dims.cardGap))
         if (sources.isEmpty()) {
@@ -190,6 +221,7 @@ fun AccountsPage(
                 )
             }
             Spacer(Modifier.height(Dims.cardGap))
+        }
         }
     }
 }

@@ -71,6 +71,11 @@ enum class SkyPreset(
     // 它不能塞进 AUTO 的 23 点那一支 —— 与 20..22 那支色相差 23.8/32.1/57.0°，
     // 换的是色相不是亮度（`NightSkyHueTest` 的 MAX_HUE_GAP = 8° 正是拦这个）。
     SLATE("slate", "青灰", "青灰的夜，也有月亮与星"),
+    // 稿 `appearance` 的「另外两组颜色灵感 · 新增可选」：业主给的色值，
+    // **不作为默认工作界面**，强色只在壁纸层。因此这两档不进 `BACKGROUND_PRESETS`，
+    // 只进壁纸白名单；`WALLPAPER_PRESETS` 少一个 id 就会「选了落盘变 auto」（青灰那次的教训）。
+    AURORA("aurora", "黄紫流光", "金黄压紫，只在壁纸层"),
+    BLOSSOM("blossom", "粉色云雾", "粉与雾白，只在壁纸层"),
     ALBUM("album", "相册", "你自己的那张图"),
     ;
 
@@ -360,6 +365,28 @@ fun skyLookOf(preset: SkyPreset, hour: Int): SkyLook = when (preset) {
         mid = Color(0xFF22373C),
         ridgeFar = Color(0xFF0D171B),
         ridgeNear = Color(0xFF070D10),
+        ink = Color.White,
+        lightIcons = true,
+    )
+
+    // 强色两档：色相 44°/276°（黄紫流光）与 335°/340°（粉雾），与既有五档（蓝/橘/青/粉白）
+    // 任一两两相差 > 20°，不会「看着像同一版调了亮度」。三站都显式给 mid，不留水平段。
+    SkyPreset.AURORA -> SkyLook(
+        top = Color(0xFF2A1D4A),
+        mid = Color(0xFF6A3F9E),
+        bottom = Color(0xFFE9B44C),
+        ridgeFar = Color(0xFF231838),
+        ridgeNear = Color(0xFF150E22),
+        ink = Color.White,
+        lightIcons = true,
+    )
+
+    SkyPreset.BLOSSOM -> SkyLook(
+        top = Color(0xFF3C2333),
+        mid = Color(0xFFA75B79),
+        bottom = Color(0xFFF7E3EA),
+        ridgeFar = Color(0xFF321C2A),
+        ridgeNear = Color(0xFF1F1119),
         ink = Color.White,
         lightIcons = true,
     )
@@ -1023,6 +1050,9 @@ private fun DrawScope.drawCelestialBody(
                 center = Offset(w * 0.78f + h * 0.016f, h * 0.15f - h * 0.011f),
             )
         }
+
+        // 强色档不画日盘月盘：黄紫与粉雾本身就是画面主角，再加一颗圆盘就变成「两套色打架」。
+        SkyPreset.AURORA, SkyPreset.BLOSSOM -> Unit
 
         SkyPreset.ALBUM -> Unit
 

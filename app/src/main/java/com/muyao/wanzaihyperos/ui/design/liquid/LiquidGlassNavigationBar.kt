@@ -445,10 +445,15 @@ internal fun IosLiquidGlassNavigationBar(
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    // 往图标右上角外面挪一点：压在图标身上会把图形咬掉一块。
-                                    .offset(x = 6.dp, y = (-4).dp)
-                                    .height(14.dp)
-                                    .widthIn(min = 14.dp)
+                                    // 往图标右上角外面挪：压在图标身上会把图形咬掉一块。
+                                    // 2026-11-08 真机帧量出来的两个边界：
+                                    //   y=-8 时角标顶被底栏上沿裁掉（露半截「99+」）；
+                                    //   x=6  时「99+」约 26dp 宽，左沿落回图标正中，把气泡开口盖住。
+                                    // 所以纵向只让 5dp（再多就被裁），横向让到 12dp，
+                                    // 让它只叠住图标的右上角一小块。
+                                    .offset(x = 12.dp, y = (-5).dp)
+                                    .height(13.dp)
+                                    .widthIn(min = 13.dp)
                                     .clip(CircleShape)
                                     .background(badgeFace)
                                     .padding(horizontal = 3.dp)

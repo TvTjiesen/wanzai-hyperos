@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  图标底色。
+
+  ★ 这枚色必须与 v2.1 稿的 page 底色（#FAF6EB）一致：启动器图标与 App 首屏
+    用的是同一种纸色，图标点开那一刻不会出现「从冷白跳到暖白」的闪色。
+  ★ 不要写成主题色引用：adaptive-icon 的 background 是编译期解析的 drawable，
+    主题色在启动器里根本不存在。
+-->
+<resources>
+    <color name="ic_launcher_background">#FAF6EB</color>
+</resources>

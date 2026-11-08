@@ -14,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,15 +29,18 @@ import com.muyao.wanzaihyperos.data.tronclass.TronSchedule
 import com.muyao.wanzaihyperos.data.tronclass.TronScheduleSlot
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
+import com.muyao.wanzaihyperos.ui.cjh52.CjhChipFlow
+import com.muyao.wanzaihyperos.ui.cjh52.CjhChipSpec
 import com.muyao.wanzaihyperos.ui.design.ActionRow
 import com.muyao.wanzaihyperos.ui.design.AppList
 import com.muyao.wanzaihyperos.ui.design.BackRow
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.HintText
 import com.muyao.wanzaihyperos.ui.design.InfoItem
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.infoItems
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -92,8 +96,33 @@ fun ScheduleContent(
     var tab by remember(schedule) { mutableIntStateOf(TAB_WEEK) }
     val currentWeek = schedule.currentWeek.orNull
 
+    val scope = rememberCoroutineScope()
+
     AppList(modifier = modifier) {
         item { BackRow("返回", onBack) }
+
+        // 稿上的頁頭。這一句「独立于教务权威课表」是有資訊量的：
+        // 教務也有一張課表，兩張會不一致（調課只改教務），
+        // 不寫清楚使用者會以為其中一張壞了。
+        item {
+            TronHero(
+                eyebrow = "TRONCLASS / SCHEDULE",
+                title = "学在课表",
+                sub = "独立于教务权威课表，保留本周与整学期视图。",
+                icon = MarkIcon.Schedule,
+            )
+        }
+
+        // 「刷新」這顆是這個子態唯一能重新取數的口子：
+        // 它不在 SecondaryScaffold 底下，沒有下拉刷新。
+        item {
+            CjhChipFlow(
+                modifier = Modifier.padding(horizontal = Dims.screenH),
+                chips = listOf(
+                    CjhChipSpec("刷新", { scope.launch { runCatching { repository.refresh() } } }),
+                ),
+            )
+        }
 
         item {
             TabRow(
@@ -128,7 +157,7 @@ fun ScheduleContent(
 
             tab == TAB_WEEK -> {
                 val week = currentWeek!!
-                item { SmallTitle(text = "第 $week 周") }
+                item { TronSection(text = "本周 · 第 $week 周", icon = MarkIcon.Schedule) }
                 val days = schedule.activeDays
                 if (days.isEmpty()) {
                     item { HintText("这一周没有课。") }
@@ -136,7 +165,7 @@ fun ScheduleContent(
                     days.forEach { day ->
                         val atDay = schedule.slotsAt(week, day)
                         if (atDay.isEmpty()) return@forEach
-                        item { SmallTitle(text = DAY_NAMES.getOrElse(day - 1) { "周$day" }) }
+                        item { TronSection(text = DAY_NAMES.getOrElse(day - 1) { "周$day" }, icon = MarkIcon.Course) }
                         infoItems(atDay, key = { "${it.courseId}-${it.periodStart}-${it.weekStart}" }) { slot ->
                             SlotItem(slot, onOpenCourse)
                         }
@@ -145,11 +174,11 @@ fun ScheduleContent(
             }
 
             else -> {
-                item { SmallTitle(text = "整学期（${schedule.slots.size} 格）") }
+                item { TronSection(text = "整学期（${schedule.slots.size} 格）", icon = MarkIcon.Schedule) }
                 // 依「星期 → 節次」排，同一天同節次的合併顯示課名。
                 schedule.activeDays.forEach { day ->
                     val atDay = schedule.slots.filter { it.dayOfWeek == day }
-                    item { SmallTitle(text = DAY_NAMES.getOrElse(day - 1) { "周$day" }) }
+                    item { TronSection(text = DAY_NAMES.getOrElse(day - 1) { "周$day" }, icon = MarkIcon.Course) }
                     infoItems(atDay, key = { "${it.courseId}-${it.periodStart}-${it.weekStart}" }) { slot ->
                         SlotItem(slot, onOpenCourse)
                     }
@@ -158,7 +187,7 @@ fun ScheduleContent(
         }
 
         if (schedule.unparsed.isNotEmpty()) {
-            item { SmallTitle(text = "认不出的上课时间（${schedule.unparsed.size}）") }
+            item { TronSection(text = "认不出的上课时间（${schedule.unparsed.size}）", icon = MarkIcon.Warn) }
             infoItems(schedule.unparsed, key = { "${it.first}|${it.second}" }) { (course, raw) ->
                 InfoItem(
                     title = course,
@@ -177,11 +206,13 @@ fun ScheduleContent(
         }
         item {
             ActionRow(
-                title = "完整课表",
-                action = "改用网页版",
+                title = "查看原站完整课表",
+                subtitle = "调课、代课与换教室以原站为准",
+                action = "打开",
                 onClick = onOpenWeb,
             )
         }
+        item { HintText("来源：学在城院接口 · 以原站为准") }
     }
 }
 

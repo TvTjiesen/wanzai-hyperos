@@ -108,7 +108,8 @@ class AccountSourcesTest {
         val zy = sourcesOf().byId("zy")
         assertEquals(AccountStatus.InWebOnly, zy.status)
         assertFalse(
-            "ZyPage 那颗「去智云课堂登录」的 onClick 只是返回，App 内没有通向它网页登录口的路",
+            "账号页这一行只回答「去哪儿找它」，不承诺「在这里就能登」——" +
+                "真正的智云登录在 ui/zy/ZyPage.kt 的「去智云网页登录」那颗按钮里",
             zy.whereToLogin.contains("登录"),
         )
     }

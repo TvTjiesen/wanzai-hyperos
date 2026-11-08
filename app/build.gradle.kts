@@ -27,8 +27,8 @@ android {
         //   - 沒有能力（時間/正確性）做出真的玻璃，才是更大的損失
         minSdk = 33
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         // 加密存储（Android Keystore）无法在 JVM 单测里跑，只能在真机上验，
         // 所以有一条仪器化测试专门盯它。见 src/androidTest。
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

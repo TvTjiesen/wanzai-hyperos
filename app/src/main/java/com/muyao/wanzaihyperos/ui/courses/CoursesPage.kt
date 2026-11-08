@@ -1,52 +1,37 @@
 package com.muyao.wanzaihyperos.ui.courses
 
-import com.muyao.wanzaihyperos.ui.design.Type
-import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUp
-import com.muyao.wanzaihyperos.ui.design.AppCard
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.TextStyle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muyao.wanzaihyperos.data.ListState
-import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.data.cjh52.Course
 import com.muyao.wanzaihyperos.data.cjh52.CourseRepository
 import com.muyao.wanzaihyperos.data.cjh52.CourseSlot
-import com.muyao.wanzaihyperos.ui.common.PageState
+import com.muyao.wanzaihyperos.ui.cjh52.CjhChip
+import com.muyao.wanzaihyperos.ui.cjh52.CjhHero
+import com.muyao.wanzaihyperos.ui.cjh52.CjhKvRow
+import com.muyao.wanzaihyperos.ui.cjh52.CjhNotice
+import com.muyao.wanzaihyperos.ui.cjh52.CjhOriginSection
+import com.muyao.wanzaihyperos.ui.cjh52.CjhStaleNotice
+import com.muyao.wanzaihyperos.ui.cjh52.CjhSourceCaption
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import com.muyao.wanzaihyperos.ui.design.AppList
+import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
+import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -59,8 +44,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * **但介面也必須把它顯示出來** —— 否則資料層留住的第二個時段，
  * 到了使用者眼前還是消失了，等於沒做。
  *
- * 所以每張課程卡片下面列出**全部時段**，每個時段一行：
- * 星期 + 時間 + 地點 + 週次。
+ * 因此一門課的值欄列出它的**全部時段**（一行一段），不是只挑第一個。
+ *
+ * ### 與稿 `cjhCourses.png` 的對應
+ *
+ * 稿上是「課名 → 時段·地點」緊接「教師 / 學期」的**成對鍵值行**，
+ * 行與行之間一道細分割線，**沒有卡片外框、沒有頂部統計條**。
+ * 以前這裡是一張張 [com.muyao.wanzaihyperos.ui.design.AppCard]，
+ * 對照截圖會發現整頁節奏完全不同（卡片陰影把「一份課表」讀成了「一堆卡片」）。
  *
  * ### 狀態處理
  *
@@ -88,6 +79,16 @@ fun CoursesPage(
      * 頁面此時顯示自己的載入態即可。
      */
     ready: Boolean = true,
+    /**
+     * 稿 `cjhCourses.png` 那枚「CJH52 查课表」的落點。
+     *
+     * 它**不是** CJH52 的頁面：查課表是門戶（ID 153）那條獨立的課表，
+     * 與本頁的 CJH52 課程是兩個資料源。稿上把它放在這頁，
+     * 正是為了不讓人以為「這一頁就是全部課表」。為 null 時不畫。
+     */
+    onOpenTimetable: (() -> Unit)? = null,
+    /** 稿 `cjhCourses.png` 那枚「六项服务目录」的落點。為 null 時不畫。 */
+    onOpenDirectory: (() -> Unit)? = null,
 ) {
     val state by repository.state.collectAsStateWithLifecycle()
     val pageState = state.toPageState()
@@ -99,187 +100,147 @@ fun CoursesPage(
         if (ready && state is ListState.FirstLoad) repository.refresh()
     }
 
-    ThemedScaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            SmallTopAppBar(
-                title = "我的课程",
-color = Color.Transparent,
-                subtitle = "来自场景管理（cjh52）",
-                navigationIcon = {
-                    IconButton(onClick = onExit) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { /* 由外層 scope 觸發 */ }) {
-                        Icon(
-                            imageVector = MiuixIcons.Refresh,
-                            contentDescription = "重新加载",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                },
-            )
-        },
+    // ★ 2026-11-08：換掉自拼的 `ThemedScaffold + SmallTopAppBar`。
+    //
+    //   兩個實打實的毛病：
+    //   ① 右上那顆刷新鈕的 `onClick` 是**空的**（`{ /* 由外層 scope 觸發 */ }`）——
+    //      它畫得出來、按得下去、什麼都不會發生。這種「看起來能用其實是死的」
+    //      按鈕比沒有按鈕更糟：使用者會以為是網路慢，而不是鍵壞了。
+    //   ② 全 App 的其它二級頁都走 [SecondaryScaffold]，只有這一頁自己拼頂欄，
+    //      字級／內距／返回圖標尺寸遲早和其它頁漂移（本專案吃過三次同樣的虧）。
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    val veilProgress by rememberScrollProgress(listState)
+    val refresh: () -> Unit = { scope.launch { runCatching { repository.refresh() } } }
+
+    SecondaryScaffold(
+        scrollProgress = veilProgress,
+        title = "我的课程",
+        onBack = onExit,
+        modifier = modifier,
     ) { innerPadding ->
-        if (courses.isEmpty()) {
-            StatePlaceholder(
-                state = pageState,
-                modifier = Modifier.padding(innerPadding),
-                // ★ 原生頁取不到資料時的出口。
-                //
-                // 刻意**在所有非內容狀態**都提供（不只錯誤態）：會話失效、離線、
-                // 甚至空態都給 —— 因為原生頁與網頁版的資料來源雖然同一個接口，
-                // 但網頁版是**已被驗證**的那條路。使用者不該因為我們改用了原生頁
-                // 就失去一條能用的路。
-                onAction = onFallbackToWeb,
-                actionLabel = if (onFallbackToWeb != null) "改用网页版" else null,
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(innerPadding).fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                item {
-                    SummaryBar(
-                        courseCount = courses.size,
-                        slotCount = courses.sumOf { it.slots.size },
-                        isStale = pageState == PageState.Stale,
+        // ★ 只讓 top：底欄由宿主 Scaffold 畫並已讓過，再讓一次會多出一條空白。
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding()),
+        ) {
+            AppList(modifier = Modifier.fillMaxSize(), state = listState) {
+                item(key = "courses-hero") {
+                    CjhHero(
+                        eyebrow = "CJH52 / 学生服务",
+                        title = "我的课程",
+                        sub = "独立于教务与学在城院的原生阅读入口。",
                     )
                 }
-                items(courses, key = { it.id }) { course ->
-                    CourseCard(course)
-                }
-            }
-        }
-    }
-}
+                item(key = "courses-stale") { CjhStaleNotice(pageState) }
 
-/** 頂部統計：課程數與**時段數**分開顯示 —— 這樣「一課多段」是否被保留，一眼可見。 */
-@Composable
-private fun SummaryBar(courseCount: Int, slotCount: Int, isStale: Boolean) {
-    val colors = MiuixTheme.colorScheme
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
-        Text(
-            text = "共 $courseCount 门课 · $slotCount 个上课时段",
-            style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = Type.tabular),
-            color = colors.onBackground,
-        )
-        if (isStale) {
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = "这次没刷新成功，显示的是上一次的资料",
-                style = MiuixTheme.textStyles.footnote2,
-                color = colors.onBackgroundVariant,
-            )
+                if (courses.isEmpty()) {
+                    item(key = "courses-state") {
+                        StatePlaceholder(
+                            state = pageState,
+                            // ★ 原生頁取不到資料時的出口。
+                            //
+                            // 刻意**在所有非內容狀態**都提供（不只錯誤態）：會話失效、離線、
+                            // 甚至空態都給 —— 因為原生頁與網頁版的資料來源雖然同一個接口，
+                            // 但網頁版是**已被驗證**的那條路。使用者不該因為我們改用了原生頁
+                            // 就失去一條能用的路。
+                            onAction = onFallbackToWeb,
+                            actionLabel = if (onFallbackToWeb != null) "改用网页版" else null,
+                        )
+                    }
+                } else {
+                    item(key = "courses-summary") {
+                        Text(
+                            text = "共 ${courses.size} 门课 · " +
+                                "${courses.sumOf { it.slots.size }} 个上课时段",
+                            style = TextStyle(fontFeatureSettings = Type.tabular),
+                            fontSize = Type.body,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                    items(courses, key = { it.id }) { course -> CourseBlock(course) }
+                }
+
+                item(key = "courses-notice") {
+                    // 稿 `cjhCourses.png` 的說明：這一頁只裝 CJH52 的課程，
+                    // 不吞掉「查課表 / 主課表 / 學在課表」三條各自獨立的路。
+                    CjhNotice(
+                        text = "这是 CJH52 我的课程；查课表 ID153、主课表与学在课表仍独立保留。",
+                    )
+                }
+                if (onOpenTimetable != null) {
+                    item(key = "courses-timetable") {
+                        CjhChip(
+                            label = "CJH52 查课表",
+                            onClick = onOpenTimetable,
+                            modifier = Modifier.padding(top = Dims.tight),
+                        )
+                    }
+                }
+                item(key = "courses-origin") {
+                    CjhOriginSection(
+                        webLabel = "我的课程完整网页版",
+                        onOpenWeb = onFallbackToWeb,
+                        onRefresh = refresh,
+                        onOpenDirectory = onOpenDirectory,
+                    )
+                }
+                item(key = "courses-source") { CjhSourceCaption("CJH52 接口") }
+            }
         }
     }
 }
 
 /**
- * 一張課程卡：課程信息 + **全部時段**。
+ * 一門課：兩行鍵值（稿 `cjhCourses.png` 的節奏）。
  *
- * 時段數 >1 時刻意顯示「N 個時段」的標記 ——
- * 讓「這門課不止一個時段」這件事在使用者面前是**顯式**的，
- * 而不是要靠自己數。
+ * 第一行標籤是**課名**、值是**時段·地點**；第二行是「教師 / 學期」。
+ * 這不是隨意排的：稿上就是靠「課名左、時段右」讓一屏能掃完整週課表。
+ *
+ * ### 學期為什麼寫「—」
+ *
+ * `Course` 契約裡**沒有學期欄位**（真機取證確認：id/name/classNo/collegeName/
+ * teacherName/courseCode/nature/slots）。稿上那個「2026秋季」是原型的樣例值，
+ * 抄過來等於替所有課程宣稱一個學期。所以照「未知寫 —」的規矩處理。
  */
 @Composable
-private fun CourseCard(course: Course) {
-    val colors = MiuixTheme.colorScheme
-    AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = course.name,
-                    style = MiuixTheme.textStyles.title4,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (course.slots.size > 1) {
-                    Text(
-                        text = "${course.slots.size} 个时段",
-                        style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = Type.tabular),
-                        color = colors.primary,
-                    )
-                }
-            }
-
-            if (course.teacherName.isNotBlank()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = course.teacherName,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = colors.onSurfaceVariantSummary,
-                )
-            }
-
-            if (course.slots.isEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "尚未排定上课时段",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = colors.onSurfaceVariantSummary,
-                )
-            } else {
-                Spacer(Modifier.height(8.dp))
-                course.slots.forEachIndexed { index, slot ->
-                    if (index > 0) {
-                        Spacer(Modifier.height(6.dp))
-                        // Miuix 0.9.4 没有 HorizontalDivider（见 BUILD-KOTLIN §5），
-                        // 用一条 1dp 的背景线代替 —— 与其它页面保持一致的观感。
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(colors.dividerLine),
-                        )
-                        Spacer(Modifier.height(6.dp))
-                    }
-                    SlotRow(slot)
-                }
-            }
-
-            if (course.classNo.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = course.classNo,
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = colors.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
+private fun CourseBlock(course: Course) {
+    CjhKvRow(
+        label = course.name.ifBlank { "（未命名课程）" },
+        value = if (course.slots.isEmpty()) {
+            "尚未排定上课时段"
+        } else {
+            course.slots.joinToString("\n") { slotText(it) }
+        },
+        // 課名當標籤位，必須給比例寬度：長課名會把時段列擠成一條窄縫（真機實測折四行＋裁切）。
+        labelWeight = 0.46f,
+    )
+    CjhKvRow(
+        label = "教师 / 学期",
+        value = (course.teacherName.ifBlank { "—" }) + " / —",
+    )
 }
 
-/** 單個時段：`星期一 13:30:00~15:05:00 · 教六310 · 1-8 週`。 */
-@Composable
-private fun SlotRow(slot: CourseSlot) {
-    val colors = MiuixTheme.colorScheme
-    val parts = buildList {
+/**
+ * 單個時段：`星期二 13:30~15:05 · 教六310 · 1-8 周`。
+ *
+ * 每一項缺失就整段不出現（不留「· ·」），週次解析不出來就不寫週次 ——
+ * 這門課有些時段是「單雙週」的，猜一個 1-16 週會讓學生走錯教室。
+ */
+private fun slotText(slot: CourseSlot): String {
+    // 分兩行：`星期X 時段` 一行、`地點 · 周次` 一行。
+    // 擠成一行時右列只有半屏寬，實測「教六205」會被從中間折成「教六」/「205」，
+    // 一個地名被拆成兩截比多一行更難讀。
+    val whenPart = buildList {
         if (slot.day.isNotBlank()) add(slot.day)
         if (slot.start.isNotBlank() && slot.end.isNotBlank()) {
-            add("${slot.start}~${slot.end}")
+            add(slot.start.removeSuffix(":00") + "~" + slot.end.removeSuffix(":00"))
         }
+    }.joinToString(" ")
+    val wherePart = buildList {
         if (slot.displayLocation.isNotBlank()) add(slot.displayLocation)
         slot.weekRange?.let { add("${it.first}-${it.last} 周") }
-    }
-    Text(
-        text = parts.joinToString(" · "),
-        style = MiuixTheme.textStyles.body2,
-        color = colors.onSurface,
-    )
+    }.joinToString(" · ")
+    return listOf(whenPart, wherePart).filter { it.isNotBlank() }.joinToString("\n")
 }

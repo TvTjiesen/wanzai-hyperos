@@ -31,11 +31,14 @@ class AppearanceOneStopTest {
     @Test
     fun `七件事都在这一页`() {
         val text = read(page)
-        listOf("主题", "壁纸", "柔化", "暗度", "玻璃", "密度").forEach { label ->
+        // 稿 v2.1 `appearance.png` 的标签：玻璃那块叫「玻璃材质」，密度那块叫「界面密度」。
+        // 原来这里钉的是「玻璃」「密度」两个短名（旧板），短名在真机上读不清是哪个。
+        listOf("主题", "壁纸", "柔化", "暗度", "玻璃材质", "界面密度").forEach { label ->
             assertTrue("外观页少了「$label」这一项（B4-14 要求一站式）", "label = \"$label\"" in text || "\"$label\"" in text)
         }
         // 「模块」是一组开关，标题由页面自己写
-        assertTrue("外观页少了「模块」那一组", "模块" in text || "今日课程" in text)
+        // 稿上第一个芯片叫「课程」，不是「今日课程」。
+        assertTrue("外观页少了「模块」那一组", "模块" in text || "课程" in text)
     }
 
     @Test

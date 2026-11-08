@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.tronclass
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -19,7 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.ListState
@@ -27,30 +30,22 @@ import com.muyao.wanzaihyperos.data.tronclass.HomeworkDetail
 import com.muyao.wanzaihyperos.data.tronclass.HomeworkDetailRepository
 import com.muyao.wanzaihyperos.data.tronclass.HomeworkSubmitResult
 import com.muyao.wanzaihyperos.data.tronclass.TronSubmission
-import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
 import com.muyao.wanzaihyperos.ui.design.ActionRow
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.AppList
-import com.muyao.wanzaihyperos.ui.design.BackRow
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.HintText
 import com.muyao.wanzaihyperos.ui.design.KeyValueRow
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.ResultBanner
-import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
+import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -88,48 +83,34 @@ fun HomeworkDetailPage(
 ) {
     val scope = rememberCoroutineScope()
     val state by repository.state.collectAsState()
+    // 清單的滾動狀態提到這裡：頂欄漸變紗要靠它算進度（見 SecondaryScaffold 的
+    // scrollProgress 參數說明）。
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val veilProgress by com.muyao.wanzaihyperos.ui.design.rememberScrollProgress(listState)
 
-    ThemedScaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            SmallTopAppBar(
-                title = title.ifBlank { "作业详情" },
-                color = Color.Transparent,
-                subtitle = courseName.ifBlank { "学在城院 · 作业" },
-                navigationIcon = {
-                    IconButton(onClick = onExit) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(Dims.iconNav),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                if (courseId > 0) {
-                                    runCatching { repository.load(courseId, homeworkId, courseName, title) }
-                                }
-                            }
-                        },
-                    ) {
-                        Icon(
-                            imageVector = MiuixIcons.Refresh,
-                            contentDescription = "重新加载",
-                            modifier = Modifier.size(Dims.iconAction),
-                        )
-                    }
-                },
-            )
+    com.muyao.wanzaihyperos.ui.design.SecondaryScaffold(
+        // 兜底文案對稿：稿的 top-title 就是「作業詳情與提交」。
+        // （有作業名時仍優先用作業名 —— 那一行比「作業詳情」有用得多。）
+        title = title.ifBlank { "作业详情与提交" },
+        subtitle = courseName.ifBlank { "学在城院 · 作业" },
+        onBack = onExit,
+        modifier = modifier,
+        scrollProgress = veilProgress,
+        onRefresh = {
+            scope.launch {
+                if (courseId > 0) {
+                    runCatching { repository.load(courseId, homeworkId, courseName, title) }
+                }
+            }
         },
     ) { innerPadding ->
         HomeworkDetailBody(
             repository = repository,
             onOpenWeb = onOpenWeb,
+            listState = listState,
             modifier = Modifier
                 .fillMaxSize()
+                // 安全區只讓一次：頂欄高度（含狀態列）由殼給。
                 .padding(top = innerPadding.calculateTopPadding()),
         )
     }
@@ -146,6 +127,8 @@ fun HomeworkDetailBody(
     repository: HomeworkDetailRepository,
     onOpenWeb: () -> Unit,
     modifier: Modifier = Modifier,
+    listState: androidx.compose.foundation.lazy.LazyListState =
+        androidx.compose.foundation.lazy.rememberLazyListState(),
     header: LazyListScope.() -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -170,7 +153,7 @@ fun HomeworkDetailBody(
 
     if (detail == null) {
         val error = (state as? ListState.Failed)?.error?.userText
-        AppList(modifier = modifier) {
+        AppList(modifier = modifier, state = listState) {
             header()
             item {
                 StatePlaceholder(
@@ -184,7 +167,7 @@ fun HomeworkDetailBody(
         return
     }
 
-    AppList(modifier = modifier) {
+    AppList(modifier = modifier, state = listState) {
         header()
 
         item {
@@ -194,17 +177,28 @@ fun HomeworkDetailBody(
             }
         }
 
+        // ── 頁面級的三行：eyebrow / 作業名 / 課程名 ─────────────────
+        // 稿上這三行在頂欄下面、卡片上面。原本作業名畫在卡片裡，
+        // 補 hero 之後若還留著，同一句話會出現兩次 —— 所以標題提到這裡。
+        item {
+            TronHero(
+                eyebrow = "ASSIGNMENT / 作业",
+                title = detail.title.ifBlank { "作业详情与提交" },
+                sub = detail.courseName.ifBlank { "学在城院 · 作业" },
+                icon = MarkIcon.File,
+            )
+        }
+
         // ── 一眼要看到的三件事：交没交、截止、还能交几次 ───────────
         item {
             AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(Dims.cardPadding)) {
-                    Text(
-                        text = detail.title.ifBlank { "（无标题）" },
-                        style = MiuixTheme.textStyles.title4,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.onSurface,
-                    )
-                    Spacer(Modifier.height(Dims.tight))
+                    // 稿上標題下面那顆膠囊：「已有 N 次正式提交 · 可查看版本」。
+                    // 它回答的是學生最常問的一句 ——「我到底交沒交成、還能不能回看」。
+                    if (detail.submittedCount > 0) {
+                        SubmittedPill(detail.submittedCount)
+                        Spacer(Modifier.height(Dims.tight))
+                    }
                     StatusLine(detail)
                     Spacer(Modifier.height(Dims.loose))
                     val hw = detail.homework
@@ -216,18 +210,29 @@ fun HomeworkDetailBody(
                                 "所以不看要求、也不提交（怕提交到错的地方）。",
                         )
                     } else {
-                        KeyValueRow("截止", hw.deadlineLocal, labelWidth = Dims.labelColumnWide)
-                        KeyValueRow("可交", hw.submitLimitLabel, labelWidth = Dims.labelColumnWide)
-                        if (hw.homeworkType.isNotBlank()) {
-                            KeyValueRow("形式", hw.homeworkType, labelWidth = Dims.labelColumnWide)
-                        }
+                        KeyValueRow("截止时间", hw.deadlineLocal, labelWidth = Dims.labelColumnWide)
+                        KeyValueRow("可交次数", hw.submitLimitLabel, labelWidth = Dims.labelColumnWide)
+                        // 「形式 / 占比」稿上是一條：這兩項都是「這份作業長什麼樣」，
+                        // 拆兩行反而看不出「個人正文與附件 / 10%」的對應關係。
+                        val pct = hw.scorePercentage.toDoubleOrNull()?.takeIf { it > 0.0 }
+                        KeyValueRow(
+                            label = "形式 / 占比",
+                            value = listOfNotNull(
+                                hw.homeworkType.takeIf { it.isNotBlank() },
+                                pct?.let { "${hw.scorePercentage}%" },
+                            ).joinToString(" / ").ifBlank { "—" },
+                            labelWidth = Dims.labelColumnWide,
+                        )
+                        // 稿上第四條 kv。原本「小組作業」只在**是小組作業時**
+                        // 冒出一行 HintText，於是「不是小組作業」的人看不到這個欄位。
+                        KeyValueRow(
+                            label = "小组作业",
+                            value = if (hw.submitByGroup) "是" else "否",
+                            labelWidth = Dims.labelColumnWide,
+                        )
                         if (hw.submitByGroup) {
                             Spacer(Modifier.height(Dims.tight))
                             HintText("这是小组作业：以小组为单位交，个人提交可能被服务器拒绝。")
-                        }
-                        val pct = hw.scorePercentage.toDoubleOrNull()?.takeIf { it > 0.0 }
-                        if (pct != null) {
-                            KeyValueRow("占比", "${hw.scorePercentage}%", labelWidth = Dims.labelColumnWide)
                         }
                     }
                 }
@@ -236,7 +241,7 @@ fun HomeworkDetailBody(
 
         // ── 要求正文 ──────────────────────────────────────────────
         detail.homework?.plainDescription?.takeIf { it.isNotBlank() }?.let { req ->
-            item { SmallTitle(text = "作业要求") }
+            item { TronSection(text = "作业要求", icon = MarkIcon.Pin) }
             item {
                 AppCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -252,7 +257,21 @@ fun HomeworkDetailBody(
         }
 
         // ── 我交过的每一版 ────────────────────────────────────────
-        item { SmallTitle(text = "我的提交（${detail.submissions.size}）") }
+        item {
+            TronSection(
+                text = "我的提交（${detail.submissions.size}）",
+                icon = MarkIcon.File,
+                trailing = {
+                    // 稿上這一行右邊那句 —— 「我交了 3 次」到底算不算草稿，
+                    // 是學生判斷「交夠了沒有」的唯一依據。
+                    Text(
+                        text = "草稿不计正式次数",
+                        fontSize = Type.caption,
+                        color = colors.onSurfaceVariantSummary,
+                    )
+                },
+            )
+        }
         if (!detail.submissionsKnown) {
             item {
                 HintText(
@@ -270,14 +289,14 @@ fun HomeworkDetailBody(
         }
 
         // ── 提交区 ────────────────────────────────────────────────
-        item { SmallTitle(text = "提交正文") }
+        item { TronSection(text = "提交正文", icon = MarkIcon.File) }
         item {
             AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(Dims.cardPadding)) {
                     TextField(
                         value = draft,
                         onValueChange = { draft = it },
-                        label = "作业正文",
+                        label = "我的正文",
                         modifier = Modifier.fillMaxWidth(),
                     )
                     // Miuix 0.9.4 的 TextField **没有** isError/supportingText 参数，
@@ -295,7 +314,7 @@ fun HomeworkDetailBody(
                     Spacer(Modifier.height(Dims.sectionGap))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(
-                            text = "存草稿",
+                            text = "保存草稿",
                             onClick = { confirmDraft = true },
                             enabled = !submitting && reason == null && draft.isNotBlank(),
                             modifier = Modifier.weight(1f),
@@ -304,7 +323,11 @@ fun HomeworkDetailBody(
                             onClick = { confirmDraft = false },
                             enabled = !submitting && reason == null && draft.isNotBlank(),
                             modifier = Modifier.weight(1f),
-                        ) { Text(if (submitting) "提交中…" else "提交作业") }
+                        ) {
+                            // 「正式」二字是稿子特意拿來和「草稿」對立的：
+                            // 「提交作業」讀不出這層對立，學生會以為和存草稿同一量級。
+                            Text(if (submitting) "提交中…" else "正式提交")
+                        }
                     }
                     Spacer(Modifier.height(Dims.loose))
                     HintText(
@@ -315,7 +338,41 @@ fun HomeworkDetailBody(
             }
         }
 
-        item { ActionRow(title = "网页版（交文件、撤回）", action = "打开", onClick = onOpenWeb) }
+        // ── 需要文件或撤回？──────────────────────────────────────
+        // 稿上這是一整塊（標題 + 兩顆按鈕 + 一句「原站入口完整保留」）。
+        // 原本只有一顆藏在頁尾的 ActionRow —— 學生會把它當次要設置，
+        // 而它其實是「交附件 / 撤回」的唯一入口。
+        // 兩顆都跳網頁版：上傳（FileProvider 授權）與撤回（學校側窗口）
+        // 兩條鏈本專案都沒驗證過，不拿成績試。
+        item { TronSection(text = "需要文件或撤回？", icon = MarkIcon.Warn) }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    text = "上传作业附件",
+                    onClick = onOpenWeb,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    text = "撤回正式提交",
+                    onClick = onOpenWeb,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        item {
+            TronNotice("原站上传和撤回入口完整保留；本 App 不改变任何学校作业。")
+        }
+
+        // ── 來源標註 ─────────────────────────────────────────────
+        // 這一頁有「提交」這種不可逆動作。稿上寫的是演示時間；
+        // 我們讀的是真接口，所以改成真的來源（寫「本地模擬樣例」才是造假）。
+        item {
+            Text(
+                text = "来源：学在城院接口 · 以原站为准",
+                fontSize = Type.caption,
+                color = colors.onSurfaceVariantSummary,
+            )
+        }
         item { Spacer(Modifier.height(Dims.sectionGap)) }
     }
 
@@ -330,7 +387,7 @@ fun HomeworkDetailBody(
     OverlayDialog(
         show = confirmDraft != null,
         onDismissRequest = { confirmDraft = null },
-        title = if (confirmDraft == true) "保存草稿？" else "提交作业？",
+        title = if (confirmDraft == true) "保存草稿？" else "正式提交？",
         summary = buildString {
             val asDraft = confirmDraft == true
             append(if (asDraft) "草稿不会交上去，也不占可交次数。" else "提交后由老师评分。")
@@ -385,7 +442,7 @@ fun HomeworkDetailBody(
                     }
                 },
                 modifier = Modifier.weight(1f),
-            ) { Text(if (confirmDraft == true) "存草稿" else "确定提交") }
+            ) { Text(if (confirmDraft == true) "保存草稿" else "确定提交") }
         }
     }
 }
@@ -398,7 +455,9 @@ private data class HomeworkNotice(val ok: Boolean, val text: String)
 private fun StatusLine(detail: HomeworkDetail) {
     val colors = MiuixTheme.colorScheme
     val text = when {
-        detail.myStatus?.submitted == true -> "已交（第 ${detail.submittedCount} 版）"
+        // 版數交給上面那顆膠囊講，這裡只講「交沒交」——
+        // 兩行都寫「第 N 版」等於同一件事說兩遍。
+        detail.myStatus?.submitted == true -> "已交"
         detail.myStatus?.submitted == false -> "未交"
         else -> "交了没：不知道（状态那支没取到）"
     } + if (detail.draftCount > 0) "　有 ${detail.draftCount} 份草稿" else ""
@@ -428,25 +487,29 @@ private fun SubmissionRow(submission: TronSubmission) {
                 style = MiuixTheme.textStyles.body2,
                 color = colors.onSurface,
             )
-            val body = submission.plainComment
-            if (body.isNotBlank()) {
-                Spacer(Modifier.height(Dims.tight))
-                Text(
-                    text = body,
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = colors.onSurfaceVariantSummary,
-                    maxLines = 4,
-                )
-            }
-            submission.instructorComment.takeIf { it.isNotBlank() }?.let {
-                Spacer(Modifier.height(Dims.tight))
-                Text(
-                    text = "老师：${it}",
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = colors.onSurfaceVariantSummary,
-                    maxLines = 3,
-                )
-            }
+            Spacer(Modifier.height(Dims.tight))
+            // 稿上這一塊是四條 kv：正式版本／正文／教師評語／附件數。
+            // 「正式版本」上面那行已經講了（第 N 版 · 時間），這裡補另外三項。
+            // 長正文截到 120 字並留省略號：不截的話一版能撐滿兩屏，
+            // 而這一頁要的是「我上次交的是什麼」，不是重讀全文。
+            KeyValueRow(
+                label = "正文",
+                value = submission.plainComment.ifBlank { "—" }.clip120(),
+                labelWidth = Dims.labelColumnWide,
+            )
+            KeyValueRow(
+                label = "教师评语",
+                value = submission.instructorComment.ifBlank { "—" }.clip120(),
+                labelWidth = Dims.labelColumnWide,
+            )
+            // 附件數：`TronSubmission` 沒有解析接口的 `uploads[]`（那一層不在本次
+            // 可改範圍內），所以這一格**不能**寫 0 —— 寫 0 是在說「你沒傳附件」，
+            // 而我們其實不知道。如實寫「只在原站顯示」。
+            KeyValueRow(
+                label = "附件",
+                value = "只在原站显示",
+                labelWidth = Dims.labelColumnWide,
+            )
             if (!submission.draft) {
                 Spacer(Modifier.height(Dims.tight))
                 Text(
@@ -461,4 +524,29 @@ private fun SubmissionRow(submission: TronSubmission) {
             }
         }
     }
+}
+
+/** 长文本截断：留省略号，读者能看出「后面还有」。 */
+private fun String.clip120(): String = if (length > 120) take(120) + "…" else this
+
+/**
+ * 「已有 N 次正式提交 · 可查看版本」胶囊。
+ *
+ * 稿上是 `<span class="pill">`：底色比卡片深一档、圆角全满、字号小一号。
+ * 为什么不复用 `SettingsChrome.kt` 的 `PillSwitch` —— 那是开关，不是状态标签。
+ */
+@Composable
+private fun SubmittedPill(count: Int) {
+    val colors = MiuixTheme.colorScheme
+    Text(
+        text = "已有 $count 次正式提交 · 可查看版本",
+        fontSize = Type.caption,
+        color = colors.primary,
+        // 次數會變（1→2→3），走等寬數字，否則膠囊寬度會跟著跳。
+        style = TextStyle(fontFeatureSettings = Type.tabular),
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(colors.primary.copy(alpha = 0.12f))
+            .padding(horizontal = Dims.loose, vertical = Dims.tight),
+    )
 }

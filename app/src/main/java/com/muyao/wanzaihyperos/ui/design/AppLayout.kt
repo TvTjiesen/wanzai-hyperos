@@ -472,7 +472,11 @@ fun ThemedScaffold(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(AppColors.pageBrush(isDark)),
+            // 容器背景两版（业主 2026-11-07「整个 app 的容器背景做两版」）：
+            // `Designed` 铺页内纸色 + 天光（稿子原样）；`Bare` 让开，把根节点那层
+            // 整页渐变直接透出来。**二级页也必须走这一句**，否则两版只在主壳生效、
+            // 一进二级页就跳回纸色，切换开关等于没生效。
+            .containerBackground(isDark),
     ) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),

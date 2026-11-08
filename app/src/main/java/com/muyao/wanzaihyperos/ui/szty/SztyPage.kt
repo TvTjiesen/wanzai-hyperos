@@ -1,15 +1,25 @@
 package com.muyao.wanzaihyperos.ui.szty
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import com.muyao.wanzaihyperos.ui.design.BodyMark
+import com.muyao.wanzaihyperos.ui.design.Mark
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.OdometerText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -19,12 +29,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.agoLabel
 import com.muyao.wanzaihyperos.data.items
@@ -51,7 +67,6 @@ import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -140,6 +155,9 @@ fun SztyPage(
         if (hasCredential && state is ListState.FirstLoad) runCatching { repository.refresh() }
     }
 
+    // 稿（sports.png）把三块只读内容做成三段式；默认落在「校园跑」。
+    var tab by remember { mutableStateOf(SztyTab.RUN) }
+
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val veilProgress by rememberScrollProgress(listState)
 
@@ -159,6 +177,13 @@ fun SztyPage(
                 .padding(top = innerPadding.calculateTopPadding()),
         ) {
             AppList(modifier = Modifier.fillMaxSize(), state = listState) {
+                item(key = "szty-hero") {
+                    SecHero(
+                        eyebrow = "SPORTS / 数智体育",
+                        title = "运动记录，清楚可查",
+                        sub = "只有校园跑、体测、体育课签到三个只读域。",
+                    )
+                }
                 if (!hasCredential) {
                     item(key = "gate-intro") {
                         HintText(
@@ -166,6 +191,12 @@ fun SztyPage(
                                 "（真密码与乱写密码回的是同一条错误）。\n" +
                                 "所以这里要你在数智体育官方 App 里登录一次，把它发的 token 与数字 userId 贴过来 —— " +
                                 "两样都只存在这台手机的加密存储里。",
+                        )
+                    }
+                    item(key = "gate-notice") {
+                        SecNotice(
+                            "不收真实 token 的演示口子这里没有：要的就是你自己那一枚。" +
+                                "userId 是数字用户标识，不是学号 —— 学号（8 位）服务端会直接拒。",
                         )
                     }
                     inputError?.let { msg ->
@@ -245,6 +276,8 @@ fun SztyPage(
                 } else {
                     sztyContent(
                         state = state,
+                        tab = tab,
+                        onTab = { tab = it },
                         onClear = {
                             session.clear()
                             hasCredential = false
@@ -259,6 +292,8 @@ fun SztyPage(
 /** 已填凭据之后的三块内容 + 各种失败形态。抽出来只为让上面那层 if 读得清。 */
 private fun androidx.compose.foundation.lazy.LazyListScope.sztyContent(
     state: ListState<SztySnapshot>,
+    tab: SztyTab,
+    onTab: (SztyTab) -> Unit,
     onClear: () -> Unit,
 ) {
     val meta = state.metaOrNull
@@ -342,30 +377,168 @@ private fun androidx.compose.foundation.lazy.LazyListScope.sztyContent(
         item(key = "note-" + index) { HintText(note) }
     }
 
-    // ── 校园跑 ──────────────────────────────────────────────
-    item(key = "run-title") { SmallTitle(text = "校园跑") }
-    item(key = "run-card") { RunCard(snapshot.run) }
-
-    // ── 体测 ────────────────────────────────────────────────
-    item(key = "fitness-title") { SmallTitle(text = "体测") }
-    if (snapshot.fitness.isEmpty()) {
-        item(key = "fitness-empty") { HintText("服务端没有回体测成绩（不是「没测」，是这次没取到）。") }
-    } else {
-        snapshot.fitness.forEachIndexed { index, year ->
-            item(key = "fitness-" + index) { FitnessCard(year) }
-        }
+    // ★ 三个只读域做成三段式（稿 sports.png）：
+    //   以前三块竖着摞，找「体测」要往下翻过一整张跑步卡；而这三个域
+    //   平时只关心其中一个（学期中看跑步，期末看体测）。分格之后默认只看一块。
+    item(key = "szty-tabs") {
+        SztySegmented(selected = tab, onSelect = onTab)
     }
 
-    // ── 体育课签到 ──────────────────────────────────────────
-    item(key = "pe-title") { SmallTitle(text = "体育课签到") }
-    item(key = "pe-card") {
-        AttendanceCard(snapshot.peClass, snapshot.attendanceSummary, snapshot.attendance)
+    when (tab) {
+        SztyTab.RUN -> {
+            item(key = "run-card") { RunCard(snapshot.run) }
+        }
+
+        SztyTab.FITNESS -> {
+            if (snapshot.fitness.isEmpty()) {
+                item(key = "fitness-empty") {
+                    HintText("服务端没有回体测成绩（不是「没测」，是这次没取到）。")
+                }
+            } else {
+                snapshot.fitness.forEachIndexed { index, year ->
+                    item(key = "fitness-" + index) { FitnessCard(year) }
+                }
+            }
+        }
+
+        SztyTab.ATTENDANCE -> {
+            item(key = "pe-card") {
+                AttendanceCard(snapshot.peClass, snapshot.attendanceSummary, snapshot.attendance)
+            }
+        }
     }
 
     item(key = "tail") {
         HintText(
             "说明：数据来自数智体育（ty.hzcu.edu.cn），只读。它按请求里的数字 userId 认人，" +
-                "所以换了账号要连 userId 一起换。",
+                "所以换了账号要连 userId 一起换。本页不提供开始跑步、结束跑步、轨迹上传或代签到。",
+        )
+    }
+}
+
+/**
+ * 三个只读域。**顺序就是稿上的顺序**（校园跑 → 体测 → 体育课签到）。
+ *
+ * 用一个枚举而不是三个 boolean：加第四个域时只改这里与 [SztySegmented] 的循环，
+ * 不会出现「多一个 tab 但没有内容」或者反过来的情况。
+ */
+private enum class SztyTab(val label: String, val mark: MarkIcon) {
+    RUN("校园跑", MarkIcon.Run),
+    FITNESS("体测", MarkIcon.Data),
+    ATTENDANCE("体育课签到", MarkIcon.Clock),
+}
+
+/**
+ * 三段式分段控件（稿 `sports.png` 的 `.segmented`：一条圆角槽，选中项浮起来）。
+ *
+ * 没直接用 `TabRow`：那是「宽度固定、居中排」的下划线式标签，
+ * 而稿这里是**三等分满宽**的胶囊槽。每一格都撑到 [Dims.minTouch]，
+ * 窄屏上也不会把字挤没。
+ */
+@Composable
+private fun SztySegmented(selected: SztyTab, onSelect: (SztyTab) -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(percent = 50))
+            .background(colors.background)
+            .border(1.dp, colors.dividerLine, RoundedCornerShape(percent = 50))
+            .padding(Dims.tight),
+        horizontalArrangement = Arrangement.spacedBy(Dims.tight),
+    ) {
+        SztyTab.entries.forEach { item ->
+            val on = item == selected
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = Dims.minTouch)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(if (on) colors.surface else Color.Transparent)
+                    .clickable(onClick = { onSelect(item) }),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    BodyMark(
+                        icon = item.mark,
+                        tint = if (on) colors.primary else colors.onSurfaceVariantSummary,
+                        size = Mark.size,
+                    )
+                    Text(
+                        text = item.label,
+                        fontSize = Type.caption,
+                        fontWeight = if (on) Type.weightTitle else Type.weightBody,
+                        color = if (on) colors.primary else colors.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 页头三行：眉题 / 大标题 / 一句副题（照稿 `.eyebrow` + `.hero-title` + `.muted`）。 */
+@Composable
+private fun SecHero(eyebrow: String, title: String, sub: String) {
+    val colors = MiuixTheme.colorScheme
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = eyebrow,
+            fontSize = Type.caption,
+            fontWeight = Type.weightTitle,
+            letterSpacing = 0.10.em,
+            color = Tone.quiet,
+            style = TextStyle(fontFeatureSettings = Type.tabular),
+        )
+        Text(
+            text = title,
+            fontSize = Type.displayTitle,
+            lineHeight = Type.lineDisplayTitle,
+            fontWeight = Type.weightTitle,
+            letterSpacing = (-0.02).em,
+            color = colors.onBackground,
+            modifier = Modifier.padding(top = Dims.tight, bottom = Dims.tight),
+        )
+        Text(
+            text = sub,
+            fontSize = Type.caption,
+            lineHeight = Type.lineCaption,
+            color = colors.onSurfaceVariantSummary,
+            textAlign = TextAlign.Start,
+        )
+    }
+}
+
+/** 说明条：左侧一道竖线 + 淡底（照稿 `.notice`，不是一张卡片）。 */
+@Composable
+private fun SecNotice(text: String, error: Boolean = false) {
+    val colors = MiuixTheme.colorScheme
+    val tint = if (error) colors.error else colors.onSurfaceVariantSummary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
+            .background(colors.surfaceContainer.copy(alpha = 0.55f)),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(tint),
+        )
+        Text(
+            text = text,
+            fontSize = Type.caption,
+            lineHeight = Type.lineCaption,
+            color = tint,
+            modifier = Modifier.padding(
+                start = Dims.loose,
+                end = Dims.cardPadding,
+                top = Dims.normal,
+                bottom = Dims.normal,
+            ),
         )
     }
 }

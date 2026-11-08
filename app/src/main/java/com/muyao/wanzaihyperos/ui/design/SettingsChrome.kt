@@ -100,6 +100,40 @@ enum class SettingIcon {
      * 而徽章式的「环 + 中心点」是 `Badge`；杠铃三笔落在 20dp 里还不与任何一枚撞。
      */
     Dumbbell,
+
+    /**
+     * 静音时段：一枚**粗弧月牙**。
+     *
+     * 为什么不是铃铛加斜杠：同一张卡上面那行「上课提醒」已经是铃铛（`Alarm`），
+     * 再画一个带斜杠的铃铛，读起来还是「同一件事被写了两遍」——
+     * 这条规矩本文件已经为 `Contrast` 与 `Alarm` 立过两次。
+     * 月牙与铃铛形状完全不像，一眼能分。
+     */
+    Moon,
+
+    /**
+     * 本地缓存：**斜柄扫帚**（柄 + 一个斜四边形刷头 + 两笔刷毛）。
+     *
+     * 「全部清掉」那行也用它：同一张卡里两行说的是同一件事（缓存），
+     * 共用一枚是**表达归属**，不是撞车 —— 撞车指的是不相干的两件事长得一样
+     * （`本地缓存` 与 `提醒为什么不响` 都画圆圈 i 才是那种错）。
+     */
+    Broom,
+
+    /**
+     * 减弱透明度：一只**睁开的眼睛**（上下两段弧 + 中间瞳孔）。
+     *
+     * 板 `settings.png` 那一行画的就是眼睛；原来用的 `Contrast`（半填圆）
+     * 与「动画与辅助显示」的太阳在同一张卡里都读成「一个圆圈」，分不出两件事。
+     */
+    Eye,
+
+    /**
+     * 动画与辅助显示：一颗**太阳**（圆 + 八道短光）。
+     *
+     * 板面用它表示「跟随系统」——系统动了，这里跟着动。
+     */
+    Sun,
 }
 
 @Composable
@@ -146,15 +180,16 @@ fun SettingGlyph(icon: SettingIcon, tint: Color, modifier: Modifier = Modifier) 
                 }
 
                 SettingIcon.Glass -> {
-                    // 水滴：一个圆 + 下面一个尖
-                    dot(s * 0.5f, s * 0.42f, s * 0.24f, c)
-                    val p = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(s * 0.28f, s * 0.52f)
-                        lineTo(s * 0.5f, s * 0.88f)
-                        lineTo(s * 0.72f, s * 0.52f)
-                        close()
-                    }
-                    drawPath(p, c)
+                    // 调色盘：盘面 + 拇指孔 + 三枚颜料点。
+                    //
+                    // 原来这里画的是「水滴」（一个圆 + 下面一个尖），落到 24dp 上读起来
+                    // 就是一枚地图定位针 —— 真机上「外观与壁纸」那行看着像「位置」。
+                    // 板面那一行要表达的是「色彩、材质」，所以改画调色盘。
+                    ring(s * 0.5f, s * 0.5f, s * 0.36f, stroke, c)
+                    ring(s * 0.56f, s * 0.66f, s * 0.10f, stroke * 0.9f, c)
+                    dot(s * 0.34f, s * 0.38f, stroke * 0.72f, c)
+                    dot(s * 0.56f, s * 0.32f, stroke * 0.72f, c)
+                    dot(s * 0.70f, s * 0.46f, stroke * 0.72f, c)
                 }
 
                 SettingIcon.Timetable -> {
@@ -245,6 +280,64 @@ fun SettingGlyph(icon: SettingIcon, tint: Color, modifier: Modifier = Modifier) 
                     line(s * 0.3f, s * 0.5f, s * 0.7f, s * 0.5f, stroke, c)
                     rr(s * 0.08f, s * 0.26f, s * 0.3f, s * 0.74f, stroke, c)
                     rr(s * 0.7f, s * 0.26f, s * 0.92f, s * 0.74f, stroke, c)
+                }
+
+                // ---- 2026-11-07 五项新增设置：两枚新线稿 -------------------
+                SettingIcon.Moon -> {
+                    // 粗弧月牙：一条 270° 的弧 + 很粗的描边，读起来就是缺了右边一块的月亮。
+                    // 用「粗弧」而不是「两个圆相减」：相减要拿卡面底色去盖，
+                    // 而设置行在玻璃底上，底色不是恒定的 surface，盖出来会有一个色斑。
+                    drawArc(
+                        color = c,
+                        startAngle = -35f,
+                        sweepAngle = 290f,
+                        useCenter = false,
+                        topLeft = Offset(s * 0.17f, s * 0.13f),
+                        size = Size(s * 0.66f, s * 0.74f),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = s * 0.21f,
+                            cap = StrokeCap.Round,
+                        ),
+                    )
+                }
+
+                SettingIcon.Broom -> {
+                    // 柄：右上到中
+                    line(s * 0.86f, s * 0.10f, s * 0.52f, s * 0.44f, stroke, c)
+                    // 刷头：一个斜四边形（填充）
+                    val head = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(s * 0.46f, s * 0.34f)
+                        lineTo(s * 0.72f, s * 0.60f)
+                        lineTo(s * 0.38f, s * 0.92f)
+                        lineTo(s * 0.12f, s * 0.66f)
+                        close()
+                    }
+                    drawPath(head, c)
+                    // 两笔刷毛，压在下沿
+                    line(s * 0.24f, s * 0.74f, s * 0.40f, s * 0.90f, stroke * 0.7f, c)
+                }
+
+                SettingIcon.Eye -> {
+                    // 上下两段二次贝塞尔合成梭形眼眶，中间一颗实心瞳孔。
+                    val lens = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(s * 0.07f, s * 0.5f)
+                        quadraticBezierTo(s * 0.5f, s * 0.10f, s * 0.93f, s * 0.5f)
+                        quadraticBezierTo(s * 0.5f, s * 0.90f, s * 0.07f, s * 0.5f)
+                        close()
+                    }
+                    drawPath(lens, c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke))
+                    drawCircle(c, radius = s * 0.12f, center = Offset(s * 0.5f, s * 0.5f))
+                }
+
+                SettingIcon.Sun -> {
+                    drawCircle(c, radius = s * 0.20f, center = Offset(s * 0.5f, s * 0.5f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke))
+                    // 八道短光：内 0.31 / 外 0.45，四正四斜。
+                    for (i in 0 until 8) {
+                        val a = Math.toRadians((i * 45).toDouble())
+                        val cx = kotlin.math.cos(a).toFloat()
+                        val cy = kotlin.math.sin(a).toFloat()
+                        line(s * (0.5f + cx * 0.31f), s * (0.5f + cy * 0.31f), s * (0.5f + cx * 0.45f), s * (0.5f + cy * 0.45f), stroke, c)
+                    }
                 }
 
                 SettingIcon.Screen -> {

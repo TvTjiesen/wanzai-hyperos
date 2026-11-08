@@ -28,7 +28,18 @@
     其余约 100 处仍在 Composable 里，迁移顺序见 docs/COPY-TERMS.md §7。
 -->
 <resources>
-    <string name="app_name">集城</string>
+    <!--
+      应用名（2026-11-07 业主：「名称再想一个，这个我不满意，听着不够可爱」）。
+
+      「鲸集」：鲸是鲸鱼娘（桌面图标 / 登录 / 关于三层入口的角色），集是「把分散的
+      校园系统聚到一处」。两个字、开口音收尾，念起来轻；比「城院集」短一半，
+      也避开了把校名写进产品名带来的"官方"歧义。
+
+      备选（业主可一句话换掉，见 docs/BRAND-NAME.md 的取舍表）：
+        · 鲸屿  —— 更柔，但"屿"是静态地名，说不出"聚合"
+        · 城院同学 —— 人格感最强，工具属性最弱
+    -->
+    <string name="app_name">鲸集</string>
 
     <!-- ══════════════ 状态占位（docs/COPY-TERMS.md §3 定稿，可直接抄）══════════════ -->
 
@@ -52,9 +63,13 @@
     <string name="state_stale_title">显示的是缓存数据</string>
     <string name="state_stale_detail">下拉刷新可取得最新内容。</string>
 
-    <!-- 登录失效。★ 必须与「错误」分开：这个要引导去登录，重试没用。 -->
+    <!-- 登录失效。★ 必须与「错误」分开：这个要引导去登录，重试没用。
+         2026-11-08：原文写「请到『我的』重新登录」—— 「我的」这个 tab 早就摘了
+         （MinePage 在 DeadPageRegistry 里登记为死页），现在点不到任何叫「我的」的地方，
+         等于把用户指去一面墙。改成账号页：那一页七行逐条列着每个来源「去哪登」，
+         点一行就跳到对应入口（不代填密码）。 -->
     <string name="state_session_expired_title">登录状态已失效</string>
-    <string name="state_session_expired_detail">请到「我的」重新登录后再试。</string>
+    <string name="state_session_expired_detail">请到「设置 › 账号与连接」点这一项，按提示重新登录。</string>
 
     <!-- ══════════════ 动作 ══════════════ -->
 

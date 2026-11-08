@@ -54,6 +54,7 @@ import com.muyao.wanzaihyperos.data.AppOpenPlan
 import com.muyao.wanzaihyperos.data.AppOpenStrategy
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.PortalApp
+import com.muyao.wanzaihyperos.data.PortalSystem
 import com.muyao.wanzaihyperos.data.UiPrefs
 import com.muyao.wanzaihyperos.data.apps.COMMON_LIMIT
 import com.muyao.wanzaihyperos.data.apps.CommonReason
@@ -62,6 +63,7 @@ import com.muyao.wanzaihyperos.data.apps.commonCaption
 import com.muyao.wanzaihyperos.data.apps.pickCommon
 import com.muyao.wanzaihyperos.data.portal.PortalParsers
 import com.muyao.wanzaihyperos.data.portal.toUiApp
+import com.muyao.wanzaihyperos.net.HzcuEndpoints
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.BodyMark
 import com.muyao.wanzaihyperos.ui.design.Dims
@@ -97,9 +99,12 @@ fun AppsSectionPage(
     onOpenSearch: () -> Unit,
     /** 全局扫一扫：搜索行右边那颗方形钮。扫到网址开网页，扫到签到码带去签到页。 */
     onOpenScan: () -> Unit = {},
-    // 「整理」不在这一页里画：板上它是**顶栏**那颗（`.topbar .meta .tidybtn`），
-    // 由壳画，见本文件的 [AppsTidyButton]。页内原来还有一颗同名的，撤了 ——
-    // 同一屏两颗开关同一个状态，还都不一定写对当前是整理还是整理完。
+    // 「整理」全页只有一颗，在「常用」区块行的行尾（见 [AppsTidyButton]）。
+    //
+    // 2026-11-08 改判：原来这里写着「板上它是顶栏那颗（`.topbar .meta .tidybtn`），由壳画」
+    // —— 那是把板面读错了。v2.1 的 `screens/apps.png` 里顶栏只有「应用 + 搜索钮」，
+    // 「整理」在「常用」标题行的右侧。照旧注释做，真机上就出现了两颗「整理」。
+    // 现在壳里那颗已经删掉，改由本页的区块行动作承担。
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -286,50 +291,46 @@ fun AppsSectionPage(
                             SectionLabel(
                                 title = "常用",
                                 subtitle = "",
-                                count = common.size,
                                 icon = MarkIcon.Pin,
                                 // ★ 原来这里写死「最近使用」，可这一页从来没记过一次打开 ——
                                 //   那句是在替业主撒谎（红线：不编）。现在这句由
                                 //   **实际命中的档位**拼出来，用了哪几档就写哪几档。
-                                note = commonCaption(common),
+                                // 板面「常用」标题行右侧只有一颗「整理」，没有计数也没有档位说明。
+                                // 那些说明只在「整理中」以一行小字出现（见下面的 common-tidy）。
+                                count = 0,
+                                action = { AppsTidyButton(tidy = tidy, onClick = { UiPrefs.appsTidy.value = !tidy }) },
                             )
                         }
-                        item(key = "common-tidy") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = when {
-                                        !tidy -> "最多 ${COMMON_LIMIT} 格，可自己钉"
-                                        // ★ 第 3 轮审计必修 7：判据不能再用 `pinnedIds.size`
-                                        //   （prefs 里几条），因为学校下架过的钉选项**不占格**
-                                        //   （`pickCommon` 只在候选里取）—— 于是屏上只有 3 格高亮
-                                        //   时它说「已钉满 4 个」。改数**屏上真的钉住的那几格**。
-                                        pinnedOnScreen >= COMMON_LIMIT ->
-                                            "已钉满 ${COMMON_LIMIT} 个，再点别的会先撤掉最早钉的那个"
-                                        pinnedIds.isNotEmpty() -> "已钉 ${pinnedOnScreen} 个 · 点格子 = 钉/撤"
-                                        else -> "整理中：点格子 = 钉住 / 撤下"
-                                    },
-                                    fontSize = Type.caption,
-                                    color = colors.onSurfaceVariantSummary,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (tidy && (pinnedIds.isNotEmpty() || openCounts.isNotEmpty())) {
-                                    // 「恢复默认」以前存在却零调用（`UiPrefs.clearCommonOverrides`），
-                                    // 等于一颗假按钮 —— 现在真的接上。
+                        // 整理模式才出现的两行：一句说明 + 一颗「恢复默认」。
+                        // 板上没有这两样 —— 但钉住状态需要一个撤销口，撤掉它就是留一颗假按钮的反面，
+                        // 所以只在「整理中」露出，平时不占版面（对齐板面）。
+                        if (tidy) {
+                            item(key = "common-tidy") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp),
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                ) {
                                     Text(
-                                        text = "恢复默认",
+                                        text = if (pinnedOnScreen >= COMMON_LIMIT)
+                                            "已钉满 ${COMMON_LIMIT} 个，再点别的会先撤掉最早钉的那个"
+                                        else "点格子 = 钉住 / 撤下",
                                         fontSize = Type.caption,
-                                        color = colors.error,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable(onClickLabel = "恢复默认的常用") {
-                                                UiPrefs.clearCommonOverrides()
-                                            }
-                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        color = colors.onSurfaceVariantSummary,
+                                        modifier = Modifier.weight(1f),
                                     )
+                                    if (pinnedIds.isNotEmpty() || openCounts.isNotEmpty()) {
+                                        Text(
+                                            text = "恢复默认",
+                                            fontSize = Type.caption,
+                                            color = colors.error,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable(onClickLabel = "恢复默认的常用") {
+                                                    UiPrefs.clearCommonOverrides()
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -390,7 +391,7 @@ fun AppsSectionPage(
                             // 板 `.sec-head .count{12 · 打开即用}` —— 数字直接打头，没有量词「个」。
                             SectionLabel(title = "原生应用", subtitle = "", count = restNative.size,
                                 icon = MarkIcon.App,
-                                note = "${restNative.size} · 打开即用")
+                                note = native.size.toString() + " 项")
                         }
                         restNative.chunked(4).forEachIndexed { rowIndex, rowApps ->
                             item(
@@ -439,7 +440,7 @@ fun AppsSectionPage(
                                 subtitle = "",
                                 count = restWeb.size,
                                 icon = MarkIcon.Web,
-                                note = restWeb.size.toString() + " · 需联网",
+                                note = "",
                                 action = {
                                     CollapseToggle(collapsed = webCollapsed) {
                                         // 落盘：下次进页面还是用户上次的选择。
@@ -479,6 +480,50 @@ fun AppsSectionPage(
                 SmallHint("登录已失效，请重新登录后再试。")
             }
         }
+
+        // A-5：板 `.bottom-action` 的「校园地图与更多入口」。
+        // 原型的校园地图页自己写着「地图底图与定位接入待确认」，我们没有底图来源，
+        // 也不画一张假地图当导航；这颗按钮打开的是**门户首页**（学校自己的入口目录）。
+        item(key = "portal-more") {
+            val colors = MiuixTheme.colorScheme
+            val portalHome = remember {
+                PortalApp(
+                    id = 0,
+                    name = "校园门户",
+                    url = HzcuEndpoints.PORTAL_BASE_URL,
+                    system = PortalSystem.STANDALONE,
+                )
+            }
+            val shape = RoundedCornerShape(14.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .border(1.dp, colors.onSurfaceVariantSummary.copy(alpha = 0.22f), shape)
+                    .clickable(onClickLabel = "打开校园门户入口目录") { onOpenApp(portalHome) }
+                    .padding(vertical = 13.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "校园地图与更多入口",
+                    fontSize = Type.bodyEmphasis,
+                    fontWeight = Type.weightBody,
+                    color = colors.primary,
+                )
+            }
+        }
+
+        // A-6：板上 `p.caption.muted` 的后半句。前半句「这里是依据文档构建的静态评审目录」
+        // 只在评审期成立（产品里目录来自门户动态返回），按清单去掉。原文 79 两侧无空格。
+        item(key = "catalog-footnote") {
+            Text(
+                text = "实际产品继续显示门户动态返回的全部项目，不以79为硬上限。",
+                fontSize = Type.caption,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+            )
+        }
     }
 }
 
@@ -510,7 +555,7 @@ private fun isNativeApp(app: PortalApp): Boolean = when (AppOpenStrategy.decide(
 @Composable
 fun AppsTidyButton(tidy: Boolean, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    val shape = RoundedCornerShape(50)
+val shape = RoundedCornerShape(50)
     // 它现在是全页唯一的整理开关（页内那颗撤了），所以字必须跟着状态走 ——
     // 否则整理中它仍写「整理」，按下去却退出整理，标签在替自己撒谎。
     Text(
@@ -520,7 +565,6 @@ fun AppsTidyButton(tidy: Boolean, onClick: () -> Unit) {
         color = colors.primary,
         modifier = Modifier
             .clip(shape)
-            .background(colors.primary.copy(alpha = 0.11f))
             .clickable(onClickLabel = if (tidy) "完成整理" else "整理应用") { onClick() }
             .padding(horizontal = 9.7.dp, vertical = 6.2.dp),
     )
@@ -652,7 +696,7 @@ private fun SectionLabel(
         Spacer(Modifier.size(Dims.tight))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = note ?: "$count",
+                text = note ?: if (count > 0) "$count" else "",
                 fontSize = Type.caption,
                 color = colors.onSurfaceVariantSummary,
             )
@@ -669,7 +713,8 @@ private fun SectionLabel(
 private fun CollapseToggle(collapsed: Boolean, onToggle: () -> Unit) {
     val colors = MiuixTheme.colorScheme
     Text(
-        text = if (collapsed) "展开 ▸" else "收起 ▾",
+        // A-2：板 `.text-button` 的原文是「展开全部 ›」/「收起 ›」。
+        text = if (collapsed) "展开全部 ›" else "收起 ›",
         fontSize = Type.caption,
         color = colors.primary,
         modifier = Modifier
@@ -878,7 +923,7 @@ private fun WebCard(
             val first = apps.first()
             WebRow(app = first, onClick = { onOpenApp(first) })
             WebDivider()
-            ExpandRow(remaining = apps.size - 1, onExpand = onExpand)
+            ExpandRow(onExpand = onExpand)
         } else {
             apps.forEachIndexed { index, app ->
                 if (index > 0) WebDivider()
@@ -937,15 +982,25 @@ private fun WebRow(app: PortalApp, onClick: () -> Unit) {
             )
         }
         Spacer(Modifier.size(9.dp))
-        Text(
-            text = app.name,
-            fontSize = Type.summary,
-            fontWeight = Type.weightBody,
-            color = colors.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        // A-4：板 `.web-item` 的 `span.task-main` 是**两行** —— 名称 + 来源徽标
+        // （`S1 · 原站服务 · ID 106`）。徽标由 PortalSystem 推出，不编造。
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = app.name,
+                fontSize = Type.summary,
+                fontWeight = Type.weightBody,
+                color = colors.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = portalSourceBadge(app),
+                fontSize = Type.micro,
+                color = colors.onSurfaceVariantSummary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Spacer(Modifier.size(6.dp))
         // 板 `.webrow .wtag{font-size:7.5px;font-weight:650;color:var(--faint);
         // border:1px solid var(--line-strong);border-radius:999px;padding:2px 5px}` ⇒ 6.6sp。
@@ -990,20 +1045,20 @@ private fun WebDivider() {
     )
 }
 
-/** 收起状态下的整行按钮：「另有 N 个网页服务 · 展开」。 */
+/** 收起状态下的整行按钮：「查看其余网页服务（完整目录）」。 */
 @Composable
-private fun ExpandRow(remaining: Int, onExpand: () -> Unit) {
+private fun ExpandRow(onExpand: () -> Unit) {
     val colors = MiuixTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClickLabel = "展开其余网页服务") { onExpand() }
+            .clickable(onClickLabel = "查看其余网页服务（完整目录）") { onExpand() }
             .padding(horizontal = Dims.cardPadding, vertical = Dims.screenV),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "另有 $remaining 个网页服务 · 展开",
+            text = "查看其余网页服务（完整目录）",
             style = TextStyle(fontFeatureSettings = Type.tabular),
             fontSize = Type.summary,
             color = colors.primary,
@@ -1020,4 +1075,27 @@ private fun SmallHint(text: String) {
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         modifier = Modifier.padding(Dims.cardPadding),
     )
+}
+
+/**
+ * 一行的来源徽标：`S1 · 原站服务 · ID 106`（板 `.web-item small` 与搜索页同一句）。
+ *
+ * S1..S4 就是 [PortalSystem] 的四个取值，与门户文档的 79 个 ID 分组一一对应
+ * （`audit/FUNCTION-INVENTORY.md:12`："79 个不同 ID：S1 37 + S2 18 + S3 20 + S4 4"）：
+ * CJH52 → S1、JSP → S2、STANDALONE → S3、CAMPUS_ONLY → S4。
+ *
+ * 门户下发的 `PortalAppEntry` 只有 url / introduction / color，**没有分组字段**，
+ * 所以这里不编一个「文档里写着但运行时拿不到」的分组名；能确定的只有两件：
+ * 属于哪个子系统（[PortalSystem]），以及它是不是字面内网地址（[PortalApp.needsCampusNetwork]）。
+ * 徽标只报这两件事实，再带上门户自己的 ID —— 它是用户能拿去对账的唯一编号。
+ */
+internal fun portalSourceBadge(app: PortalApp): String {
+    val group = when (app.system) {
+        PortalSystem.CJH52 -> "S1"
+        PortalSystem.JSP -> "S2"
+        PortalSystem.STANDALONE -> "S3"
+        PortalSystem.CAMPUS_ONLY -> "S4"
+    }
+    val network = if (app.needsCampusNetwork) "需校园网 / WebVPN" else "原站服务"
+    return "$group · $network · ID ${app.id}"
 }

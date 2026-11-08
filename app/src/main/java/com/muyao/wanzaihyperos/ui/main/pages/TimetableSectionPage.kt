@@ -145,6 +145,8 @@ fun TimetableSectionPage(
     uiState: AppUiState,
     /** 「去教务系统」那一頁（要在那裡輸一次帳號密碼，課表才爬得動）。 */
     onOpenJw: () -> Unit = {},
+    /** 頁尾「學在城院 · 本週 / 全部」：進原生 TronClass（我的課 + 待交作業）。 */
+    onOpenTron: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -922,6 +924,50 @@ fun TimetableSectionPage(
                 )
             }
         }
+            // ── 页尾（稿 v2.1 `timetable.png` 底部三件）────────────────────────
+            // 稿上是折叠块「课表来源与缺失时间」+ 一排三个出口 + 一行来源小字。
+            // 稿里那句「合成教务课表」是评审用的说明，产品里换成这一屏真实的两份来源。
+            item(key = "source-details") {
+                Column(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                    Text(
+                        text = "课表来源与缺失时间",
+                        fontSize = Type.caption,
+                        fontWeight = Type.weightTitle,
+                        color = colors.onSurface,
+                    )
+                    Text(
+                        text = "课表只认教务那一份；教务还没取到时退回“学在城院”。" +
+                            "两份都不知道第几节几点时，只写节次，不猜时间。",
+                        fontSize = Type.micro,
+                        // 行高不写死：Type.micro 配全局 1.55 倍小字行距（写死 15sp 会多一处改不动的字号）。
+                        color = colors.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+            item(key = "bottom-actions") {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TimetableFooterButton(text = "教务登录与成绩", onClick = onOpenJw)
+                    TimetableFooterButton(text = "补充节次时间", onClick = { showClockEditor = true })
+                    TimetableFooterButton(text = "学在城院 · 本周 / 全部", onClick = onOpenTron)
+                }
+            }
+            item(key = "calendar-source") {
+                val today = java.time.LocalDate.now()
+                val custom = UiPrefs.periodTimes.count { it.first.isNotBlank() || it.second.isNotBlank() }
+                Text(
+                    text = "第 " + baseWeek + " 周 · " +
+                        "%02d/%02d".format(today.monthValue, today.dayOfMonth) + " · " +
+                        if (custom > 0) "节次设置已同步" else "节次用学校时间",
+                    fontSize = Type.micro,
+                    color = colors.onSurfaceVariantSummary.copy(alpha = 0.8f),
+                    style = TextStyle(fontFeatureSettings = Type.tabular),
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                )
+            }
     }
     // 節次時間就地编辑：**存一次就落盘**（PeriodTimeEditor 每改一格就 save），
     // 所以这里不需要「保存」钮，也不会有「改了但忘了存」那种状态。
@@ -2569,5 +2615,32 @@ internal fun SlotZoomOverlay(
         ) {
             SlotDetailCard(slot = slot, onClose = onClose)
         }
+    }
+}
+
+/**
+ * 課表頁底部那三顆出口。
+ *
+ * 為什麼不用 Miuix 的 `TextButton`：它是 36dp 高、沒有描邊，而稿上這三顆是
+ * **同寬、44dp、1dp 主色半透明描邊**的整行按钮（触区也要够 44dp）。
+ * 改全局 TextButton 令牌会牵动 `DesignTokensTest`，所以就地画一个。
+ */
+@Composable
+private fun TimetableFooterButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MiuixTheme.colorScheme
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, colors.primary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+            .clickable(onClickLabel = text, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = text, fontSize = Type.secondary, color = colors.primary)
     }
 }

@@ -41,7 +41,14 @@ data class Cjh52Notice(
     val title: String,
     /** 發布人。 */
     val publisher: String,
-    /** 正文（可能很長，UI 自己截斷）。 */
+    /**
+     * 正文，**已去標籤的純文本**（可能很長，UI 自己截斷）。
+     *
+     * 介面回的是富文本 HTML（真機實測：`<p style="text-indent:2em;" class="MsoNormal">`）。
+     * 原樣丟給列表行，用戶看到的就是這串標籤本身 —— 那不是「正文」，
+     * 是把實作細節漏給了使用者。所以去標籤在**解析層**做一次，
+     * 所有消費方（列表預覽、以後的詳情頁）都拿到乾淨文字。
+     */
     val detail: String,
     /** 建立時間（毫秒時間戳）。 */
     val createdAt: Long?,
@@ -54,6 +61,33 @@ data class Cjh52Notice(
     val sortKey: Long get() = publishedAt ?: createdAt ?: 0L
 }
 
+/**
+ * 富文本 HTML → 純文本。
+ *
+ * 只做三件事，都是「不這樣就會露出實作細節」的最小集合：
+ * 1. 去掉 `<style>`/`<script>` 整段（它們的**內容**不是標籤，光去標籤會留下 CSS 文本）；
+ * 2. 去標籤，塊級標籤換成空格（否則兩個段落會黏成「…結束開始…」）；
+ * 3. 常見實體還原 + 空白歸一。
+ *
+ * 不做完整的 HTML 解析：這裡只為「列表裡兩行預覽」服務，正路是去原站讀全文。
+ */
+internal fun htmlToPlainText(raw: String): String {
+    if (raw.isEmpty()) return ""
+    if (raw.indexOf('<') < 0 && raw.indexOf('&') < 0) return raw.trim()
+    var text = raw
+    text = text.replace(Regex("(?is)<(style|script)[^>]*>.*?</\\1>"), " ")
+    text = text.replace(Regex("(?i)<br\\s*/?>|</p>|</div>|</li>|</tr>"), " ")
+    text = text.replace(Regex("<[^>]*>"), " ")
+    text = text
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+    return text.replace(Regex("\\s+"), " ").trim()
+}
+
 object Cjh52NoticeParser {
     /** 從 `data.data[]` 解析。 */
     fun parse(rows: List<JsonObject>): List<Cjh52Notice> = rows.mapNotNull { obj ->
@@ -62,7 +96,7 @@ object Cjh52NoticeParser {
             id = id,
             title = obj["title"].asStringOrNull().orEmpty(),
             publisher = obj["username"].asStringOrNull().orEmpty(),
-            detail = obj["detail"].asStringOrNull().orEmpty(),
+            detail = htmlToPlainText(obj["detail"].asStringOrNull().orEmpty()),
             createdAt = obj["createTime"].asLongOrNull(),
             publishedAt = obj["pubTime"].asLongOrNull(),
             level = obj["level"].asStringOrNull().orEmpty(),

@@ -103,6 +103,19 @@ sealed interface Route : NavKey {
     @Serializable
     data class Cjh52Feature(val feature: String = "NOTICE") : Route
 
+    /**
+     * **CJH52 學生服務**（服務目錄頁）—— 稿 `cjh.png` 上那六行服務的總目錄。
+     *
+     * 之所以要有這一頁：六個原生頁在此之前**彼此不知道對方存在**，
+     * 只能從門戶的應用格子一條條點進去，想換一頁就得退回應用頁重找。
+     * 它同時是各頁「六项服务目录」那枚芯片的落點。
+     *
+     * 刻意**不帶 `tileUrl`**：目錄頁本身不載網頁、也不需要「改用網頁版」的出口
+     *（網頁版出口在六個子頁上各有一個，語義更準）。
+     */
+    @Serializable
+    data object CjhHome : Route
+
 
     /** B6：多來源待辦（按來源分組）。 */
     @Serializable

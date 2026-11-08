@@ -1,70 +1,91 @@
 package com.muyao.wanzaihyperos.ui.busyness
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import com.muyao.wanzaihyperos.data.ListState
-import com.muyao.wanzaihyperos.ui.design.AppCard
-import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
+import com.muyao.wanzaihyperos.data.metaOrNull
 import com.muyao.wanzaihyperos.data.portal.PortalBill
 import com.muyao.wanzaihyperos.data.portal.PortalBillBucket
 import com.muyao.wanzaihyperos.data.portal.PortalBillRepository
 import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
+import com.muyao.wanzaihyperos.ui.design.AppCard
+import com.muyao.wanzaihyperos.ui.design.AppList
+import com.muyao.wanzaihyperos.ui.design.BodyMark
+import com.muyao.wanzaihyperos.ui.design.Mark
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
+import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.HintText
+import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
+import com.muyao.wanzaihyperos.ui.design.Tone
 import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 「我的事務」原生頁（B3）—— 待辦 / 我的申請 / 我的已辦。
+ * 「门户我的事务」原生页（B3）—— 待办 / 我的申请 / 我的已办。
  *
- * ### 為什麼這頁值得做（而課表那頁擱置了）
+ * ### 为什么这页值得做（而课表那页搁置了）
  *
- * 首頁那個「待辦 1 / 申請 1 / 已辦 1」的區塊**只有數字**，
- * 點進去看不到「具體要辦什麼」。要辦事就得回門戶一層層點。
- * 這頁把它補上：**一眼看到要做什麼、什麼時候建的、什麼狀態**。
+ * 首页那个「待办 1 / 申请 1 / 已办 1」的区块**只有数字**，
+ * 点进去看不到「具体要办什么」。要办事就得回门户一层层点。
+ * 这页把它补上：**一眼看到要做什么、什么时候建的、什么状态**。
  *
- * ### 三個 tab 的資料源差別
+ * ### 三个 tab 的資料源差别
  *
- * 三個 tab 打的是**三個不同接口**（見 [PortalBillBucket]），
- * 回應形狀高度重疊但有差異（已辦多 `handletime`、申請多 `billownername`/`url`）。
- * 切 tab 時倉庫會先作廢在途回應再清空列表 —— 否則會短暫顯示**上一個 tab 的內容**，
- * 那比空白更糟（使用者會以為「已辦裡有這些待辦」）。
+ * 三个 tab 打的是**三个不同接口**（见 [PortalBillBucket]），
+ * 回应形状高度重叠但有差异（已办多 `handletime`、申请多 `billownername`/`url`）。
+ * 切 tab 时仓库会先作废在途回应再清空列表 —— 否则会短暂显示**上一个 tab 的内容**，
+ * 那比空白更糟（用户会以为「已办里有这些待办」）。
+ *
+ * ### ★ 搜索框是**本地筛**，不是接口搜索
+ *
+ * [PortalBillRepository] 只有 refresh / selectBucket / loadMore 三个动作，
+ * 没有把关键词传给服务端的能力。所以这个搜索框只筛「已经取到手的这几条」，
+ * 界面上必须说清这一点（见下面那行 ×说明），不能让它看起来像全库搜索。
+ * 要真做服务端搜索，得先在 data/portal 里加接口参数 —— 不在本页的写权限内。
  */
 @Composable
 fun BusynessPage(
@@ -78,228 +99,413 @@ fun BusynessPage(
     val bucket by repository.bucket.collectAsState()
     val pageState = state.toPageState()
     val bills = (state as? ListState.Content)?.items.orEmpty()
-    val meta = (state as? ListState.Content)?.meta
+    val meta = state.metaOrNull
 
-    // 首次進入：若倉庫還是「首次載入」，就按指定的 tab 拉一次。
+    // 首次进入：若仓库还是「首次载入」，就按指定的 tab 拉一次。
     LaunchedEffect(Unit) {
         if (state is ListState.FirstLoad) {
             runCatching { repository.selectBucket(initialBucket) }
         }
     }
 
-    ThemedScaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            Column {
-                SmallTopAppBar(
-                    title = "我的事务",
-color = Color.Transparent,
-                    subtitle = "来自学校门户",
-                    navigationIcon = {
-                        IconButton(onClick = onExit) {
-                            Icon(
-                                imageVector = MiuixIcons.ChevronBackward,
-                                contentDescription = "返回",
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { scope.launch { runCatching { repository.refresh() } } }) {
-                            Icon(
-                                imageVector = MiuixIcons.Refresh,
-                                contentDescription = "重新加载",
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    },
-                )
-                // 三個 tab。用枚舉的順序，標籤來自枚舉本身 ——
-                // 這樣新增清單時只改枚舉，不會出現「tab 數與介面數不一致」。
-                BucketTabs(
-                    selected = bucket,
-                    onSelect = { target -> scope.launch { runCatching { repository.selectBucket(target) } } },
-                )
-            }
-        },
+    // 输入框里正在打的字 vs 已提交的关键词 —— 两者分开，
+    // 否则每敲一个字都会重排列表，长列表上会跳。
+    var draft by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf("") }
+    val shown = remember(bills, query, bucket) { filterBills(bills, query, bucket) }
+
+    val listState = rememberLazyListState()
+    val veilProgress by rememberScrollProgress(listState)
+
+    val refresh = { scope.launch { runCatching { repository.refresh() } } }
+
+    SecondaryScaffold(
+        title = "门户我的事务",
+        subtitle = "待办、我的申请与我的已办，各自完整保留。",
+        onBack = onExit,
+        scrollProgress = veilProgress,
+        onRefresh = { refresh() },
+        modifier = modifier,
     ) { innerPadding ->
-        if (bills.isEmpty()) {
-            StatePlaceholder(
-                state = pageState,
-                modifier = Modifier.padding(innerPadding),
-                // 空態也要說清「是哪個清單空」——三個 tab 的空態長得一樣，
-                // 不寫的話使用者會懷疑是不是切錯了。
-                detail = if (pageState == PageState.Empty) "“${bucket.label}”目前没有记录" else null,                onRetry = { scope.launch { runCatching { repository.refresh() } } },
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(innerPadding).fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                item {
-                    ListHeader(
-                        bucket = bucket,
-                        count = bills.size,
-                        hasMore = meta?.hasMore == true,
-                        isStale = pageState == PageState.Stale,
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding()),
+        ) {
+            AppList(modifier = Modifier.fillMaxSize(), state = listState) {
+                item(key = "bz-hero") {
+                    SecHero(
+                        eyebrow = "PORTAL / 我的事务",
+                        title = "把事情办妥",
+                        sub = "待办、我的申请与我的已办，各自完整保留。",
                     )
                 }
-                items(bills, key = { it.id }) { bill ->
-                    BillCard(bill)
+                item(key = "bz-tabs") {
+                    BucketSegmented(
+                        selected = bucket,
+                        onSelect = { target ->
+                            // 切桶同时把本地筛清掉：上一个桶的关键词在新桶里没有意义。
+                            draft = ""
+                            query = ""
+                            scope.launch { runCatching { repository.selectBucket(target) } }
+                        },
+                    )
                 }
+                item(key = "bz-notice") {
+                    SecNotice("事务搜索与办理入口按文档保留；现有 App 原生接线未证齐全。")
+                }
+
+                // 只有内容态才给搜索框：加载中/失败时空列表上摆一个搜索框，
+                // 用户会以为是「搜不到」而不是「没取到」。
+                if (pageState == PageState.Content || pageState == PageState.Stale) {
+                    item(key = "bz-search") {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "搜索当前事务桶",
+                                fontSize = Type.caption,
+                                lineHeight = Type.lineCaption,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(bottom = Dims.tight),
+                            )
+                            TextField(
+                                value = draft,
+                                onValueChange = { draft = it },
+                                label = "名称或状态",
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(Dims.tight))
+                            Row(horizontalArrangement = Arrangement.spacedBy(Dims.tight)) {
+                                Button(
+                                    onClick = { query = draft.trim() },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("搜索") }
+                                TextButton(
+                                    text = "清空搜索",
+                                    onClick = {
+                                        draft = ""
+                                        query = ""
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            HintText("搜索只筛已经取到的这几条；接口没有关键词参数，所以它不等于全库搜索。")
+                        }
+                    }
+                }
+
+                if (shown.isEmpty()) {
+                    // 空 / 错 / 加载 三态都画成列表里的一项，而不是盖住整页 ——
+                    // 页头与分段控件必须一直在，否则用户不知道自己在哪个桶里。
+                    item(key = "bz-empty") {
+                        when {
+                            pageState == PageState.Content || pageState == PageState.Stale ->
+                                HintText("当前桶没有匹配事务。换个关键词，或切换其他事务桶。")
+                            else -> StatePlaceholder(
+                                state = pageState,
+                                modifier = Modifier.fillMaxWidth(),
+                                detail = if (pageState == PageState.Empty) "“${bucketLabel(bucket)}”目前没有记录" else null,
+                                onRetry = { refresh() },
+                            )
+                        }
+                    }
+                } else {
+                    item(key = "bz-section") {
+                        SecSectionHead(
+                            title = if (query.isNotBlank()) "搜索结果" else "事务记录",
+                            // 稿上的口径：「共 N 条（还有更多）」—— N 是**已经取到的**条数，
+                            // 还有更多时如实加一句，不把「取到几条」说成「一共几条」。
+                            meta = "共 ${shown.size} 条" + if (meta?.hasMore == true) "（还有更多）" else "",
+                        )
+                    }
+                    items(shown, key = { it.id }) { bill ->
+                        BillCard(bill = bill, bucket = bucket)
+                    }
+                }
+
                 if (meta?.hasMore == true) {
-                    item {
+                    item(key = "bz-more") {
                         LoadMoreRow(
                             loading = meta.loadingMore,
                             onClick = { scope.launch { runCatching { repository.loadMore() } } },
                         )
                     }
                 }
+
+                item(key = "bz-tail") {
+                    HintText(
+                        "说明：这里只读门户的事务清单，办理与详情仍回门户原站完成；" +
+                            "清单里的详情地址可能带一次性凭据，所以本页不显示、不点击。",
+                    )
+                }
+            }
+
+        }
+    }
+}
+
+/** 本地筛：名称、描述、状态三者之一包含关键词即可（忽略大小写）。 */
+private fun filterBills(bills: List<PortalBill>, query: String, bucket: PortalBillBucket): List<PortalBill> {
+    val q = query.trim()
+    if (q.isBlank()) return bills
+    val status = bucketLabel(bucket)
+    return bills.filter { bill ->
+        bill.name.contains(q, ignoreCase = true) ||
+            bill.description.contains(q, ignoreCase = true) ||
+            status.contains(q, ignoreCase = true) ||
+            (bill.isRejected && "已驳回".contains(q, ignoreCase = true))
+    }
+}
+
+/**
+ * 三个桶的**界面标签**。
+ *
+ * 数据层 [PortalBillBucket.label] 是「我的待办 / 我的申请 / 我的已办」——
+ * 那是接口文档里的名字。稿（`transactions.png`）的分段控件第一个写的是「待办」。
+ * 这里按稿显示，但**不改数据层的 label**：它还用在别处，改它就等于改全工程口径。
+ */
+private fun bucketLabel(bucket: PortalBillBucket): String = when (bucket) {
+    PortalBillBucket.TODO -> "待办"
+    PortalBillBucket.APPLIED -> "我的申请"
+    PortalBillBucket.FINISHED -> "我的已办"
+}
+
+/**
+ * 三段式分段控件（板的 `.segmented`：一条 99px 圆角槽，选中项浮起来）。
+ *
+ * 没直接用 `TabRow`：那是「宽度固定、居中排」的下划线式标签，
+ * 而稿这里是**三等分满宽**的胶囊槽。每一格都撑到 [Dims.minTouch]，
+ * 窄屏上也不会把字挤没。
+ */
+@Composable
+private fun BucketSegmented(selected: PortalBillBucket, onSelect: (PortalBillBucket) -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(percent = 50))
+            .background(colors.background)
+            .border(1.dp, colors.dividerLine, RoundedCornerShape(percent = 50))
+            .padding(Dims.tight),
+        horizontalArrangement = Arrangement.spacedBy(Dims.tight),
+    ) {
+        PortalBillBucket.entries.forEach { item ->
+            val on = item == selected
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = Dims.minTouch)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(if (on) colors.surface else Color.Transparent)
+                    .clickableNoRipple(onClick = { onSelect(item) }),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = bucketLabel(item),
+                    fontSize = Type.caption,
+                    fontWeight = if (on) Type.weightTitle else Type.weightBody,
+                    color = if (on) colors.primary else colors.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
     }
 }
 
-/** 三個清單的切換器。 */
-@Composable
-private fun BucketTabs(selected: PortalBillBucket, onSelect: (PortalBillBucket) -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    // 與消息頁同一套做法：用 `LazyRow` + `Card` 而不是 `TabRow`
-    //（見 MessagesPage 的說明：選中態由外部單一來源控制，且標籤長時更可讀）。
-    androidx.compose.foundation.lazy.LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(PortalBillBucket.entries.size) { index ->
-            val item = PortalBillBucket.entries[index]
-            val isSelected = item == selected
-            AppCard(onClick = { onSelect(item) }) {
-                Text(
-                    text = item.label,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = if (isSelected) colors.primary else colors.onSurface,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                )
-            }
-        }    }
-}
+/**
+ * 可点击 + 有命中区 + **保留无障碍语义**的小助手。
+ *
+ * 不用 `AppCard` 包一格：`AppCard` 自带边框与阴影，九个格子摞在槽里会显得脏。
+ */
+private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
+    this.then(clickable(onClick = onClick))
 
-/** 頂部說明：當前是哪個清單、共幾條。 */
+/** 顶部说明：当前是哪一类、共几条（及「这次没刷新成功」）。 */
 @Composable
-private fun ListHeader(
-    bucket: PortalBillBucket,
-    count: Int,
-    hasMore: Boolean,
-    isStale: Boolean,
-) {
-    val colors = MiuixTheme.colorScheme
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
-        Text(
-            text = "“${bucket.label}”共 $count 条" + if (hasMore) "（还有更多）" else "",
-            style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = Type.tabular),
-            color = colors.onBackground,
-        )
-        if (isStale) {
-            Spacer(Modifier.height(2.dp))
+private fun SecSectionHead(title: String, meta: String?, icon: MarkIcon = MarkIcon.Todo) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = Dims.sectionGap),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            BodyMark(icon = icon, tint = MiuixTheme.colorScheme.primary, size = Mark.size)
             Text(
-                // 與其它頁同一套說法：有舊資料但這次沒刷新成功，
-                // 顯示內容 + 說明「可能不是最新」，**不清空成錯誤頁**。
-                text = "这次没刷新成功，显示的是上一次的数据",
-                style = MiuixTheme.textStyles.footnote2,
-                color = colors.onBackgroundVariant,
+                text = title,
+                fontSize = Type.title,
+                fontWeight = Type.weightTitle,
+                color = MiuixTheme.colorScheme.onBackground,
+            )
+        }
+        if (meta != null) {
+            Text(
+                text = meta,
+                fontSize = Type.caption,
+                lineHeight = Type.lineCaption,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = TextStyle(fontFeatureSettings = Type.tabular),
             )
         }
     }
 }
 
-/** 一條事務。 */
+/** 一条事务。 */
 @Composable
-private fun BillCard(bill: PortalBill) {
+private fun BillCard(bill: PortalBill, bucket: PortalBillBucket) {
     val colors = MiuixTheme.colorScheme
     AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(Dims.cardPadding)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = bill.name.ifBlank { "（无标题）" },
-                    style = MiuixTheme.textStyles.title4,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = Type.body,
+                    fontWeight = Type.weightTitle,
                     color = colors.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (bill.isRejected) {
-                    Text(
-                        text = "已驳回",
-                        style = MiuixTheme.textStyles.footnote2,
-                        // 用 error 色標「要留意」——但**不**說「失敗」，
-                        // 因為被駁回在流程上是正常結果之一。
-                        color = colors.error,
-                    )
-                }
+                Text(
+                    // 待办是「要你动手」，申请/已办是「看结果」—— 动词不同。
+                    text = if (bucket == PortalBillBucket.TODO) "办理 ›" else "详情 ›",
+                    fontSize = Type.caption,
+                    lineHeight = Type.lineCaption,
+                    color = colors.primary,
+                )
             }
 
             if (bill.description.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(Dims.tight))
                 Text(
                     text = bill.description,
-                    style = MiuixTheme.textStyles.body2,
+                    fontSize = Type.secondary,
+                    lineHeight = Type.lineCaption,
                     color = colors.onSurfaceVariantSummary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(Dims.normal))
             val lines = buildList {
+                if (bill.createdAt.isNotBlank()) add(bill.createdAt)
+                add(bucketLabel(bucket))
+                if (bill.isRejected) add("已驳回")
                 if (bill.ownerName.isNotBlank()) add("发起人：${bill.ownerName}")
-                if (bill.createdAt.isNotBlank()) add("建立：${bill.createdAt}")
-                // 已辦才有處理時間；有的話優先顯示它（使用者更關心「什麼時候辦完的」）。
-                bill.handledAt?.takeIf { it.isNotBlank() }?.let { add("处理：$it") }            }
-            if (lines.isNotEmpty()) {
-                Text(
-                    text = lines.joinToString("　"),
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = colors.onSurfaceVariantSummary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                bill.handledAt?.takeIf { it.isNotBlank() }?.let { add("处理：$it") }
             }
-            // ⚠️ `bill.detailUrl` 有意**不顯示、不點擊**：
-            //    那個地址可能帶一次性憑據（門戶的 url 常常是 SSO 跳轉鏈），
-            //    顯示它等於把憑據印在螢幕上，而點擊它需要先確認目標域是否學校域。
-            //    要做點擊得另立任務（要先按 host 驗證，與 A3 的 tempcode 同一條紅線）。
+            Text(
+                text = lines.joinToString(" · "),
+                fontSize = Type.caption,
+                lineHeight = Type.lineCaption,
+                color = if (bill.isRejected) colors.error else Tone.quiet,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            // ⚠️ `bill.detailUrl` 有意**不显示、不点击**：
+            //    那个地址可能带一次性凭据（门户的 url 常常是 SSO 跳转链），
+            //    显示它等于把凭据印在屏幕上，而点击它需要先确认目标域是否学校域。
         }
     }
 }
 
-/** 「載入更多」。 */
+/** 「加载更多」。 */
 @Composable
 private fun LoadMoreRow(loading: Boolean, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = Dims.tight),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (loading) {
             Text(
                 text = "正在加载…",
-                style = MiuixTheme.textStyles.footnote1,
+                fontSize = Type.caption,
                 color = colors.onSurfaceVariantSummary,
             )
         } else {
-            top.yukonga.miuix.kmp.basic.TextButton(
+            TextButton(
                 text = "加载更多",
                 onClick = onClick,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+}
+
+/** 页头三行：眉题 / 大标题 / 一句副题（照稿 `.eyebrow` + `.hero-title` + `.muted`）。 */
+@Composable
+private fun SecHero(eyebrow: String, title: String, sub: String) {
+    val colors = MiuixTheme.colorScheme
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = eyebrow,
+            fontSize = Type.caption,
+            fontWeight = Type.weightTitle,
+            letterSpacing = 0.10.em,
+            color = Tone.quiet,
+            style = TextStyle(fontFeatureSettings = Type.tabular),
+        )
+        Text(
+            text = title,
+            fontSize = Type.displayTitle,
+            lineHeight = Type.lineDisplayTitle,
+            fontWeight = Type.weightTitle,
+            letterSpacing = (-0.02).em,
+            color = colors.onBackground,
+            modifier = Modifier.padding(top = Dims.tight, bottom = Dims.tight),
+        )
+        Text(
+            text = sub,
+            fontSize = Type.caption,
+            lineHeight = Type.lineCaption,
+            color = colors.onSurfaceVariantSummary,
+            textAlign = TextAlign.Start,
+        )
+    }
+}
+
+/** 说明条：左侧一道竖线 + 淡底（照稿 `.notice`，不是一张卡片）。 */
+@Composable
+private fun SecNotice(text: String, error: Boolean = false) {
+    val colors = MiuixTheme.colorScheme
+    val tint = if (error) colors.error else colors.onSurfaceVariantSummary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
+            .background(colors.surfaceContainer.copy(alpha = 0.55f)),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(tint),
+        )
+        Text(
+            text = text,
+            fontSize = Type.caption,
+            lineHeight = Type.lineCaption,
+            color = tint,
+            modifier = Modifier.padding(
+                start = Dims.loose,
+                end = Dims.cardPadding,
+                top = Dims.normal,
+                bottom = Dims.normal,
+            ),
+        )
     }
 }

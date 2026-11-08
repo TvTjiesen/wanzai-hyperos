@@ -16,7 +16,6 @@ import androidx.compose.ui.text.font.FontWeight
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.data.tronclass.TronMeRepository
-import com.muyao.wanzaihyperos.ui.common.PageState
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
 import com.muyao.wanzaihyperos.ui.design.ActionRow
@@ -24,9 +23,7 @@ import com.muyao.wanzaihyperos.ui.design.AppList
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.HintText
 import com.muyao.wanzaihyperos.ui.design.KeyValueRow
-import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.SmallTitle
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -107,7 +104,7 @@ fun TronMePage(
         }
 
         // ---- 統計 ----------------------------------------------------------
-        item { SmallTitle(text = "概览") }
+        item { TronSection(text = "概览", icon = MarkIcon.Growth) }
         item {
             AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(Dims.cardPadding)) {
@@ -125,7 +122,7 @@ fun TronMePage(
         }
 
         // ---- 學籍信息 ------------------------------------------------------
-        item { SmallTitle(text = "学籍") }
+        item { TronSection(text = "学籍", icon = MarkIcon.Account) }
         item {
             AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(Dims.cardPadding)) {
@@ -148,7 +145,7 @@ fun TronMePage(
 
         // ---- 入口 ----------------------------------------------------------
         if (onOpenRollcall != null) {
-            item { SmallTitle(text = "常用") }
+            item { TronSection(text = "常用", icon = MarkIcon.App) }
             item {
                 ActionRow(
                     title = "签到",

@@ -16,10 +16,9 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -30,7 +29,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -38,16 +36,11 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.zxing.MultiFormatReader
 import com.muyao.wanzaihyperos.data.tronclass.QrDecoder
+import com.muyao.wanzaihyperos.ui.design.BodyMark
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import java.util.concurrent.atomic.AtomicBoolean
-import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
@@ -95,6 +88,13 @@ fun QrScannerPage(
     hint: String = "对准学在城院的签到二维码",
     noPermissionText: String = "没有相机权限，无法扫码。可以返回后用粘贴的方式签到，或者从相册里选一张图。",
     fromGalleryText: String = "从相册选一张",
+    /**
+     * 進來就先把相冊打開。
+     *
+     * 掃一掃的首屏讓使用者選「相機 / 相冊」；選了相冊就不該讓他自己進到相機裡
+     * 再去找底下那顆按鈕 —— 那等於首屏白選一次。默認 false，簽到頁那條路不變。
+     */
+    autoOpenGallery: Boolean = false,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -152,6 +152,16 @@ fun QrScannerPage(
         if (!hasPermission) launcher.launch(Manifest.permission.CAMERA)
     }
 
+    // 首屏選了「相冊」就直接把選圖器拉起來：不必進到相機裡再找底下那顆按鈕。
+    // 只跑一次（Unit）；使用者取消選圖就退回相機，相冊那顆按鈕仍在。
+    LaunchedEffect(autoOpenGallery) {
+        if (autoOpenGallery) {
+            picker.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+            )
+        }
+    }
+
     // 页面上没有任何「在动」的东西时，人分不清是「还在找」还是「卡死了」。
     LaunchedEffect(hasPermission, reported) {
         if (!hasPermission || reported) return@LaunchedEffect
@@ -169,24 +179,16 @@ fun QrScannerPage(
         }
     }
 
-    ThemedScaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            SmallTopAppBar(
-                title = title,
-color = Color.Transparent,
-                subtitle = subtitle,
-                navigationIcon = {
-                    IconButton(onClick = onExit) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                },
-            )
-        },
+    // 頂欄走共享殼（[SecondaryScaffold]）：漸變、安全區、返回鍵、欄高只由設計層決定一次。
+    // ⚠️ 取景框**不鋪到頂欄底下**：頂欄這一行有標題與返回鍵，
+    //   壓在取景畫面上既看不清、也會讓返回鍵看起來像浮在相機裡。
+    com.muyao.wanzaihyperos.ui.design.SecondaryScaffold(
+        title = title,
+        subtitle = subtitle,
+        onBack = onExit,
+        modifier = modifier,
+        // 這一頁沒有清單：取景是實時的視頻流，沒有「滾動進度」這種東西。
+        onRefresh = null,
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
             if (!hasPermission) {
@@ -195,11 +197,22 @@ color = Color.Transparent,
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(
-                        text = errorText ?: "需要相机权限才能扫码",
-                        style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.onBackground,
-                    )
+                    // 區塊圖標：這一支講的是「出事了」，用 Warn（不是 Info）。
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        BodyMark(
+                            icon = MarkIcon.Warn,
+                            tint = MiuixTheme.colorScheme.error,
+                            size = com.muyao.wanzaihyperos.ui.design.Mark.size,
+                        )
+                        Text(
+                            text = errorText ?: "需要相机权限才能扫码",
+                            style = MiuixTheme.textStyles.body1,
+                            color = MiuixTheme.colorScheme.onBackground,
+                        )
+                    }
                     Button(
                         onClick = { launcher.launch(Manifest.permission.CAMERA) },
                         modifier = Modifier.padding(top = 16.dp),
@@ -298,12 +311,25 @@ color = Color.Transparent,
                         modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp).padding(bottom = 64.dp),
                     )
                 }
-                Text(
-                    text = hint,
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                // 取景畫面上那行提示：**加一枚 Scan 圖標**。
+                // 這一頁沒有清單、沒有區塊標題，這行提示就是它唯一的「區塊」——
+                // 一枚掃描圖標讓人一眼看出「這裡在找碼」，而不用先讀完那行字。
+                Row(
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    BodyMark(
+                        icon = MarkIcon.Scan,
+                        tint = MiuixTheme.colorScheme.primary,
+                        size = com.muyao.wanzaihyperos.ui.design.Mark.size,
+                    )
+                    Text(
+                        text = hint,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
                 if (slow && !reported && !picking) {
                     Text(
                         text = "还没对上。让码占满中间，或者从相册里选一张。",
@@ -335,7 +361,7 @@ color = Color.Transparent,
  * 為什麼要自己縮圖：相簿裡的照片常有幾千萬像素，整張轉成 int 陣列會直接 OOM。
  * 縮到長邊 [MAX_PICKED_PX] 之後，一張佔畫面一半的碼仍有 800px 上下，模組遠大於解碼下限。
  */
-private fun decodePickedImage(context: android.content.Context, uri: Uri): String? {
+internal fun decodePickedImage(context: android.content.Context, uri: Uri): String? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     context.contentResolver.openInputStream(uri)?.use {
         BitmapFactory.decodeStream(it, null, bounds)

@@ -139,12 +139,15 @@ fun LoginPage(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "集城",
+                text = "鲸集",
                 style = MiuixTheme.textStyles.title2,
                 color = colors.onBackground,
             )
             Text(
-                text = "浙大城市学院 · 校园聚合入口",
+                // 稿 v2.1 `login.png`：「浙大城市学院校园聚合入口课表、消息、事务与生活，
+                // 在这里相遇。」—— 稿上那几个词之间没有标点（是排版断行），
+                // 这里补一个间隔号，否则读起来是两个词粘在一起。
+                text = "浙大城市学院校园聚合入口 · 课表、消息、事务与生活，在这里相遇",
                 style = MiuixTheme.textStyles.footnote1,
                 color = colors.onBackgroundVariant,
             )

@@ -48,14 +48,15 @@ class IconSystemTest {
         assertTrue("线宽不是从 Glyph.STROKE_RATIO 算的：$strokeLine", "Glyph.STROKE_RATIO" in strokeLine!!)
     }
 
-    /** 14 枚图标（`Theme` 第 19 轮删掉，`Alarm` 2026-10-31 随上课提醒加进来，
-     *  `Dumbbell` 2026-11-01 随数智体育加进来）：
+    /** 18 枚图标（`Theme` 第 19 轮删掉，`Alarm` 2026-10-31 随上课提醒加进来，
+     *  `Dumbbell` 2026-11-01 随数智体育加进来，`Moon` / `Broom` 2026-11-08 随静音时段与
+     *  分域清缓存加进来，`Eye` / `Sun` 同日随「动画与辅助显示」页加进来，`Contrast` / `Glass` 稍后随外观页加进来）：
      *  枚举条目数变了就要同步改清单。 */
     @Test
-    fun `图标清单是 14 枚`() {
+    fun `图标清单是 18 枚`() {
         assertEquals(
             "SettingIcon 条目数变了 —— 清单在 docs/B4-13-ICON-INVENTORY.md，改了枚举就同步改表",
-            14,
+            18,
             SettingIcon.entries.size,
         )
     }

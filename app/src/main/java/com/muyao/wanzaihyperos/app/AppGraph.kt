@@ -218,6 +218,13 @@ class AppGraph private constructor(
         // ★ B18：教務系統的帳密是**第五套獨立登錄態**，而且是全專案唯一的明文密碼。
         //   退出登錄時**必須**清掉 —— 這是最不能漏的一項。
         jwSession.clear()
+        // ★ G02（本轮修复）：数智体育是**第六套独立登录态**。
+        //   它不在 CAS / 学在城院 / CJH52 / 公寓 / 教务任一条链上：`SztySession`
+        //   自己存 token + userId，能读跑步公里、体测成绩、体育课签到。
+        //   以前这里漏了它 —— 退出登录后「数智体育」仍然是已连接状态，
+        //   下一个人进来直接看到前一个人的运动记录。原型账号页的
+        //   「现状接线缺口：当前全局退出未清除体育接入信息」说的就是这一行。
+        sztySession.clear()
         // ★ 只清自己的凭据还不够：学在城院那个 SPA 的登录态**不在 Cookie 里**，
         //   在 WebView 的 localStorage 里（isLogin / sessionID / identityRefreshToken）。
         //   不清它，下一个登录的人打开学在城院会直接进上一个人的首页。
@@ -260,7 +267,11 @@ class AppGraph private constructor(
             val api = PortalApi(client)
             val cjh52Session = Cjh52Session(store)
             // CJH52 的 token 提供者：从会话读（**不打印、不缓存到别处**）。
-            val cjh52 = Cjh52Client(client, tokenProvider = { cjh52Session.token() })
+            val cjh52 = Cjh52Client(
+                transport = client,
+                tokenProvider = { cjh52Session.token() },
+                onUnauthorized = { cjh52Session.clear() },
+            )
             val tronSession = TronclassSession(store)
             val casService = HzcuCasService.create(client = client, session = portalSession)
             // ★ 门户 token 失效时的**免密续期**接上（业主选的「先 A」：只重放已存 CAS cookie，

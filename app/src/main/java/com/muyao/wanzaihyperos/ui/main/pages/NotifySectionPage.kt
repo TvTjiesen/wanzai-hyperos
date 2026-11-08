@@ -230,9 +230,14 @@ fun NotifySectionPage(
     // 空字符串走 [LargeTitle] 的 `subtitle.isEmpty()` 分支，副行自然消失。
     val unreadState by graph.unread.state.collectAsState()
     val heroUnread = (unreadState.value as? CountValue.Known)?.value
-    // 「这一份是什么时候的」：消息页的分页元信息里带服务端给的时间戳；
-    // 没有就只写未读。不复用首页那颗钟（那是「现在」，不是「这份数据的时间」）。
-    val heroClock: String = ""
+    // 「这一份是什么时候的」：取**这一次成功取数**的时间（ListState.Content.updatedAtMillis），
+    // 不是「现在」。取不到就只写未读，不编一个像样的钟点（同一条红线）。
+    val heroClock: String = (msgState as? ListState.Content)?.meta?.updatedAtMillis?.let { millis ->
+        java.time.Instant.ofEpochMilli(millis)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toLocalTime()
+            .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    }.orEmpty()
     val heroSubtitle = buildString {
         if (heroUnread != null) append("未读 $heroUnread")
         if (heroClock.isNotEmpty()) {
@@ -384,8 +389,10 @@ fun NotifySectionPage(
                     // 只写「10 条」会让人以为这一组只有 10 条 —— 剩下 179 条等于不存在。
                     note = when {
                         msgCount == null -> "—"
-                        msgMeta?.hasMore == true -> "$msgCount 条 · 还有更多"
-                        else -> ""
+                        // 稿 v2.1：「未读 N · 服务端总数」。这个数来自 libmessagegroup 的 noread，
+                        // 是服务端口径（不等于列表长度，列表只有一页）；说清「服务端总数」
+                        // 才不会让人把「这一页 10 条」当成「这一组 10 条」。
+                        else -> "未读 " + msgCount + " · 服务端总数"
                     },
                 ) {
                     if (openGroup != null && openGroup.unread > 0) {
@@ -994,7 +1001,9 @@ private fun GroupHead(
 private fun ReadAllAction(onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
     Text(
-        text = "全部已读",
+        // 稿 v2.1 写「当前组已读」：门户只给「当前分组」批量接口，
+        // 写成「全部已读」是整个门户的意思，点下去做不到（也做不到同时清 189 条）。
+        text = "当前组已读",
         fontSize = Type.micro,
         fontWeight = Type.weightTitle,
         color = colors.primary,

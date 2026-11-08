@@ -1,13 +1,23 @@
 package com.muyao.wanzaihyperos.ui.tronclass
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
@@ -20,10 +30,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerKind
 import com.muyao.wanzaihyperos.data.tronclass.RollcallAnswerResult
@@ -32,7 +41,6 @@ import com.muyao.wanzaihyperos.data.tronclass.RollcallRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronAttendanceStates
 import com.muyao.wanzaihyperos.data.tronclass.TronRollcall
 import com.muyao.wanzaihyperos.ui.common.PageState
-import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 import com.muyao.wanzaihyperos.ui.common.toPageState
 import com.muyao.wanzaihyperos.ui.design.ActionRow
 import com.muyao.wanzaihyperos.ui.design.AppCard
@@ -40,24 +48,18 @@ import com.muyao.wanzaihyperos.ui.design.AppList
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.HintText
 import com.muyao.wanzaihyperos.ui.design.InfoItem
+import com.muyao.wanzaihyperos.ui.design.KeyValueRow
+import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.ResultBanner
-import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.infoItems
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -90,40 +92,26 @@ fun RollcallStationPage(
 ) {
     val scope = rememberCoroutineScope()
     val state by repository.state.collectAsState()
+    // 清單滾動狀態提到這裡：頂欄漸變紗靠它算進度。
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val veilProgress by com.muyao.wanzaihyperos.ui.design.rememberScrollProgress(listState)
 
-    ThemedScaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            SmallTopAppBar(
-                title = "签到",
-                color = Color.Transparent,
-                subtitle = rollcallSubtitle(state),
-                navigationIcon = {
-                    IconButton(onClick = onExit) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(Dims.iconNav),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { scope.launch { runCatching { repository.refresh() } } }) {
-                        Icon(
-                            imageVector = MiuixIcons.Refresh,
-                            contentDescription = "重新加载",
-                            modifier = Modifier.size(Dims.iconAction),
-                        )
-                    }
-                },
-            )
-        },
+    // 頂欄走共享殼（[SecondaryScaffold]）：漸變、安全區、返回鍵、欄高只由設計層決定一次。
+    com.muyao.wanzaihyperos.ui.design.SecondaryScaffold(
+        title = "签到",
+        subtitle = rollcallSubtitle(state),
+        onBack = onExit,
+        modifier = modifier,
+        scrollProgress = veilProgress,
+        onRefresh = { scope.launch { runCatching { repository.refresh() } } },
     ) { innerPadding ->
         RollcallBody(
             repository = repository,
             onOpenWeb = onOpenWeb,
+            listState = listState,
             modifier = Modifier
                 .fillMaxSize()
+                // 安全區只讓一次：頂欄高度（含狀態列）由殼給。
                 .padding(top = innerPadding.calculateTopPadding()),
         )
     }
@@ -159,6 +147,8 @@ fun RollcallBody(
     repository: RollcallRepository,
     onOpenWeb: () -> Unit,
     modifier: Modifier = Modifier,
+    listState: androidx.compose.foundation.lazy.LazyListState =
+        androidx.compose.foundation.lazy.rememberLazyListState(),
     header: LazyListScope.() -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -172,6 +162,14 @@ fun RollcallBody(
     var busyId by remember { mutableStateOf<Int?>(null) }
     /** 相机现在的目标：某一行，或者顶部那颗「扫码签到」。 */
     var scanTarget by remember { mutableStateOf<ScanTarget?>(null) }
+    /**
+     * 上面那块输入面板现在在显示哪一种途径（稿上的五颗 chip）。
+     *
+     * ⚠️ 它**只切面板**，不触发任何动作：切到「4位数字」不会去找签到，
+     *   切到「相機」也不会开相机。要开相机得按面板里那颗按钮 ——
+     *   chip 是"选择"，按钮才是"做"。
+     */
+    var inputMode by remember { mutableStateOf(ScanMode.CAMERA) }
     /**
      * 扫到了、但**还没提交**：挂在这里，由选择卡让他自己按那一键。
      *
@@ -232,17 +230,84 @@ fun RollcallBody(
         if (state is ListState.FirstLoad) repository.refresh()
     }
 
-    // 從全局掃一掃帶過來的碼：take() 取走即清空，掛到同一張選擇卡上。
-    // 這裡仍然只挑不寫 —— 提交那一鍵由他按（簽到是寫操作）。
+    // ── 掃到的原文走**同一條管道** ──────────────────────────────────
+    //
+    // 相機取景、相冊選圖、手動粘貼、全局扫一扫帶過來的碼 —— 四個入口，
+    // 一条管道（以前只有相機那一支內聯在 QrScannerPage 的 onScanned 裡，
+    // 所以相冊這條路根本沒地方接）。
+    //
+    // ★ 這條管道**只挑候選、永不寫**：寫請求只存在於 `submitTo`，
+    //   而它的調用點全在按鈕的 onClick 裡（簽到是寫操作，業主紅線）。
+    fun handleScanned(raw: String, target: ScanTarget?) {
+        rawScanSink?.invoke(raw)
+        val payload = com.muyao.wanzaihyperos.data.tronclass.QrPayloadParser.extract(raw)
+        when {
+            payload == null -> notice = Notice(
+                false,
+                "这不是签到二维码（内容里没有签到信息）",
+            )
+
+            target is ScanTarget.Row -> {
+                // 行内扫码：目标是他自己点开的那一行。**但码照样不替他交出去** ——
+                // 挂到同一张选择卡上，提交那一键由他按（审计红线：签到是写操作）。
+                pending = ScanPending(payload, target.id, RollcallQrCode.parse(raw))
+            }
+
+            else -> {
+                // 顶部那颗 / 相冊 / 粘贴：同一个入口 —— 先只读刷新、再按"需扫码 + 未签"挑，
+                // 有候选就挂到选择卡上，**点击提交由他按**；没候选就照实说。
+                // ⚠️ `/api/qr-code/scan` 已经**不使用**：它是 roomis 校园码的端点
+                // （学校对签到码回 404 `{"message":"未找到资源"}`，记在 `docs/LOG.md:1381`），
+                // 签到码真正的落地端点要在路径里带那条签到的 id（`answer_qr_rollcall`）。
+                pickScanTarget(
+                    scope = scope,
+                    code = payload,
+                    refreshCandidates = {
+                        repository.refresh()
+                        (repository.state.value as? ListState.Content)?.items.orEmpty()
+                            .filter { it.needsCamera && it.unanswered }
+                    },
+                    onBusy = setBusy,
+                    onNotice = showNotice,
+                    onNeedPick = { pending = ScanPending(it, null, RollcallQrCode.parse(raw)) },
+                )
+            }
+        }
+    }
+
+    // ── 全局扫一扫帶過來的碼 ──────────────────────────────────────
+    //
+    // 應用頁的掃一掃認出签到码後會 `ScanHandoff.put(raw)` 再跳回签到站；
+    // `take()` 取走即清空。★ 它也走同一條 `handleScanned` —— 上一版這裡自己
+    // 解析一遍、只在 `pending == null` 時才掛，與相機那條路的行為不一致。
     LaunchedEffect(Unit) {
         val handed = com.muyao.wanzaihyperos.data.tronclass.ScanHandoff.take()
             ?: return@LaunchedEffect
-        val payload = com.muyao.wanzaihyperos.data.tronclass.QrPayloadParser
-            .extract(handed)
-        if (payload == null) {
-            notice = Notice(false, "扫到的内容里没有签到信息")
-        } else {
-            pending = ScanPending(payload, null, RollcallQrCode.parse(handed))
+        handleScanned(handed, null)
+    }
+
+    // ── 相冊：截圖、老師發到群裡的碼、已經拍糊了的那張照片 ─────────
+    // 業主合同裡的五條途徑：相機 / 相冊 / 粘貼 / 4 位數字 / 自主。
+    // 相冊那條一直是缺的 —— 而它恰好是最常用的一條（很多人先把碼截圖再掃）。
+    // 解碼用 [decodePickedImage]（與掃碼頁同一支，會自己縮圖防 OOM）。
+    val pickCtx = androidx.compose.ui.platform.LocalContext.current
+    var picking by remember { mutableStateOf(false) }
+    val albumPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            picking = true
+            scope.launch {
+                val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { decodePickedImage(pickCtx, uri) }.getOrNull()
+                }
+                picking = false
+                if (text != null) {
+                    handleScanned(text, null)
+                } else {
+                    notice = Notice(false, "这张照片里没找到二维码。换一张把码拍正、拍清楚的。")
+                }
+            }
         }
     }
 
@@ -250,43 +315,10 @@ fun RollcallBody(
     if (scanTarget != null) {
         QrScannerPage(
             onExit = { scanTarget = null },
-            onScanned = { raw ->
-                rawScanSink?.invoke(raw)
+            onScanned = { raw: String ->
                 val target = scanTarget
                 scanTarget = null
-                val payload = com.muyao.wanzaihyperos.data.tronclass.QrPayloadParser.extract(raw)
-                when {
-                    payload == null -> notice = Notice(
-                        false,
-                        "这不是签到二维码（内容里没有签到信息）",
-                    )
-
-                    target is ScanTarget.Row -> {
-                        // 行内扫码：目标是他自己点开的那一行。**但码照样不替他交出去** ——
-                        // 挂到同一张选择卡上，提交那一键由他按（审计红线：签到是写操作）。
-                        pending = ScanPending(payload, target.id, RollcallQrCode.parse(raw))
-                    }
-
-                    else -> {
-                        // 顶部那颗 / 粘贴：同一个入口 —— 先只读刷新、再按"需扫码 + 未签"挑，
-                        // 有候选就挂到选择卡上，**点击提交由他按**；没候选就照实说。
-                        // ⚠️ `/api/qr-code/scan` 已经**不使用**：它是 roomis 校园码的端点
-                        // （学校对签到码回 404 `{"message":"未找到资源"}`，记在 `docs/LOG.md:1381`），
-                        // 签到码真正的落地端点要在路径里带那条签到的 id（`answer_qr_rollcall`）。
-                        pickScanTarget(
-                            scope = scope,
-                            code = payload,
-                            refreshCandidates = {
-                                repository.refresh()
-                                (repository.state.value as? ListState.Content)?.items.orEmpty()
-                                    .filter { it.needsCamera && it.unanswered }
-                            },
-                            onBusy = setBusy,
-                            onNotice = showNotice,
-                            onNeedPick = { pending = ScanPending(it, null, RollcallQrCode.parse(raw)) },
-                        )
-                    }
-                }
+                handleScanned(raw, target)
             },
         )
         return
@@ -320,79 +352,182 @@ fun RollcallBody(
         // 顺序是 下拉 / 松开 / 正在刷 / 刷完了。
         refreshTexts = listOf("下拉刷新", "松开手就刷", "正在刷新…", "刷完了"),
     ) {
-        AppList(modifier = Modifier.fillMaxSize()) {
+        val qrOpen = items.count { it.needsCamera && it.unanswered }
+        val digitOpen = items.count {
+            it.isOpen && it.unanswered && it.answerKind == RollcallAnswerKind.NUMBER
+        }
+        val selfOpen = items.count {
+            it.isOpen && it.unanswered && it.answerKind == RollcallAnswerKind.SELF_REGISTRATION
+        }
+
+        // 「當前這一次」= 清單裡第一條還在進行中的。
+        // 稿上那張匯總卡（課程/活動、簽到時間/截止、當前狀態）講的就是它：
+        // 用戶進來第一件事是「現在能不能簽、截止了沒」，
+        // 而原本這些字散在每一張卡裡，得自己拼出來。
+        val current = items.firstOrNull { it.isOpen }
+
+        AppList(modifier = Modifier.fillMaxSize(), state = listState) {
             header()
+
+            // ── 頁面級三行（稿 rollcall.png 上的 eyebrow / hero / 副句）────
+            // 「永遠不自動提交」是這一頁的核心承諾 —— 掃到就提交會出事，
+            // 而原本這句話在介面上一個字都沒有。
+            item(key = "rollcall-hero") {
+                TronHero(
+                    eyebrow = "CHECK-IN / 签到站",
+                    title = "每一次，先确认",
+                    sub = "识别只找候选，永远不自动提交。",
+                    icon = MarkIcon.Scan,
+                )
+            }
 
             item {
                 NoticeBanner(notice)
             }
 
-            // ── 扫码：一颗**永远能按**的大按钮（認碼是服務端的事）─────────────
+            // ── 當前簽到匯總（稿上那張三條 kv 的卡）──────────────────
+            // 沒有進行中的就整卡不顯示：一條「沒有進行中」的空卡只是噪音。
+            current?.let { r ->
+                item(key = "rollcall-summary") {
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(Dims.cardPadding)) {
+                            KeyValueRow(
+                                label = "课程 / 活动",
+                                value = r.title.ifBlank { "签到" },
+                                labelWidth = Dims.labelColumnWide,
+                            )
+                            KeyValueRow(
+                                label = "签到时间 / 截止",
+                                value = listOfNotNull(
+                                    r.rollcallTime.takeIf { it.isNotBlank() },
+                                    r.endTime.takeIf { it.isNotBlank() },
+                                ).joinToString(" / ").ifBlank { "—" },
+                                labelWidth = Dims.labelColumnWide,
+                            )
+                            KeyValueRow(
+                                label = "当前状态",
+                                value = "进行中 · ${r.myStatusLabel}",
+                                labelWidth = Dims.labelColumnWide,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── 五種簽到途徑（稿 rollcall.png 上那一行 chips）────────────────
+            //
+            // 稿上是五個平排 chip：相機 / 相冊 / 粘貼 / 4位數字 / 自主。
+            // 前三個是「怎麼把碼弄進來」，後兩個是「碼不用掃」的兩種途徑 ——
+            // 所以 chip 只切換**上面這塊輸入面板**，一行簽到底要按哪一顆按鈕，
+            // 仍然只在下面那張卡片裡（寫操作永遠由他按，這裡一顆都不提交）。
+            item { TronSection(text = "签到方式", icon = MarkIcon.Scan) }
             item {
-                val qrOpen = items.count { it.needsCamera && it.unanswered }
                 AppCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(Dims.cardPadding)) {
-                        Text(
-                            text = "扫码签到",
-                            style = MiuixTheme.textStyles.title4,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.onSurface,
-                        )
-                        Spacer(Modifier.height(Dims.tight))
-                        Text(
-                            // ⚠️ 這裡的話改過兩次，現在以**真機實測**為準：
-                            //   2026-10-20 在他手机上把掃到的串送 `GET /api/qr-code/scan?codeStr=…`，
-                            //   學校回的是 **404 {"message":"未找到资源"}** ——
-                            //   也就是說這個部署**沒有「服務端認碼」那支接口**（源碼裡那支是
-                            //   Roomis 廠商的整合，我們學校沒上）。
-                            //   所以「扫了服务端会认」是我說錯的話，不能留。
-                            //   相機仍然**永遠可點**：萬一清單同步慢了，他不該被我擋住。
-                            //   扫到的码**不直接提交**：先刷新清单、把候选摆出来，再由他按确认。
-                            text = if (qrOpen > 0) {
-                                "对着老师屏幕上的码扫一下（我这边看到 $qrOpen 项在进行）。" +
-                                    "扫完我会先问一句是哪一次，提交由你按。"
-                            } else {
-                                "清单里现在没有进行中的签到，但扫码按钮照样能用 ——" +
-                                    "学校的签到码里自带签到编号，扫完不用等它出现在清单里。" +
-                                    "提交仍然由你按。"
-                            },
-                            style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = Type.tabular),
-                            color = colors.onSurfaceVariantSummary,
-                        )
-                        Spacer(Modifier.height(Dims.sectionGap))
-                        Button(
-                            onClick = { scanTarget = ScanTarget.Quick },
+                        ScanModeChips(
+                            selected = inputMode,
                             enabled = busyId == null,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(if (busyId != null) "提交中…" else "打开相机扫码")
-                        }
+                            onSelect = { inputMode = it },
+                        )
                         Spacer(Modifier.height(Dims.loose))
-                        // 相机读不出来时的出路（暗教室、屏幕反光、拍糊）。
-                        PasteRow(
-                            value = inputs[PASTE_KEY].orEmpty(),
-                            onValueChange = { inputs = inputs + (PASTE_KEY to it) },
-                            enabled = busyId == null,
-                            onSubmit = { text ->
-                                if (text.isBlank()) {
-                                    notice = Notice(false, "先粘贴扫码得到的内容")
-                                } else {
-                                    // 和相机那条**完全同一个入口**：只挑、不写。
-                                    pickScanTarget(
-                                        scope = scope,
-                                        code = text,
-                                        refreshCandidates = {
-                                            repository.refresh()
-                                            (repository.state.value as? ListState.Content)?.items.orEmpty()
-                                                .filter { it.needsCamera && it.unanswered }
-                                        },
-                                        onBusy = setBusy,
-                                        onNotice = showNotice,
-                                        onNeedPick = { pending = ScanPending(it, null, RollcallQrCode.parse(text)) },
-                                    )
+
+                        when (inputMode) {
+                            ScanMode.CAMERA -> {
+                                Text(
+                                    // ⚠️ 這裡的話改過兩次，現在以**真機實測**為準：
+                                    //   2026-10-20 在他手机上把掃到的串送 `GET /api/qr-code/scan?codeStr=…`，
+                                    //   學校回的是 **404 {"message":"未找到资源"}** ——
+                                    //   也就是說這個部署**沒有「服務端認碼」那支接口**。
+                                    //   所以「扫了服务端会认」是我說錯的話，不能留。
+                                    //   相機仍然**永遠可點**：萬一清單同步慢了，他不該被我擋住。
+                                    //   扫到的码**不直接提交**：先刷新清单、把候选摆出来，再由他按确认。
+                                    text = if (qrOpen > 0) {
+                                        "对着老师屏幕上的码扫一下（我这边看到 $qrOpen 项在进行）。" +
+                                            "扫完我会先问一句是哪一次，提交由你按。"
+                                    } else {
+                                        "清单里现在没有进行中的签到，但扫码照样能用 ——" +
+                                            "学校的签到码里自带签到编号，扫完不用等它出现在清单里。" +
+                                            "提交仍然由你按。"
+                                    },
+                                    style = MiuixTheme.textStyles.footnote2.copy(
+                                        fontFeatureSettings = Type.tabular,
+                                    ),
+                                    color = colors.onSurfaceVariantSummary,
+                                )
+                                Spacer(Modifier.height(Dims.sectionGap))
+                                Button(
+                                    onClick = { scanTarget = ScanTarget.Quick },
+                                    enabled = busyId == null,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(if (busyId != null) "提交中…" else "打开相机扫码")
                                 }
-                            },
-                        )
+                            }
+
+                            ScanMode.ALBUM -> {
+                                Text(
+                                    // 相冊這條路**不需要相機權限**：拒了權限的人也還能認已經拍下來的碼。
+                                    // 它與相機走同一個 `handleScanned` —— 認出來只是"掛上候選"，不寫。
+                                    text = "已经拍下来的码也能认（拒了相机权限照样可用）。" +
+                                        "认出来同样只挂候选，提交由你按。",
+                                    style = MiuixTheme.textStyles.footnote2,
+                                    color = colors.onSurfaceVariantSummary,
+                                )
+                                Spacer(Modifier.height(Dims.sectionGap))
+                                Button(
+                                    onClick = {
+                                        notice = Notice()
+                                        albumPicker.launch(
+                                            PickVisualMediaRequest(
+                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                            ),
+                                        )
+                                    },
+                                    enabled = busyId == null && !picking,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(if (picking) "正在认这张图…" else "从相册选一张")
+                                }
+                            }
+
+                            ScanMode.PASTE -> {
+                                // 相机读不出来时的出路（暗教室、屏幕反光、拍糊）。
+                                PasteRow(
+                                    value = inputs[PASTE_KEY].orEmpty(),
+                                    onValueChange = { inputs = inputs + (PASTE_KEY to it) },
+                                    enabled = busyId == null,
+                                    onSubmit = { text ->
+                                        if (text.isBlank()) {
+                                            notice = Notice(false, "先粘贴扫码得到的内容")
+                                        } else {
+                                            // 和相机、相册**完全同一个入口**：只挑、不写。
+                                            handleScanned(text, null)
+                                        }
+                                    },
+                                )
+                            }
+
+                            // 下面這兩種**沒有頂部輸入框**：碼不用掃，但數字 / 自助鍵
+                            // 必須落在**那一次簽到**上（提交是 `PUT /api/rollcall/{id}/…`，
+                            // 沒有 id 就沒有東西可交）。所以 chip 只負責說清楚「去下面哪幾條按」。
+                            ScanMode.DIGITS -> WaitingNotice(
+                                text = if (digitOpen > 0) {
+                                    "数字签到在下面「进行中」每一条里填 —— " +
+                                        "数字要交给那一次签到，在这里先填没有意义。"
+                                } else {
+                                    "现在没有在等数字签到的签到。有的话会出现在下面「进行中」里。"
+                                },
+                                count = digitOpen,
+                                unit = "条正在等数字",
+                            )
+
+                            ScanMode.SELF -> WaitingNotice(
+                                text = "自主签到同样在下面「进行中」每一条里按 —— " +
+                                    "进入这一页不产生任何签到。",
+                                count = selfOpen,
+                                unit = "条可自主签到",
+                            )
+                        }
                     }
                 }
             }
@@ -484,7 +619,7 @@ fun RollcallBody(
             val closed = items.filter { !it.isOpen }
 
             if (open.isNotEmpty()) {
-                item { SmallTitle(text = "进行中（${open.size}）") }
+                item { TronSection(text = "进行中（${open.size}）", icon = MarkIcon.Run) }
                 infoItems(open, key = { it.id }) { r ->
                     RollcallCard(
                         rollcall = r,
@@ -503,7 +638,7 @@ fun RollcallBody(
             }
 
             if (closed.isNotEmpty()) {
-                item { SmallTitle(text = "已经结束（${closed.size}）") }
+                item { TronSection(text = "已经结束（${closed.size}）", icon = MarkIcon.Clock) }
                 infoItems(closed, key = { it.id }) { r ->
                     InfoItem(
                         title = r.title.ifBlank { "签到" },
@@ -523,7 +658,19 @@ fun RollcallBody(
                         "失败时会把服务器的原话显示出来。数字签到以老师屏幕上的数字为准。",
                 )
             }
-            item { ActionRow(title = "更多功能（网页版）", action = "打开", onClick = onOpenWeb) }
+            // 稿上是「簽到原站更多」：那句話更具體 —— 原站才有的確實是
+            // 「更多簽到」（補簽、歷史、申訴），不是一堆不相干的功能。
+            item { ActionRow(title = "签到原站更多", action = "打开", onClick = onOpenWeb) }
+
+            // 來源標註。稿上寫的是演示時間；這一頁讀真接口，寫「本地模擬樣例」是造假。
+            // 要留的是「以老師屏幕為準」這層意思 —— 判錯是直接記曠課。
+            item(key = "rollcall-source") {
+                Text(
+                    text = "来源：学在城院接口 · 以老师屏幕上的签到为准",
+                    fontSize = Type.caption,
+                    color = colors.onSurfaceVariantSummary,
+                )
+            }
         }
     }
 }
@@ -879,4 +1026,93 @@ private fun PasteRow(
         enabled = enabled && value.isNotBlank(),
         modifier = Modifier.fillMaxWidth(),
     ) { Text("用粘贴的内容签到") }
+}
+
+/**
+ * 簽到的五種途徑（稿 `rollcall.png` 上那五颗 chip）。
+ *
+ * 前三個是「怎麼把碼弄進來」，後兩個是「碼不用掃」的兩種簽到方式。
+ * 兩種性質不同，所以 chip 只切換上面那塊面板：
+ * **數字與自主簽到必須落在某一次簽到上**（提交端點是 `PUT /api/rollcall/{id}/…`），
+ * 所以它們的面板只能說清楚「去下面哪幾條按」，不自己開一個輸入框。
+ */
+private enum class ScanMode(val label: String) {
+    CAMERA("相机"),
+    ALBUM("相册"),
+    PASTE("粘贴"),
+    DIGITS("4位数字"),
+    SELF("自主"),
+}
+
+/**
+ * 五颗平排 chip（換行由 [FlowRow] 負責）。
+ *
+ * ### 為什麼用 FlowRow 而不是 `LazyRow`
+ *
+ * 稿上第一行四颗、第二行一顆（392px 寬時放不下五颗）。
+ * `JwPage.kt:542 SecChipRow` 用可橫向滾動的 `LazyRow` —— 那對「一排篩選器」成立，
+ * 但這裡是**固定五種途徑**，橫向滾動會把「自主」藏到螢幕外，
+ * 而它恰恰是必須被看見的一種（自助簽到的人找不到入口就等於沒有）。
+ * 折行的代價是兩行高度，換來五種全都一眼可見。
+ *
+ * ### 命中區
+ *
+ * 視覺高度照稿是 32dp 左右，但**可點區域**撐到 [Dims.minTouch]（44dp）——
+ * 用 `heightIn(min=)`，pill 的底色仍然由內距決定，不是把 pill 拉高成一塊板磚。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun ScanModeChips(
+    selected: ScanMode,
+    enabled: Boolean,
+    onSelect: (ScanMode) -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(Dims.tight),
+        verticalArrangement = Arrangement.spacedBy(Dims.tight),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        ScanMode.entries.forEach { mode ->
+            val active = mode == selected
+            Box(
+                modifier = Modifier
+                    .heightIn(min = Dims.minTouch)
+                    .clip(RoundedCornerShape(50))
+                    .background(if (active) colors.primary else colors.surfaceContainer)
+                    .clickable(enabled = enabled, onClickLabel = "选择${mode.label}") {
+                        onSelect(mode)
+                    }
+                    .padding(horizontal = Dims.cardPadding, vertical = Dims.normal),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = mode.label,
+                    fontSize = Type.bodyEmphasis,
+                    fontWeight = if (active) FontWeight.SemiBold else Type.weightBody,
+                    color = if (active) colors.onPrimary else colors.onSurface,
+                )
+            }
+        }
+    }
+}
+
+/** 數字／自主那兩種 chip 的面板：只說清楚「去下面哪幾條按」，這裡沒有輸入框也沒有按鈕。 */
+@Composable
+private fun WaitingNotice(text: String, count: Int, unit: String) {
+    Column {
+        Text(
+            text = text,
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        if (count > 0) {
+            Spacer(Modifier.height(Dims.tight))
+            Text(
+                text = "现在有 $count $unit",
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.primary,
+            )
+        }
+    }
 }

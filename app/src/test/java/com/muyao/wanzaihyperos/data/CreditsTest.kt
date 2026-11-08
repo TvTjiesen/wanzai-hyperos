@@ -191,7 +191,9 @@ class CreditsTest {
         assertEquals(
             "衍生作品（AndroidLiquidGlass）必须是 Apache License 2.0",
             "Apache License 2.0",
-            Credits.derived.single().license,
+            // 2026-11-08：`derived` 从 1 条变成 2 条（补了 grok-ball 的 MIT 署名，
+            // MIT 要求随分发保留）。所以这里按 coordinate 取，不能用 `single()`。
+            Credits.derived.single { it.coordinate == "github.com/Kyant0/AndroidLiquidGlass" }.license,
         )
         assertTrue(
             "随包字体的授权文本未随包存放，这一条必须照实写（不许代答）",
