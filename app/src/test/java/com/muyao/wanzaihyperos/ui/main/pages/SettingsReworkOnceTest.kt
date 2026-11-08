@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.main.pages
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -36,6 +37,20 @@ class SettingsReworkOnceTest {
         assertTrue(notice.contains("还没排上"))
         assertTrue(notice.contains("这七天没有要提醒的课"))
         assertTrue(notice.contains("只存这台手机"))
+    }
+    @Test
+    fun `A5 续：隐私组与三级诊断也用白纸卡，诊断小标题不再是设置页图标路标`() {
+        // 2026-11-09：这条页里三个分组（开关 / 隐私 / 排程诊断）统一成稿的 .paper.flush，
+        // 三级诊断的小标题从 SettingSectionLabel（带磁贴图标）降级为纯标题——
+        // 图标路标是设置总览页的语法，二级页的折叠里再用就成了两套语言混排。
+        val page = read(reminders)
+        // 只查「用」不查「提」：文件里那句解释「SettingGroup 是玻璃卡」的注释要留着。
+        assertTrue("提醒页不该再 import SettingGroup", !page.contains("import com.muyao.wanzaihyperos.ui.design.SettingGroup"))
+        assertTrue("提醒页不该再摆 SettingGroup 卡片", !page.contains("SettingGroup {"))
+        assertEquals("开关卡 + 隐私 + 诊断 = 三张白纸卡", 3, Regex("PaperCard \\{").findAll(page).count())
+        assertTrue("排程诊断该是纯标题", page.contains("text = \"排程诊断\""))
+        assertTrue("诊断标题该挂 heading 语义", page.contains("Modifier.semantics { heading() }"))
+        assertTrue("诊断标题不该再带图标", !page.contains("SettingSectionLabel(\"排程诊断\""))
     }
     @Test
     fun `C2 恢复默认必须连取景三元组一起写盘`() {

@@ -38,7 +38,6 @@ import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.PillSwitch
 import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
 import com.muyao.wanzaihyperos.ui.design.PaperCard
-import com.muyao.wanzaihyperos.ui.design.SettingGroup
 import com.muyao.wanzaihyperos.ui.design.SettingIcon
 import com.muyao.wanzaihyperos.ui.design.SettingRow
 import com.muyao.wanzaihyperos.ui.design.SettingSectionLabel
@@ -187,7 +186,7 @@ fun RemindersPage(
                     SettingSectionLabel("隐私", icon = MarkIcon.Account)
                 }
                 item(key = "privacy-rows") {
-                    SettingGroup {
+                    PaperCard {
                         SettingRow(
                             icon = SettingIcon.Shield,
                             tint = Tone.ok,
@@ -233,10 +232,15 @@ fun RemindersPage(
                 // 三级：只读诊断。**不在这里申请权限**（那是系统设置的事），
                 // 只报告「此刻到底允许了什么」——四种原因必须逐条给结论。
                 item(key = "diag-label") {
-                    SettingSectionLabel("排程诊断", icon = MarkIcon.Warn)
+                    Text(
+                        text = "排程诊断",
+                        fontSize = Type.title,
+                        color = colors.onBackground,
+                        modifier = Modifier.semantics { heading() },
+                    )
                 }
                 item(key = "diag") {
-                    SettingGroup {
+                    PaperCard {
                         SettingRow(
                             icon = SettingIcon.Info,
                             tint = if (showDiag) Tone.ok else Tone.quiet,
