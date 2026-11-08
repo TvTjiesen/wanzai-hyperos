@@ -29,6 +29,8 @@ import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.muyao.wanzaihyperos.R
+import com.muyao.wanzaihyperos.ui.design.ai.AiBall
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallState
 import com.muyao.wanzaihyperos.data.PortalApp
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.DelayedLoading
@@ -167,14 +169,22 @@ fun StatePlaceholder(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(
-            imageVector = if (state == PageState.Error || state == PageState.Offline) MiuixIcons.Refresh else MiuixIcons.Info,
-            contentDescription = null,
-            tint = when (state) {
-                PageState.Error, PageState.SessionExpired -> colors.error
-                else -> colors.onSurfaceVariantSummary
+        // 返工总单 B2：空态先画脸。
+        //
+        // 原来所有空态都是「一个 28dp 的 Info 图标 + 一句标题」—— 与任何别的
+        // Android 应用的空态没有区别，小球只在有内容时才出现，等于「核心化」
+        // 只发生在成功路径上。稿的空态是**球先说一句话**，图标不是主体。
+        //
+        // 用 44dp 这一档（AiBall.DIAMETER_PAGE）：空态里的球是「在说话」，
+        // 不是首页那颗 96dp 的主角，不该抢走标题的注意力。
+        AiBall(
+            state = when (state) {
+                PageState.Empty, PageState.Stale -> AiBallState.Idle
+                PageState.Error, PageState.Offline, PageState.SessionExpired -> AiBallState.Error
+                else -> AiBallState.Idle
             },
-            modifier = Modifier.size(28.dp),
+            diameter = AiBall.DIAMETER_PAGE,
+            hitSlop = AiBall.INLINE_SLOP,
         )
 
         Text(

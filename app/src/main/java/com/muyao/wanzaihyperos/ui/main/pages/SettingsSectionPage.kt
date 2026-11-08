@@ -257,7 +257,7 @@ fun SettingsSectionPage(
         // 顶栏小标题仍是「设置」，首屏大字换成「你的习惯」。
         largeTitleItem(
             pilot = pilot,
-            leading = { AiBall(state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP) },
+            leading = { AiBall(state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP, announceArrival = true) },
             kicker = "显示偏好",
             heroTitle = "你的习惯",
             subtitle = heroSubtitle,

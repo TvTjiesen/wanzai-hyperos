@@ -184,7 +184,7 @@ fun AppsSectionPage(
         // 顶栏小标题仍是「应用」，首屏大字换成「校园集合」—— 设计稿里这两句本来就不是同一句话。
         largeTitleItem(
             pilot = pilot,
-            leading = { AiBall(state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP) },
+            leading = { AiBall(state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP, announceArrival = true) },
             kicker = "校园服务",
             heroTitle = "校园集合",
             subtitle = heroSubtitle,

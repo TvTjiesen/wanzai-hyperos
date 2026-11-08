@@ -89,13 +89,23 @@ fun AiBall(
     modifier: Modifier = Modifier,
     diameter: Dp = AiBall.DIAMETER,
     hitSlop: Dp = AiBall.HIT_SLOP,
+    /**
+     * 刚拿到内容时先播一秒 [AiBallState.Curious]（返工总单 B3）。
+     *
+     * 默认关：首页那颗球说的是「此刻什么最重要」，插一段转录会打断它；
+     * 内容页那颗球只回答「这一页现在怎样」，播一次正好解释「刚刚刷新过」。
+     */
+    announceArrival: Boolean = false,
 ) {
     val motion = rememberMotion()
     val scope = rememberCoroutineScope()
 
     // 长按试看：索引 -1 = 跟随真实状态。5 秒后自动归位，免得留在假状态上骗人。
     var previewIndex by remember { mutableIntStateOf(-1) }
-    val shown = if (previewIndex >= 0) AiBall.FACES[previewIndex] else state
+    val realShown = if (previewIndex >= 0) AiBall.FACES[previewIndex] else state
+    // 无条件调用（composable 不允许条件调用），只在 announceArrival 时才采信结果。
+    val arrival = rememberArrivalState(realShown)
+    val shown = if (announceArrival) arrival else realShown
 
     LaunchedEffect(previewIndex) {
         if (previewIndex >= 0) {
