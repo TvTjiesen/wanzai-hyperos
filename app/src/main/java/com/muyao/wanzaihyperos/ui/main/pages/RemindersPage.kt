@@ -37,6 +37,7 @@ import com.muyao.wanzaihyperos.data.UiPrefs
 import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.PillSwitch
 import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
+import com.muyao.wanzaihyperos.ui.design.PaperCard
 import com.muyao.wanzaihyperos.ui.design.SettingGroup
 import com.muyao.wanzaihyperos.ui.design.SettingIcon
 import com.muyao.wanzaihyperos.ui.design.SettingRow
@@ -268,22 +269,4 @@ fun RemindersPage(
             }
         }
     }
-}
-
-/** 稿 `.paper.flush`：表面色 + 1px 描边 + 20px 圆角 + 无内距，行自己带内距。 */
-@Composable
-private fun PaperCard(content: @Composable ColumnScope.() -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(17.7.dp))
-            .background(colors.surface)
-            .border(
-                width = 1.dp,
-                color = colors.dividerLine.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(17.7.dp),
-            ),
-        content = content,
-    )
 }

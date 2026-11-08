@@ -515,6 +515,31 @@ fun SettingGroup(modifier: Modifier = Modifier, content: @Composable () -> Unit)
     }
 }
 
+/**
+ * 稿 `.paper.flush`：表面色 + 1px 描边 + 20px 圆角 + **无内距**，行自己带内距。
+ *
+ * 与 [SettingGroup] 的区别是语法来源不同：SettingGroup 是设置总览页那种"站内分组"，
+ * 轻到近乎无边界；PaperCard 是评审稿里二级页的那种"一张纸"，有边、有底色。
+ * 二级页（关于 / 提醒 / 辅助显示 …）照稿用后者。
+ */
+@Composable
+fun PaperCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Dims.paperCorner))
+            .background(colors.surface)
+            .border(
+                width = 1.dp,
+                color = colors.dividerLine.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(Dims.paperCorner),
+            ),
+    ) {
+        content()
+    }
+}
+
 /** 分组之间的小标题。 */
 @Composable
 fun SettingSectionLabel(text: String, icon: MarkIcon? = null) {

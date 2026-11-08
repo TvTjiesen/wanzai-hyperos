@@ -96,6 +96,8 @@ object Dims {
      * 18 ≤ 14×2=28，成立。
      */
     val cardCorner = 18.dp
+    /** 稿 .paper 的圆角：20px × 0.886 ≈ 17.7dp。 */
+    val paperCorner = 17.7.dp
 
     /**
      * 小元件圓角。

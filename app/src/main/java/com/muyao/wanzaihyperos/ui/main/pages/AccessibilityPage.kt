@@ -21,6 +21,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.data.UiPrefs
 import com.muyao.wanzaihyperos.ui.common.NoticeLine
@@ -32,7 +34,7 @@ import com.muyao.wanzaihyperos.ui.design.MotionPrefs
 import com.muyao.wanzaihyperos.ui.design.PillSwitch
 import com.muyao.wanzaihyperos.ui.design.PressMotion
 import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
-import com.muyao.wanzaihyperos.ui.design.SettingGroup
+import com.muyao.wanzaihyperos.ui.design.PaperCard
 import com.muyao.wanzaihyperos.ui.design.SettingIcon
 import com.muyao.wanzaihyperos.ui.design.SettingRow
 import com.muyao.wanzaihyperos.ui.design.SettingSectionLabel
@@ -141,8 +143,8 @@ fun AccessibilityPage(
 
             item(key = "motion-group") {
                 Column {
-                    SettingSectionLabel("显示与动效", icon = MarkIcon.Appearance)
-                    SettingGroup {
+                    // 稿上这一组是 .paper.flush：没有分组小标题，也没有玻璃底。
+                    PaperCard {
                         SettingRow(
                             icon = SettingIcon.Moon,
                             tint = if (canMove) Tone.quiet else Tone.ok,
@@ -234,8 +236,17 @@ fun AccessibilityPage(
 
             item(key = "rhythm-group") {
                 Column {
-                    SettingSectionLabel("响应节奏", icon = MarkIcon.Clock)
-                    SettingGroup {
+                    Text(
+                        // 稿 h3 = 20.3px × 0.886 ≈ 18sp，正好是 Type.title。
+                        text = "响应节奏",
+                        modifier = Modifier
+                            .padding(top = 18.dp, bottom = 8.dp)
+                            .semantics { heading() },
+                        fontSize = Type.title,
+                        fontWeight = Type.weightTitle,
+                        color = colors.onBackground,
+                    )
+                    PaperCard {
                         // 右值一律**从实现里的常量算出来**，不在这一页手写数字：
                         // 手写的表很快就会和真正的动效时长脱节，而它唯一的用处就是「说的是真的」。
                         TimingRow("按下 / 释放", "${MotionTokens.PRESS_MS} / ${MotionTokens.FAST_MS} ms")
