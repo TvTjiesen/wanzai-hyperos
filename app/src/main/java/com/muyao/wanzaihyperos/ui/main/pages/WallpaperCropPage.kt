@@ -69,6 +69,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun WallpaperCropPage(
     onBack: () -> Unit,
+    onSearch: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -91,8 +92,8 @@ fun WallpaperCropPage(
     SecondaryScaffold(
         scrollProgress = veil,
         title = "调整照片",
-        subtitle = "只在这台手机上",
         onBack = onBack,
+        onSearch = onSearch,
         modifier = modifier,
     ) { inner ->
         Column(

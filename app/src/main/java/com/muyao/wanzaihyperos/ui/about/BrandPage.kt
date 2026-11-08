@@ -1,30 +1,26 @@
 package com.muyao.wanzaihyperos.ui.about
 
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -32,27 +28,36 @@ import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
-import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * A6：品牌与图标（二级页，从设置首屏「名称与图标」进来）。
  *
- * ## 这一页的立场：把「还没定」的事照实写出来
+ * ## 结构与换算
  *
- * 业主 2026-11-07 说过现用名不满意（「名称再想一个，这个我不满意，听不够可爱」），
- * 所以这一页的名称状态只能是 **待定** —— 不接受任何「已定稿」的说法，
- * 也不把 AI 生成的候选图当成已经交付的资产。
+ * 一比一照稿 `screens/brand.png`（392×850 画板 ↔ 347dp ⇒ 1px = 0.886dp；
+ * 稿内 `--font:1.15` 与手机系统字号 1.15 相抵 ⇒ sp 令牌 = px × 0.886）：
  *
- * 页面上每一条硬信息都写明来源：名字是他给的、图标也是他给的，
- * 本应用只负责把它们装进包、并说明交付条件。
+ *   占位框「你的图标」→ display-title「把名字留给你。」→ 一段说明
+ *   → section「三个命名方向」+ 一张卡（三条候选名，各带一句）
+ *   → 一句「均为讨论候选…」→ section「素材交接」+ 一张卡（一段说明）
+ *
+ * 稿里**没有**四档尺寸预览、没有折叠的「交付与授权条件」、没有「已定稿」字样 ——
+ * 那些是我上一版自己加的，2026-11-08 按业主「跟稿子不一样」的意见全部拆掉。
+ * 名称状态仍然是**待定**：稿子标题本身就是「把名字留给你。」。
+ *
+ * 图标与名称都由业主提供，本页只写交付条件，不把任何生成图当成已交付资产。
  */
 @Composable
-fun BrandPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun BrandPage(
+    onBack: () -> Unit,
+    onSearch: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
     val colors = MiuixTheme.colorScheme
-    var showDelivery by remember { mutableStateOf(false) }
 
     // 内容会捲到透明顶栏下面：用「已捲距离 / 一屏」驱动顶栏那层纱，
     // 否则标题会被正文压住（真机在开源许可页看到过）。
@@ -60,9 +65,9 @@ fun BrandPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val veil by rememberScrollProgress(scroll)
     SecondaryScaffold(
         scrollProgress = veil,
-        title = "名称与图标",
-        subtitle = "待业主确认",
+        title = "品牌与图标",
         onBack = onBack,
+        onSearch = onSearch,
         modifier = modifier,
     ) { inner ->
         Column(
@@ -72,191 +77,132 @@ fun BrandPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 .padding(horizontal = Dims.screenH)
                 .padding(
                     top = inner.calculateTopPadding() + 6.dp,
-                    bottom = inner.calculateBottomPadding(),
+                    bottom = inner.calculateBottomPadding() + 24.dp,
                 ),
         ) {
-            // ── 眉标 + 大标题 ──────────────────────────────────────────
+            // ── 占位框 + 大标题 + 说明 ────────────────────────────────
+            IconSlot()
+            Spacer(Modifier.height(21.dp))
             Text(
-                text = "RECOMMENDED NAME · 待审核",
-                fontSize = Type.micro,
-                color = colors.onSurfaceVariantSummary,
-                modifier = Modifier.semantics { heading() },
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "鲸集",
+                text = "把名字留给你。",
                 fontSize = Type.displayTitle,
                 fontWeight = Type.weightTitle,
                 color = colors.onBackground,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { heading() },
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(11.dp))
             Text(
-                // 命名理由写在这里，不写「已定稿」。
-                text = "现用名。取「鲸」的体量与「集」的聚合，呼应校园入口把六七个系统收进一处的做法。" +
-                    "业主 2026-11-07 表示不够满意，仍在再想 —— 所以这个名字**还不是最终名**。",
-                fontSize = Type.caption,
+                text = "当前只锁定界面方向，不锁定名称；先前候选图标不再作为实施素材。",
+                fontSize = Type.summary,
                 color = colors.onSurfaceVariantSummary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
 
-            // ── 名字候选卡 ────────────────────────────────────────────
-            Spacer(Modifier.height(Dims.cardGap))
+            // ── 三个命名方向 ─────────────────────────────────────────
+            SectionHeading(text = "三个命名方向")
             AppCard {
-                Column(Modifier.padding(Dims.cardPadding)) {
-                    NameRow(status = "现用名", name = "鲸集", why = "体量 + 聚合，最好念，两字。", chosen = true)
-                    Spacer(Modifier.height(10.dp))
-                    NameRow(status = "备选一", name = "鲸集校园", why = "限定范围，适合应用商店重名时分栏。", chosen = false)
-                    Spacer(Modifier.height(10.dp))
-                    NameRow(status = "备选二", name = "潮汐集", why = "呼应课表的节次起伏；缺点是四个字念着更绕。", chosen = false)
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 15.dp)) {
+                    NameLine(name = "汐见", why = "清爽克制，带一点日系日常感；建议副标题「城院校园助手」。")
+                    Spacer(Modifier.height(14.dp))
+                    NameLine(name = "晴屿", why = "偏温暖、明亮的校园生活气质。")
+                    Spacer(Modifier.height(14.dp))
+                    NameLine(name = "星汐", why = "二次元气质更明显，适合你的角色图标。")
                 }
             }
-
-            // ── 角色 ─────────────────────────────────────────────────
-            Spacer(Modifier.height(Dims.cardGap))
+            Spacer(Modifier.height(10.dp))
             Text(
-                text = "角色",
-                fontSize = Type.body,
-                fontWeight = Type.weightTitle,
-                color = colors.onBackground,
+                text = "均为讨论候选，未检索商标、应用重名或域名，不自动改包名。",
+                fontSize = Type.summary,
+                color = colors.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 2.dp),
             )
-            Spacer(Modifier.height(Dims.tight))
+
+            // ── 素材交接 ─────────────────────────────────────────────
+            SectionHeading(text = "素材交接")
             AppCard {
-                Row(
-                    modifier = Modifier.padding(Dims.cardPadding).fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Image(
-                        painter = painterResource(com.muyao.wanzaihyperos.R.drawable.ic_brand),
-                        contentDescription = "应用图标",
-                        modifier = Modifier.size(64.dp).clip(RoundedCornerShape(16.dp)),
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 15.dp)) {
+                    Text(
+                        text = "由你提供透明前景、背景及希望保留的安全区。原生需分别验收 launcher、" +
+                            "圆形遮罩、单色图标与启动页。没有素材前只用占位，不复用旧候选。",
+                        fontSize = Type.summary,
+                        color = colors.onBackground,
                     )
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = "学士服鲸鱼娘",
-                            fontSize = Type.body,
-                            fontWeight = Type.weightTitle,
-                            color = colors.onBackground,
-                        )
-                        Text(
-                            text = "角色与图标由业主提供。本应用只做包内集成（含圆形遮罩与五档密度），" +
-                                "不把任何生成图当作已交付的最终资产。",
-                            fontSize = Type.caption,
-                            color = colors.onSurfaceVariantSummary,
-                        )
-                    }
                 }
             }
+        }
+    }
+}
 
-            // ── 四个尺寸预览 ──────────────────────────────────────────
-            Spacer(Modifier.height(Dims.cardGap))
+/**
+ * 稿 `polish.css:138 .user-icon-slot`：112px 见方 / 28px 圆角 / 1px 虚线 primary，
+ * 底色是 `var(--container)`（浅蓝 #E5E9F4），文字 13.8sp 也取 primary。
+ * ⇒ 99dp / 25dp 圆角 / 虚线 1dp / `primary.copy(alpha = .10f)`。
+ */
+@Composable
+private fun IconSlot() {
+    val colors = MiuixTheme.colorScheme
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Column(
+            Modifier
+                .size(99.dp)
+                .clip(RoundedCornerShape(25.dp))
+                .background(colors.primary.copy(alpha = 0.10f))
+                .drawBehind {
+                    // 虚线边框：Compose 的 border 不支持虚线，只能自己描。
+                    val stroke = Stroke(
+                        width = 1.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx())),
+                    )
+                    drawRoundRect(
+                        color = colors.primary,
+                        size = Size(size.width, size.height),
+                        cornerRadius = CornerRadius(25.dp.toPx()),
+                        style = stroke,
+                    )
+                },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        ) {
             Text(
-                text = "小尺寸预览",
-                fontSize = Type.body,
-                fontWeight = Type.weightTitle,
-                color = colors.onBackground,
-            )
-            Spacer(Modifier.height(Dims.tight))
-            AppCard {
-                Row(
-                    modifier = Modifier.padding(Dims.cardPadding).fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom,
-                    // 四档宽度是固定的 32/48/64/96，合计 240dp；卡片内宽约 279dp。
-                    // 原来写死 14dp 间距 ⇒ 240 + 42 = 282dp，比容器还宽 3dp —— 默认字号下
-                    // 就已经顶着边，系统字号放大后更容易被挤出卡片。改成均分剩余空间，
-                    // 间距由容器自己算（这里是 ~13dp，视觉上与原稿一致，但永远放得下）。
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    listOf(32, 48, 64, 96).forEach { px ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Image(
-                                painter = painterResource(com.muyao.wanzaihyperos.R.drawable.ic_brand),
-                                contentDescription = "${px}px 图标预览",
-                                modifier = Modifier.size(px.dp).clip(RoundedCornerShape((px / 4).dp)),
-                            )
-                            Text(
-                                text = "${px}px",
-                                fontSize = Type.micro,
-                                color = colors.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ── 提示条：还没做的检索 ───────────────────────────────────
-            Spacer(Modifier.height(Dims.cardGap))
-            Text(
-                text = "尚未做商标与各应用商店的重名检索。名称与图标都要等业主逐项确认，" +
-                    "确认之前不对外宣称。",
-                fontSize = Type.micro,
-                color = colors.onSurfaceVariantSummary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(Dims.chipCorner))
-                    .background(colors.onBackground.copy(alpha = 0.05f))
-                    .padding(10.dp),
-            )
-
-            // ── 折叠：交付与授权条件 ───────────────────────────────────
-            Spacer(Modifier.height(Dims.cardGap))
-            Text(
-                text = if (showDelivery) "交付与授权条件 ▴" else "交付与授权条件 ▾",
-                fontSize = Type.body,
-                fontWeight = Type.weightTitle,
+                text = "你的图标",
+                fontSize = Type.bodyEmphasis,
                 color = colors.primary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(Dims.chipCorner))
-                    .background(colors.onBackground.copy(alpha = 0.04f))
-                    .clickable { showDelivery = !showDelivery }
-                    .padding(12.dp),
             )
-            if (showDelivery) {
-                Spacer(Modifier.height(8.dp))
-                Column(Modifier.padding(horizontal = 4.dp)) {
-                    DeliveryLine("前景层", "108dp 画布内的图形，四周留 4dp 余量。")
-                    DeliveryLine("背景层", "纯色 #FAF6EB（与 `ic_launcher_background` 同值）。")
-                    DeliveryLine("安全区", "圆形遮罩下按 66dp 直径验收，四角内容会被裁掉。")
-                    DeliveryLine("单色版", "通知栏与快捷方式另需要一版单色剪影，单独验。")
-                    DeliveryLine("授权", "角色形象的使用范围由业主书面确认；本应用只在包内使用。")
-                }
-            }
-            Spacer(Modifier.height(32.dp))
         }
     }
 }
 
-/** 名字候选的一行：状态 + 名字 + 一句理由。 */
+/** 稿 `.section-heading`：h3 20.3px→18sp（`Type.title`），上 18px 下 8px。 */
 @Composable
-private fun NameRow(status: String, name: String, why: String, chosen: Boolean) {
+private fun SectionHeading(text: String) {
     val colors = MiuixTheme.colorScheme
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        Text(
-            text = status,
-            fontSize = Type.micro,
-            color = if (chosen) colors.primary else colors.onSurfaceVariantSummary,
-            textAlign = TextAlign.Start,
-            modifier = Modifier.width(52.dp).padding(top = 3.dp),
-        )
-        Column(Modifier.weight(1f)) {
-            Text(text = name, fontSize = Type.body, color = colors.onBackground)
-            Text(text = why, fontSize = Type.micro, color = colors.onSurfaceVariantSummary)
-        }
-    }
+    Text(
+        text = text,
+        fontSize = Type.title,
+        fontWeight = Type.weightTitle,
+        color = colors.onBackground,
+        modifier = Modifier
+            .padding(top = 16.dp, bottom = 7.dp)
+            .semantics { heading() },
+    )
 }
 
-/** 交付条件的一条。 */
+/** 稿 `.paper h4`（15.8px→14sp）+ `p.small.muted`（13.54→12sp）。 */
 @Composable
-private fun DeliveryLine(label: String, text: String) {
+private fun NameLine(name: String, why: String) {
     val colors = MiuixTheme.colorScheme
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
-        Text(
-            text = label,
-            fontSize = Type.caption,
-            color = colors.onSurfaceVariantSummary,
-            modifier = Modifier.width(56.dp),
-        )
-        Text(text = text, fontSize = Type.caption, color = colors.onBackground, modifier = Modifier.weight(1f))
+    Column(Modifier.fillMaxWidth()) {
+        Text(text = name, fontSize = Type.bodyEmphasis, fontWeight = Type.weightTitle, color = colors.onBackground)
+        Spacer(Modifier.height(3.dp))
+        Text(text = why, fontSize = Type.summary, color = colors.onSurfaceVariantSummary)
     }
 }

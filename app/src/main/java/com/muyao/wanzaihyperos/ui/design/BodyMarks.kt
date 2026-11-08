@@ -94,6 +94,15 @@ enum class MarkIcon {
     /** 图书 / 资料。 */
     Library,
 
+    /** 外链 / 链接（稿的「GitHub」「酷安」用链环）。 */
+    Link,
+
+    /** 许可 / 书（稿的「开源许可」用摊开的书）。 */
+    Book,
+
+    /** 品牌 / 星（稿的「品牌与图标方案」用空心星）。 */
+    Star,
+
     /** 网络。 */
     Wifi,
 
@@ -411,6 +420,44 @@ private fun DrawScope.drawMark(
             line(0.72f, 0.18f, 0.72f, 0.84f)
         }
 
+        MarkIcon.Link -> {
+            // 两个互扣的环 —— 全站唯一表示「这是个能跳出去的外链」的形状。
+            ring(0.33f, 0.65f, 0.20f)
+            ring(0.67f, 0.35f, 0.20f)
+        }
+
+        MarkIcon.Book -> {
+            // 摊开的两页 + 一道书脊。
+            box(0.12f, 0.26f, 0.50f, 0.80f, corner = 0.10f)
+            box(0.50f, 0.26f, 0.88f, 0.80f, corner = 0.10f)
+            line(0.50f, 0.26f, 0.50f, 0.80f)
+        }
+
+        MarkIcon.Star -> {
+            // 没有 polygon 助手，就用十段折线接一颗空心五角星（外径 0.40 / 内径 0.17）。
+            val cx = 0.50f
+            val cy = 0.52f
+            var fx = 0f
+            var fy = 0f
+            var px = 0f
+            var py = 0f
+            for (i in 0 until 10) {
+                val a = Math.toRadians(-90.0 + i * 36.0)
+                val r = if (i % 2 == 0) 0.40f else 0.17f
+                val nx = cx + r * Math.cos(a).toFloat()
+                val ny = cy + r * Math.sin(a).toFloat()
+                if (i == 0) {
+                    fx = nx
+                    fy = ny
+                } else {
+                    line(px, py, nx, ny)
+                }
+                px = nx
+                py = ny
+            }
+            line(px, py, fx, fy)
+        }
+
         MarkIcon.Wifi -> {
             arc(0.16f, 0.30f, 0.84f, 0.86f, start = 205f, sweep = 130f)
             arc(0.30f, 0.46f, 0.70f, 0.92f, start = 205f, sweep = 130f)
@@ -516,6 +563,9 @@ fun markDescription(icon: MarkIcon): String = when (icon) {
     MarkIcon.Pin -> "地点"
     MarkIcon.Card -> "一卡通"
     MarkIcon.Library -> "图书"
+    MarkIcon.Link -> "外链"
+    MarkIcon.Book -> "许可"
+    MarkIcon.Star -> "品牌"
     MarkIcon.Wifi -> "校园网"
     MarkIcon.Bus -> "班车"
     MarkIcon.Ticket -> "预约"

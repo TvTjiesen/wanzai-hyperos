@@ -40,6 +40,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.icon.extended.Search
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -499,6 +500,13 @@ fun SecondaryScaffold(
     subtitle: String = "",
     onRefresh: (() -> Unit)? = null,
     /**
+     * 顶栏右侧的搜索。
+     *
+     * 稿（screens/appearance.png … screens/about.png）里每个二级页右上角都是同一枚放大镜，
+     * 点下去是全局搜索。不传就不画，避免多出一个按下去没反应的按钮。
+     */
+    onSearch: (() -> Unit)? = null,
+    /**
      * 內容的滾動進度（0~1），用來驅動頂欄漸變紗。
      *
      * ## 為什麼要由頁面傳進來
@@ -572,6 +580,15 @@ fun SecondaryScaffold(
                         }
                     },
                     actions = {
+                        if (onSearch != null) {
+                            IconButton(onClick = onSearch) {
+                                Icon(
+                                    imageVector = MiuixIcons.Search,
+                                    contentDescription = "搜索",
+                                    modifier = Modifier.size(Dims.iconNav),
+                                )
+                            }
+                        }
                         if (onRefresh != null) {
                             IconButton(onClick = onRefresh) {
                                 Icon(

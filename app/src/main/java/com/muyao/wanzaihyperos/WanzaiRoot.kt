@@ -793,6 +793,7 @@ fun WanzaiApp(
             entry<Route.About> {
                 com.muyao.wanzaihyperos.ui.about.AboutPage(
                     onBack = { backStack.removeLastOrNull() },
+                    onSearch = { backStack.add(Route.Search) },
                     onOpenLicenses = { backStack.add(Route.Licenses) },
                     onOpenBrand = { backStack.add(Route.Brand) },
                 )
@@ -802,6 +803,7 @@ fun WanzaiApp(
             entry<Route.Licenses> {
                 com.muyao.wanzaihyperos.ui.about.LicensesPage(
                     onBack = { backStack.removeLastOrNull() },
+                    onSearch = { backStack.add(Route.Search) },
                 )
             }
 
@@ -809,6 +811,7 @@ fun WanzaiApp(
             entry<Route.Brand> {
                 com.muyao.wanzaihyperos.ui.about.BrandPage(
                     onBack = { backStack.removeLastOrNull() },
+                    onSearch = { backStack.add(Route.Search) },
                 )
             }
 
@@ -816,6 +819,7 @@ fun WanzaiApp(
             entry<Route.WallpaperCrop> {
                 com.muyao.wanzaihyperos.ui.main.pages.WallpaperCropPage(
                     onBack = { backStack.removeLastOrNull() },
+                    onSearch = { backStack.add(Route.Search) },
                 )
             }
 

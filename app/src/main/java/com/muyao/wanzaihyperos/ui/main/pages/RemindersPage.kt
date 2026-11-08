@@ -56,6 +56,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun RemindersPage(
     onClose: () -> Unit,
+    onSearch: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -73,19 +74,23 @@ fun RemindersPage(
     SecondaryScaffold(
         scrollProgress = veil,
         title = "上课提醒",
-        subtitle = reminderSubtitle(context),
         onBack = onClose,
+        onSearch = onSearch,
         modifier = modifier,
     ) { innerPadding ->
         LazyColumn(
             state = listState,
+            // 左右 16dp 放在 contentPadding 上：与设置页同一条正文列。
+            // 不放在每个 item 上 —— 组标题与卡片若各自加，图标会被顶到屏幕边缘（2026-11-08 修）。
             contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
                 top = innerPadding.calculateTopPadding(),
                 bottom = innerPadding.calculateBottomPadding(),
             ),
         ) {
             item(key = "hero") {
-                Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 10.dp)) {
+                Column(Modifier.padding(top = 4.dp, bottom = 10.dp)) {
                     Text(
                         text = "提醒只在本机排。",
                         // 读屏要能把这句当标题读出来（TypeRatchet 要求最小字号文件必须有等效标签）。
@@ -234,7 +239,7 @@ fun RemindersPage(
                     fontSize = Type.micro,
                     color = colors.onSurfaceVariantSummary,
                     lineHeight = Type.micro * 1.6f,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 24.dp),
+                    modifier = Modifier.padding(top = 14.dp, bottom = 24.dp),
                 )
             }
         }

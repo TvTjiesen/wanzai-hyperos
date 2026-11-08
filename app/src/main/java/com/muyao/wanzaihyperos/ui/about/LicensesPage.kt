@@ -1,5 +1,7 @@
 package com.muyao.wanzaihyperos.ui.about
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.muyao.wanzaihyperos.data.Credit
 import com.muyao.wanzaihyperos.data.Credits
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.Dims
@@ -37,7 +40,11 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 这一页只负责渲染 —— 在这里补一条就会变成「界面上列了一个根本没用的库」。
  */
 @Composable
-fun LicensesPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun LicensesPage(
+    onBack: () -> Unit,
+    onSearch: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
     val colors = MiuixTheme.colorScheme
 
     // 内容会捲到透明顶栏下面：用「已捲距离 / 一屏」驱动顶栏那层纱，
@@ -46,9 +53,9 @@ fun LicensesPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val veil by rememberScrollProgress(scroll)
     SecondaryScaffold(
         scrollProgress = veil,
-        title = "开源许可",
-        subtitle = "依赖 / 改写 / 字体",
+        title = "开源与字体",
         onBack = onBack,
+        onSearch = onSearch,
         modifier = modifier,
     ) { inner ->
         Column(
@@ -61,64 +68,62 @@ fun LicensesPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
                     bottom = inner.calculateBottomPadding(),
                 ),
         ) {
+            // 稿（screens/licenses.png）是一段说明 + **一张卡**，不是三张分组卡：
+            // 依赖 / 改写 / 字体在同一份清单里按登记顺序往下排，中间只有分隔线。
             Text(
-                text = "下面每一条都对应本工程依赖声明里的一个真实依赖，版本取解析后的实际版本；" +
-                    "许可证名从各自 POM 取，不凭记忆写。升级依赖后重跑 `CreditsTest` 会把它对齐。",
-                fontSize = Type.caption,
+                text = "沿用 App 当前登记的依赖、改编与字体信息。版本更新后仍须跟随 Gradle 核验。",
+                fontSize = Type.summary,
                 color = colors.onSurfaceVariantSummary,
             )
+            Spacer(Modifier.height(16.dp))
 
-            // ── 依赖 ───────────────────────────────────────────────────
-            Spacer(Modifier.height(Dims.cardGap))
-            Text(text = "依赖", fontSize = Type.body, fontWeight = Type.weightTitle, color = colors.onBackground)
-            Spacer(Modifier.height(Dims.tight))
+            // 顺序＝登记顺序：先依赖，再改写自的开源作品，最后随包字体。
+            // 三组共 22 条，一条不少（CreditsTest 对着 Gradle 报告核条数）。
+            val all: List<Credit> = Credits.dependencies + Credits.derived + Credits.fonts
             AppCard {
-                Column(Modifier.padding(Dims.cardPadding)) {
-                    Credits.dependencies.forEachIndexed { i, c ->
+                Column(Modifier.padding(horizontal = 14.5.dp, vertical = 4.dp)) {
+                    all.forEachIndexed { i, c ->
                         CreditRow(c)
-                        if (i != Credits.dependencies.lastIndex) Spacer(Modifier.height(10.dp))
-                    }
-                }
-            }
-
-            // ── 改写自的开源作品（许可义务，比依赖更要紧）──────────────
-            Spacer(Modifier.height(24.dp))
-            Text(
-                text = "改写自的开源作品",
-                fontSize = Type.title,
-                fontWeight = Type.weightTitle,
-                color = colors.onBackground,
-            )
-            Text(
-                // 许可证名从数据层取，不在这里手写（`CreditsTest` 守这条）。
-                text = "这些不是依赖，是把别人的实现改写进了本工程 —— " +
-                    "${Credits.derived.map { it.license }.distinct().joinToString(" / ")} 要求署名。",
-                fontSize = Type.caption,
-                color = colors.onSurfaceVariantSummary,
-            )
-            Spacer(Modifier.height(Dims.tight))
-            AppCard {
-                Column(Modifier.padding(Dims.cardPadding)) {
-                    Credits.derived.forEachIndexed { i, c ->
-                        CreditRow(c)
-                        if (i != Credits.derived.lastIndex) Spacer(Modifier.height(10.dp))
-                    }
-                }
-            }
-
-            // ── 随包字体 ───────────────────────────────────────────────
-            Spacer(Modifier.height(24.dp))
-            Text(text = "随包字体", fontSize = Type.title, fontWeight = Type.weightTitle, color = colors.onBackground)
-            Spacer(Modifier.height(Dims.tight))
-            AppCard {
-                Column(Modifier.padding(Dims.cardPadding)) {
-                    Credits.fonts.forEachIndexed { i, c ->
-                        CreditRow(c)
-                        if (i != Credits.fonts.lastIndex) Spacer(Modifier.height(10.dp))
+                        if (i != all.lastIndex) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(colors.dividerLine.copy(alpha = 0.6f)),
+                            )
+                        }
                     }
                 }
             }
             Spacer(Modifier.height(32.dp))
         }
+    }
+}
+
+/**
+ * 一条许可记录：名称 / 坐标+版本（等宽数字）/ 许可名。
+ *
+ * 2026-11-08 从 `AboutPage.kt` 搬到这里：关于页改成稿子的四行摘要之后，
+ * 只有许可页渲染明细，函数跟着数据走，避免「关于页留着一个没人调的 public 组件」。
+ */
+@Composable
+private fun CreditRow(c: Credit) {
+    val colors = MiuixTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Text(
+            text = c.name,
+            fontSize = Type.summary,
+            fontWeight = Type.weightTitle,
+            color = colors.onBackground,
+        )
+        Text(
+            text = c.coordinate + " " + c.version,
+            fontSize = Type.caption,
+            color = colors.onSurfaceVariantSummary,
+            style = androidx.compose.ui.text.TextStyle(
+                fontFeatureSettings = Type.tabular,
+            ),
+        )
+        Text(text = c.license, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
     }
 }

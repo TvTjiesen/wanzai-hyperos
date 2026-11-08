@@ -31,9 +31,13 @@ class BrandLicensesCropOnceTest {
     @Test
     fun `开源许可页三组都渲染数据层，条数一致`() {
         val page = code("ui/about/LicensesPage.kt")
-        assertTrue("依赖组没搬过去", "Credits.dependencies.forEachIndexed" in page)
-        assertTrue("改写自组没搬过去", "Credits.derived.forEachIndexed" in page)
-        assertTrue("字体组没搬过去", "Credits.fonts.forEachIndexed" in page)
+        // 2026-11-08 改判：稿（screens/licenses.png）是**一张卡 22 行**，
+        // 三组并进同一个清单再逐条渲染，所以不再是三个 forEachIndexed ——
+        // 但三组数据一条都不许漏，仍按「读了哪三份数据」来钉。
+        assertTrue("依赖组没搬过去", "Credits.dependencies" in page)
+        assertTrue("改写自组没搬过去", "Credits.derived" in page)
+        assertTrue("字体组没搬过去", "Credits.fonts" in page)
+        assertTrue("三组没并成同一份清单逐条渲染", "forEachIndexed" in page)
 
         // 数据层本身不能是空表 —— 否则「条数一致」是 0 == 0 的假绿。
         val deps = com.muyao.wanzaihyperos.data.Credits.dependencies.size
@@ -46,9 +50,10 @@ class BrandLicensesCropOnceTest {
         // 关于页只留摘要：清单不许再内嵌。
         val about = code("ui/about/AboutPage.kt")
         assertTrue("关于页还在渲染清单条目（应已搬去 LicensesPage）", "CreditRow(c)" !in about)
-        // 但摘要行要写条数，且读的是同一份数据。
-        assertTrue("摘要行没读 Credits 条数", "Credits.dependencies.size" in about)
-        assertTrue("摘要行没读字体条数", "Credits.fonts.size" in about)
+        // 关于页那两行按稿换了副标题（不再带条数），同样要钉住：
+        // 稿的文案是固定的，不许再手写库名或许可证名。
+        assertTrue("开源许可行没用稿的副标题", "沿用项目完整许可清单" in about)
+        assertTrue("品牌与图标行没用稿的副标题", "名称、图标、遮罩与小尺寸" in about)
     }
 
     @Test
@@ -63,7 +68,8 @@ class BrandLicensesCropOnceTest {
     fun `品牌与图标页不许出现已定稿，状态如实写待定`() {
         val brand = code("ui/about/BrandPage.kt")
         assertTrue("品牌页出现了「已定稿」", "已定稿" !in brand)
-        assertTrue("品牌页没写名称状态", "待审核" in brand || "待定" in brand)
+        // 稿原文：「当前只锁定界面方向，不锁定名称」。
+        assertTrue("品牌页没写名称状态", "不锁定名称" in brand)
 
         val settings = code("ui/main/pages/SettingsSectionPage.kt")
         assertTrue("设置行右值还在写「已定稿」", "已定稿" !in settings)
@@ -74,11 +80,12 @@ class BrandLicensesCropOnceTest {
     @Test
     fun `品牌页写明图标由业主提供，不把生成图当最终资产`() {
         val brand = code("ui/about/BrandPage.kt")
-        assertTrue("没写图标由业主提供", "由业主提供" in brand)
-        assertTrue("没声明不把生成图当最终资产", "最终资产" in brand)
+        // 稿的措辞：「由你提供透明前景、背景及希望保留的安全区…没有素材前只用占位」。
+        assertTrue("没写素材由业主提供", "由你提供" in brand)
+        assertTrue("没写没有素材时只用占位", "占位" in brand)
         assertTrue("没写未做商标检索", "商标" in brand)
-        // 四个尺寸预览 32 / 48 / 64 / 96（源码用一处 listOf 驱动，别拆成四份手写）。
-        assertTrue("缺四档尺寸预览", "listOf(32, 48, 64, 96)" in brand)
+        // 稿里没有四档尺寸预览（那是我上一版自己加的），钉住它别回来。
+        assertTrue("又加了稿里没有的尺寸预览", "listOf(32, 48, 64, 96)" !in brand)
     }
 
     // ── A10 ───────────────────────────────────────────────────────────

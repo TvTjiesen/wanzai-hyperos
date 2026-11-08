@@ -79,6 +79,23 @@ class SettingsReworkOnceTest {
     }
 
     @Test
+    fun `A5 提醒页的正文列与设置页同宽，组标题图标不许顶到屏幕边`() {
+        // 2026-11-08 真机发现：提醒页只在 hero / footnote 上加了左右 16dp，
+        // 组标题与卡片没有 ⇒ 时钟图标贴到屏幕最左边（约 2.5dp），卡片也比设置页宽一截。
+        // 正解是把左右 16dp 放到 LazyColumn 的 contentPadding 上，item 不再各加一份。
+        val page = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/RemindersPage.kt")
+        assertTrue("RemindersPage.kt 不见了", page.isFile)
+        val text = page.readText(Charsets.UTF_8)
+        val pad = text.substringAfter("contentPadding = PaddingValues(").substringBefore("),")
+        assertTrue("提醒页 contentPadding 没有左右 16dp（组标题图标会顶到屏幕边）",
+            "start = 16.dp" in pad && "end = 16.dp" in pad)
+        assertTrue("提醒页 hero 又自己加了左右 16dp（会和 contentPadding 叠成 32dp）",
+            "Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 10.dp)" !in text)
+        assertTrue("提醒页脚注又自己加了左右 16dp（会和 contentPadding 叠成 32dp）",
+            "Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 24.dp)" !in text)
+    }
+
+    @Test
     fun `C1 通透度滑块越往右越通透，不许符号反`() {
         // 界面左端写「更厚实」、右端写「更通透」⇒ 滑块值越大，alpha 系数必须越小。
         // 上一版写成 1 + (v-50)/50×0.38，v=100 反而更厚，界面与代码各说一套。

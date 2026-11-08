@@ -92,8 +92,11 @@ class CreditsTest {
     }
 
     /**
-     * 关于页必须**从 `Credits.dependencies` 渲染**，不许在界面里手写任何一条库名/许可证
+     * 明细页必须**从 `Credits` 渲染**，不许在界面里手写任何一条库名/许可证
      * （手写就会出现"界面上列了一个根本没用的库"）。另钉住路由真的注册了。
+     *
+     * 2026-11-08 改指向：稿（`screens/licenses.png`）把明细整段放在「开源与字体」页，
+     * 关于页只剩四行摘要。断言本身没变，只是跟着搬家 —— 仍有且只有一处渲染明细。
      */
     @Test
     fun `关于页渲染依赖清单而不是手写`() {
@@ -102,15 +105,20 @@ class CreditsTest {
         val root = requireNotNull(d) { "找不到工程根" }
         val page = java.io.File(
             root,
+            "app/src/main/java/com/muyao/wanzaihyperos/ui/about/LicensesPage.kt",
+        ).readText(Charsets.UTF_8)
+        assertTrue("开源与字体页没引用 Credits.dependencies", "Credits.dependencies" in page)
+        assertTrue("开源与字体页没把改写与字体一起列出来", "Credits.derived" in page && "Credits.fonts" in page)
+        val about = java.io.File(
+            root,
             "app/src/main/java/com/muyao/wanzaihyperos/ui/about/AboutPage.kt",
         ).readText(Charsets.UTF_8)
-        assertTrue("关于页没引用 Credits.dependencies", "Credits.dependencies" in page)
-        assertTrue("关于页没引用 AboutLinks", "AboutLinks.github" in page && "AboutLinks.coolapk" in page)
+        assertTrue("关于页没引用 AboutLinks", "AboutLinks.github" in about && "AboutLinks.coolapk" in about)
         // 许可证名只允许从数据层来：**模式匹配**（上一版只黑名单三个完整串，
         // 写成 `Apache 2.0` / `GPL-3.0` 照样过）
         val licensePattern = Regex("""(?i)\b(apache|mit|bsd|gpl|lgpl|mpl|zlib)\b[\s-]*[\d.\-]*(license)?""")
         val hand = licensePattern.findAll(page).map { it.value }.toList()
-        assertTrue("关于页里手写了许可证名：$hand —— 必须从 Credits 来", hand.isEmpty())
+        assertTrue("开源与字体页里手写了许可证名：$hand —— 必须从 Credits 来", hand.isEmpty())
         val nav = java.io.File(
             root,
             "app/src/main/java/com/muyao/wanzaihyperos/WanzaiRoot.kt",
@@ -172,11 +180,16 @@ class CreditsTest {
         var d: java.io.File? = java.io.File(System.getProperty("user.dir"))
         while (d != null && !java.io.File(d, "app/build.gradle.kts").isFile) d = d.parentFile
         val root = requireNotNull(d) { "找不到工程根" }
-        val page = java.io.File(root, "app/src/main/java/com/muyao/wanzaihyperos/ui/about/AboutPage.kt")
+        // 2026-11-08（A9 拆页）：三组清单从关于页搬到 LicensesPage，关于页只留摘要。
+        // 断言不删、只把搜索范围扩到两页 —— 「衍生作品与字体必须渲染」这条义务本身没变。
+        val about = java.io.File(root, "app/src/main/java/com/muyao/wanzaihyperos/ui/about/AboutPage.kt")
             .readText(Charsets.UTF_8)
-        assertTrue("关于页没渲染 Credits.derived（衍生作品署名没履行）", "Credits.derived" in page)
-        assertTrue("关于页没渲染 Credits.fonts（随包字体没披露）", "Credits.fonts" in page)
-        assertTrue("关于页没有版本号（BuildConfig.VERSION_NAME）", "BuildConfig.VERSION_NAME" in page)
+        val licenses = java.io.File(root, "app/src/main/java/com/muyao/wanzaihyperos/ui/about/LicensesPage.kt")
+            .readText(Charsets.UTF_8)
+        val page = about + "\n" + licenses
+        assertTrue("关于页/许可页都没渲染 Credits.derived（衍生作品署名没履行）", "Credits.derived" in page)
+        assertTrue("关于页/许可页都没渲染 Credits.fonts（随包字体没披露）", "Credits.fonts" in page)
+        assertTrue("关于页没有版本号（BuildConfig.VERSION_NAME）", "BuildConfig.VERSION_NAME" in about)
     }
 
     /**

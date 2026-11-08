@@ -49,6 +49,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun PeriodsPage(
     onClose: () -> Unit,
+    onSearch: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -72,8 +73,8 @@ fun PeriodsPage(
     SecondaryScaffold(
         scrollProgress = veil,
         title = "节次时间表",
-        subtitle = "学校时间为底，你的设置优先",
         onBack = onClose,
+        onSearch = onSearch,
         modifier = modifier,
     ) { innerPadding ->
         LazyColumn(

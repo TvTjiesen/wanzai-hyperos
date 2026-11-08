@@ -672,6 +672,7 @@ fun WanzaiMainShell(
                 ) {
                     com.muyao.wanzaihyperos.ui.main.pages.PeriodsPage(
                         onClose = { showPeriods = false },
+                        onSearch = onOpenSearch,
                     )
                 }
             }
@@ -711,6 +712,7 @@ fun WanzaiMainShell(
                 ) {
                     com.muyao.wanzaihyperos.ui.main.pages.RemindersPage(
                         onClose = { showReminders = false },
+                        onSearch = onOpenSearch,
                     )
                 }
             }
