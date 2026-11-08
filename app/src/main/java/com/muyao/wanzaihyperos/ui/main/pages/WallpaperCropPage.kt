@@ -80,6 +80,9 @@ fun WallpaperCropPage(
     var panY by remember { mutableFloatStateOf(UiPrefs.wallpaperPanY) }
     var zoom by remember { mutableFloatStateOf(UiPrefs.wallpaperZoom) }
     var note by remember { mutableStateOf<String?>(null) }
+    // 移除照片会直接删掉 files/home_wallpaper.img，没有「取消」可退 ——
+    // 所以先问一句。它与节次时间表的「清除个人覆盖」用同一种二次确认。
+    var confirmRemove by remember { mutableStateOf(false) }
 
     // 内容会捲到透明顶栏下面：用「已捲距离 / 一屏」驱动顶栏那层纱，
     // 否则标题会被正文压住（真机在开源许可页看到过）。
@@ -184,13 +187,7 @@ fun WallpaperCropPage(
                         primary = false,
                         danger = true,
                         modifier = Modifier.weight(1f),
-                        onClick = {
-                            deleteWallpaper(context)
-                            UiPrefs.resetWallpaperCrop()
-                            UiPrefs.saveWallpaperPreset(SkyPreset.AUTO.id)
-                            UiPrefs.bumpWallpaperRev()
-                            onBack()
-                        },
+                        onClick = { confirmRemove = true },
                     )
                 }
                 Spacer(Modifier.height(10.dp))
@@ -202,6 +199,58 @@ fun WallpaperCropPage(
                 note?.let { msg ->
                     Spacer(Modifier.height(8.dp))
                     Text(text = msg, fontSize = Type.micro, color = colors.onSurfaceVariantSummary)
+                }
+            }
+        }
+    }
+
+    if (confirmRemove) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { confirmRemove = false }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.background, RoundedCornerShape(18.dp))
+                    .padding(18.dp),
+            ) {
+                Text(
+                    text = "移除这张照片？",
+                    fontSize = Type.title,
+                    fontWeight = Type.weightTitle,
+                    color = colors.onBackground,
+                )
+                Text(
+                    text = "首页会回到内置天空。相册里那一张不动，只是本机这份取景与照片一起清掉，要再来得重新选。",
+                    fontSize = Type.secondary,
+                    color = colors.onSurfaceVariantSummary,
+                    lineHeight = Type.secondary * 1.6f,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Row(Modifier.padding(top = 14.dp)) {
+                    Text(
+                        text = "取消",
+                        fontSize = Type.secondary,
+                        color = colors.onSurfaceVariantSummary,
+                        modifier = Modifier
+                            .clickable(onClickLabel = "不移除，留在这一页") { confirmRemove = false }
+                            .padding(6.dp),
+                    )
+                    Text(
+                        text = "移除",
+                        fontSize = Type.secondary,
+                        fontWeight = Type.weightTitle,
+                        color = colors.error,
+                        modifier = Modifier
+                            .padding(start = 20.dp)
+                            .clickable(onClickLabel = "确认移除这张照片") {
+                                confirmRemove = false
+                                deleteWallpaper(context)
+                                UiPrefs.resetWallpaperCrop()
+                                UiPrefs.saveWallpaperPreset(SkyPreset.AUTO.id)
+                                UiPrefs.bumpWallpaperRev()
+                                onBack()
+                            }
+                            .padding(6.dp),
+                    )
                 }
             }
         }

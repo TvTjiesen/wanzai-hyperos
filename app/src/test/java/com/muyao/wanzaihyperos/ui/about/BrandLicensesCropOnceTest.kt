@@ -104,4 +104,22 @@ class BrandLicensesCropOnceTest {
         assertTrue("外观页还在内嵌取景框", "WallpaperCropFrame" !in page)
         assertTrue("外观页没接 onOpenCrop", "onOpenCrop" in page)
     }
+
+    // 移除照片是真的删文件（files/home_wallpaper.img），没有 undo ——
+    // 真机验证时点一下就没了，「取消」也救不回来。所以它必须二次确认，
+    // 且确认文案要写清「相册里那张不动」，否则用户会以为删的是相册原件。
+    @Test
+    fun `移除照片要先问一句，并说明不会动相册原件`() {
+        val page = code("ui/main/pages/WallpaperCropPage.kt")
+        assertTrue("移除没有二次确认状态", "var confirmRemove by remember" in page)
+        assertTrue(
+            "点「移除照片」直接删盘了，没经过确认",
+            "onClick = { confirmRemove = true }," in page,
+        )
+        val dialog = bodyAfter(page, "if (confirmRemove) {")
+        assertTrue("确认弹层里没有真的删", "deleteWallpaper(context)" in dialog)
+        assertTrue("确认弹层没提相册原件仍保留（用户会以为删的是相册那张）", "相册里那一张不动" in dialog)
+        // 直接删的那一段必须只在弹层里出现一次，不许留一条能绕过确认的旧路子。
+        assertEquals("deleteWallpaper 只该在确认之后调用一次", 1, page.split("deleteWallpaper(context)").size - 1)
+    }
 }
