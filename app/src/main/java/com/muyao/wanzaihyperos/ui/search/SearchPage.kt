@@ -59,6 +59,8 @@ import com.muyao.wanzaihyperos.net.shortErrorText
 import com.muyao.wanzaihyperos.ui.design.ThemedScaffold
 import com.muyao.wanzaihyperos.ui.common.DemoBanner
 import com.muyao.wanzaihyperos.ui.common.PageState
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallState
+import com.muyao.wanzaihyperos.ui.design.ai.AiBall
 import com.muyao.wanzaihyperos.ui.common.StatePlaceholder
 
 /** 搜索的显式状态：还没输入 / 搜索中 / 有结果 / **取数失败**。 */
@@ -203,7 +205,27 @@ color = Color.Transparent,
                 }
 
                 SearchState.Searching -> {
-                    StatePlaceholder(PageState.Loading)
+                    // 返工总单 B4：搜索中要出 Searching 那张脸。
+                    // 原来这里只画一个加载 spinner —— 于是 12 张脸里的 Searching
+                    // 永远不出场。球 + 一句「正在翻找资料」比转圈更说明在找什么。
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 34.dp, bottom = 26.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        AiBall(
+                            state = AiBallState.Searching,
+                            diameter = AiBall.DIAMETER_PAGE,
+                            hitSlop = AiBall.INLINE_SLOP,
+                        )
+                        Text(
+                            text = "正在翻找资料",
+                            fontSize = Type.caption,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
                 }
 
                 is SearchState.Failed -> {
