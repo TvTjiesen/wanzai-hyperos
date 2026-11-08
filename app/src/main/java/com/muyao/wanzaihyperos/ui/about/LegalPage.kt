@@ -76,13 +76,10 @@ fun LegalPage(
                 )
             }
 
-            Text(
-                text = "最后更新：2026-11-08",
-                fontSize = Type.micro,
-                lineHeight = Type.micro * 1.5f,
-                color = colors.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 22.dp, bottom = 32.dp),
-            )
+            // 2026-11-09 业主：「把这一页底下的注释全部去掉，就是类似于开源许可下面的小字」——
+            // 页尾那行「最后更新」不再显示；只留一点底部余量，免得正文贴住手势条。
+            // 日期仍记在 LegalText 的 KDoc 里（2026-11-08），只是不再当界面文案。
+            Spacer(Modifier.height(32.dp))
         }
     }
 }

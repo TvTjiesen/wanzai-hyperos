@@ -151,4 +151,16 @@ class AboutRewriteOnceTest {
         val before = author.substringBefore("\"酷安主页\"")
         assertTrue("描述跑到酷安行上面去了", "酷安，安卓应用社区" !in before)
     }
+
+    // ── 9. 协议与隐私页不许有页尾小字 ────────────────────────────
+    @Test
+    fun `用户协议与隐私政策页底不留任何小字`() {
+        // 2026-11-09 业主：「把这一页底下的注释全部去掉，就是类似于开源许可下面的小字」。
+        // 原来页尾挂着一行 Type.micro 的「最后更新：2026-11-08」，现在只剩底部余量。
+        val page = code("ui/about/LegalPage.kt")
+        assertTrue("协议页还在写「最后更新」", "最后更新" !in page)
+        assertTrue("协议页还在用 Type.micro 小字", "Type.micro" !in page)
+        // 正文本身不能跟着一起删：两页各自还从 LegalText 取节。
+        assertTrue("正文来源没了", "sections" in page)
+    }
 }
