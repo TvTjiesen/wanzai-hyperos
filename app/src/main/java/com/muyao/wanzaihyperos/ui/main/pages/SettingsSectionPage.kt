@@ -138,6 +138,49 @@ fun SettingsSectionPage(
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
     var showPeriods by remember { mutableStateOf(false) }
+    // 资料来源弹层（返工总单 A11）
+    var showSources by remember { mutableStateOf(false) }
+    // 稿用 R.sheet 的形态：一条说明，不是一页。也不放任何外链（验收要求「不打开外部链接」）。
+    if (showSources) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { showSources = false }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.background, androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
+                    .padding(18.dp),
+            ) {
+                Text(
+                    text = "资料来源",
+                    fontSize = Type.title,
+                    fontWeight = Type.weightTitle,
+                    color = colors.onBackground,
+                )
+                Text(
+                    text = "浙大城市学院门户、教务系统、学在城院及各业务系统。",
+                    fontSize = Type.secondary,
+                    color = colors.onSurfaceVariantSummary,
+                    lineHeight = Type.secondary * 1.65f,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+                Text(
+                    text = "所有内容与数据归学校所有。本应用只做聚合展示，不改写、不对外转发；" +
+                        "评审稿里的合成样例仅用于演示，不代表任何真实记录。",
+                    fontSize = Type.secondary,
+                    color = colors.onSurfaceVariantSummary,
+                    lineHeight = Type.secondary * 1.65f,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                Text(
+                    text = "关闭",
+                    fontSize = Type.secondary,
+                    color = colors.primary,
+                    modifier = Modifier
+                        .padding(top = 14.dp)
+                        .clickable(onClickLabel = "关闭资料来源") { showSources = false },
+                )
+            }
+        }
+    }
     var showDiag by remember { mutableStateOf(false) }
 
     // 通知权限：Android 13 起是运行时权限。打开开关时当场要一次，
@@ -753,11 +796,15 @@ fun SettingsSectionPage(
                         )
                     },
                 )
+                // ★ 返工总单 A11：这一行以前没有 onClick（死行）。稿里它是个弹层（R.sheet），
+                //   不是独立页 —— 一条「这些数据归谁」的说明不值得占一个 Route。
                 SettingRow(
                     icon = SettingIcon.School,
                     tint = Tone.ok,
                     title = "资料来源",
                     subtitle = "浙大城市学院门户与各业务系统，资料所有权归学校",
+                    onClick = { showSources = true },
+                    trailingChevron = true,
                 )
                 // B4-10：关于页（GitHub / 酷安 / 逐条开源许可）收在二级页里
                 SettingRow(
