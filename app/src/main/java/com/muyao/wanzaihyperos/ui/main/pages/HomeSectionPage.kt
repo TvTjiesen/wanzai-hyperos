@@ -208,7 +208,7 @@ fun HomeSectionPage(
     // ★ 2026-11-07：容器背景 = 「只留最外层」时，这一屏身后**没有天光**。
     //
     // 真机踩到（`[local]\y_home_bare_s.png`）：切到 bare 之后整片纸底透上来，
-    // 而上面那行「鲸集」、大日期「今天」、「周六 11 月 7 日」、状态行、焦点卡字色
+    // 而上面那行「柒合院」、大日期「今天」、「周六 11 月 7 日」、状态行、焦点卡字色
     // 全都还在用 `look.ink` —— 相册档与夜航档那一支是**纯白**，
     // 于是白字压白纸：整屏上半段几乎读不出来。
     //
@@ -650,7 +650,7 @@ fun HomeSectionPage(
             }
         }
 
-        // 顶栏那一行：左「鲸集」，右「第 N 周」（搜索钮由顶栏自己画在最右）。
+        // 顶栏那一行：左「柒合院」，右「第 N 周」（搜索钮由顶栏自己画在最右）。
         // 叠在内容之上、顶栏之下；滚动时和顶栏纱一起退场，不会和折叠后的小标题打架。
         val headerAlpha = (1f - chrome.progress * 2.2f).coerceIn(0f, 1f)
         if (headerAlpha > 0.01f) {
@@ -664,7 +664,7 @@ fun HomeSectionPage(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "鲸集",
+                    text = "柒合院",
                     fontSize = Type.caption,
                     color = look.ink.copy(alpha = 0.82f),
                 )

@@ -139,7 +139,7 @@ fun LoginPage(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "鲸集",
+                text = "柒合院",
                 style = MiuixTheme.textStyles.title2,
                 color = colors.onBackground,
             )

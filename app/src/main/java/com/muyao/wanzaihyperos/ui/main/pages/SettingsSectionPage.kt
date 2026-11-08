@@ -668,7 +668,7 @@ fun SettingsSectionPage(
                     //   右值不能写「已定稿」—— 业主 2026-11-07 说过现用名不满意，
                     //   状态只能如实写「待定」。
                     title = "名称与图标",
-                    subtitle = "鲸集 · 学士服鲸鱼娘 · 版本 ${rememberAppVersion()}",
+                    subtitle = "版本 ${rememberAppVersion()} · 非官方校园聚合客户端",
                     onClick = onOpenBrand,
                     trailing = {
                         Text(

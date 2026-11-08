@@ -74,7 +74,7 @@ internal object ClassReminderNotifier {
         val body = if (private) {
             buildString {
                 append(if (start.isNotBlank()) "$start 有一节课" else "有一节课")
-                append(" · 打开「鲸集」看是哪一门")
+                append(" · 打开「柒合院」看是哪一门")
             }
         } else {
             buildString {
