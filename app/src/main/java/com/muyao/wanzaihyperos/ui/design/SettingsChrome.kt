@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.design
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -620,12 +621,7 @@ fun PeriodTimeEditor(
             .padding(horizontal = 14.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            text = "第几行就是第几节。灰色那格是学校日历里有的时间，课表已经在用了、不用你抄一遍；" +
-                "你填过的以你为准（会盖住学校那份）。留空且学校也没有 ⇒ 这块只显示第几节，不编时间。",
-            fontSize = Type.caption,
-            color = colors.onSurfaceVariantSummary,
-        )
+        // 说明整段挪到页面上（稿是页首的一句 p.small.muted），这里只留 11 行输入。
         val count = maxOf(rows.size, ROWS)
         (1..count).forEach { i ->
             val cur = rows.getOrNull(i - 1) ?: ("" to "")
@@ -636,20 +632,27 @@ fun PeriodTimeEditor(
                     text = "$i",
                     fontSize = Type.summary,
                     color = colors.onSurfaceVariantSummary,
-                    modifier = Modifier.width(20.dp),
+                    modifier = Modifier.width(22.dp),
                 )
                 TimeField(
                     value = cur.first,
-                    hint = schoolStart ?: "上课",
+                    hint = schoolStart ?: "--:--",
                     schoolHint = schoolStart != null,
+                    modifier = Modifier.weight(1f),
                 ) { v -> onChange(setRow(rows, i, v, cur.second)) }
-                Spacer(Modifier.width(6.dp))
-                Text(text = "–", fontSize = Type.summary, color = colors.onSurfaceVariantSummary)
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    text = "—",
+                    fontSize = Type.summary,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.width(14.dp),
+                )
+                Spacer(Modifier.width(7.dp))
                 TimeField(
                     value = cur.second,
-                    hint = schoolEnd ?: "下课",
+                    hint = schoolEnd ?: "--:--",
                     schoolHint = schoolEnd != null,
+                    modifier = Modifier.weight(1f),
                 ) { v -> onChange(setRow(rows, i, cur.first, v)) }
             }
         }
@@ -667,6 +670,7 @@ private fun setRow(rows: List<Pair<String, String>>, index: Int, start: String, 
 private fun TimeField(
     value: String,
     hint: String,
+    modifier: Modifier = Modifier,
     /** true = 这个占位是**学校日历给的真值**（不是「上课/下课」这种提示词），画得更淡一点。 */
     schoolHint: Boolean = false,
     onValueChange: (String) -> Unit,
@@ -687,30 +691,43 @@ private fun TimeField(
             color = colors.onBackground,
         ),
         decorationBox = { inner ->
-            Box(
+            // 稿 `.period-editor input`：surface 底、1px divider 细边、8dp 圆角、
+            // 44dp 高（50px × 0.886），右端一枚时钟图标；聚焦时才描 primary。
+            Row(
                 modifier = Modifier
-                    .width(66.dp)
-                    .clip(RoundedCornerShape(Dims.chipCorner))
-                    .background(colors.onBackground.copy(alpha = 0.05f))
+                    .heightIn(min = 44.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.surface)
                     .border(
-                        width = if (focused) 1.dp else 0.dp,
-                        color = if (focused) colors.primary else Color.Transparent,
-                        shape = RoundedCornerShape(Dims.chipCorner),
+                        width = 1.dp,
+                        color = if (focused) colors.primary else colors.dividerLine,
+                        shape = RoundedCornerShape(8.dp),
                     )
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (value.isEmpty()) {
-                    Text(
-                        text = hint,
-                        fontSize = Type.summary,
-                        color = if (schoolHint) colors.onSurfaceVariantSummary.copy(alpha = 0.45f)
-                                else colors.onSurfaceVariantSummary,
-                    )
+                Box(Modifier.weight(1f)) {
+                    if (value.isEmpty()) {
+                        Text(
+                            text = hint,
+                            fontSize = Type.summary,
+                            color = if (schoolHint) colors.onSurfaceVariantSummary.copy(alpha = 0.45f)
+                                    else colors.onSurfaceVariantSummary,
+                        )
+                    }
+                    inner()
                 }
-                inner()
+                com.muyao.wanzaihyperos.ui.design.BodyMark(
+                    icon = com.muyao.wanzaihyperos.ui.design.MarkIcon.Clock,
+                    size = 15.dp,
+                    tint = colors.onSurfaceVariantSummary,
+                )
             }
         },
-        modifier = Modifier.onFocusChanged { focused = it.isFocused },
+        // weight 这类 parent data 必须挂在 BasicTextField 自己身上：
+        // 挂到 decorationBox 里的 Row 上，父级 Row 根本看不到它（真机表现为第二个
+        // 输入框被挤到屏幕外）。
+        modifier = modifier.onFocusChanged { focused = it.isFocused },
     )
 }
 
