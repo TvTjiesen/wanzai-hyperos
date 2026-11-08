@@ -572,7 +572,10 @@ fun WanzaiMainShell(
                         // 稿 `appearance` 最后一行「减少动态与高对比 ›」的出口。
                         // 外观页自己不开第二张表，只把这一跳交给壳 —— 两个覆盖层同一种承载方式。
                         onOpenAccessibility = {
-                            showAppearance = false
+                            // ★ 返工总单 C5：从外观进辅助显示时**不要先关掉外观**。
+                            //   以前先 showAppearance = false，返回后直接掉回主壳，
+                            //   外观的滚动位置也一起丢了 —— 二/三级返回链断在这里。
+                            //   现在两层同时挂着：外观在下、辅助显示在上，关掉上层自然回下层。
                             showAccessibility = true
                         },
                     )

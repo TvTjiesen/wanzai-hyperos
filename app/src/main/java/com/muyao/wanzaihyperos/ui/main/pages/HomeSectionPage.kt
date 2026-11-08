@@ -474,6 +474,12 @@ fun HomeSectionPage(
                 nowMillis = System.currentTimeMillis(),
             ),
             fetching = inFlight > 0,
+            // 在调用点就地算：这段统计在上面已经算过一遍，但 ballState 在这之前就要用。
+            minutesToNextClass = todaySlots
+                .mapNotNull { parseClock(PeriodClock.startOf(times, it.periodStart)) }
+                .firstOrNull { it.isAfter(now.toLocalTime()) }
+                ?.let { java.time.Duration.between(now.toLocalTime(), it).toMinutes().toInt() }
+                ?.takeIf { it >= 0 },
         )
 
         val nowTime = now.toLocalTime()
@@ -484,6 +490,7 @@ fun HomeSectionPage(
         val nextStart = todaySlots
             .mapNotNull { parseClock(PeriodClock.startOf(times, it.periodStart)) }
             .firstOrNull { it.isAfter(nowTime) }
+        // 课间那张脸的判据（B9）在 ofHome 调用点就地算，这里量的是同一份 nextStart。
 
         Box(Modifier.fillMaxSize()) {
         // 下拉刷新：四份数据各发一发，谁失败都不影响其他（runCatching 各自兜住）。
@@ -733,21 +740,17 @@ private fun HomeSkyHeader(
         // ★ 2026-10-31 真机：周六（今天一节没有）副行写「今天的课上完了」——
         //   remainingCount 为 0 既可能是「全上完了」也可能是「今天压根没课」，
         //   这两件事对读的人完全不同：前者值得恭喜，后者是一句空话。分开说。
-        todayCount == 0 -> "今天没有课"
-        remainingCount == 0 -> "今天的课上完了"
-        nextStart != null -> "还有 $remainingCount 节课 · 下一节 ${nextStart.format(TIME_HM)}"
-        else -> "还有 $remainingCount 节课"
+        // ★ 返工总单 B1（语言层）：第三行是**球的话**，不是又一句课表统计。
+        //   稿 `docs/B4-12-BALL-AS-CORE.md` §4：「脸说情绪，字说事实，字不许重复脸说过的话」。
+        //   所以这里写的是把那张脸反译成人话（`AiBall.lineOf`），与读屏念的同一句。
+        //   课表统计并没有丢：下一节几点、还剩几节都在下面那张「此刻」卡里。
+        else -> com.muyao.wanzaihyperos.ui.design.ai.AiBall.lineOf(ballState)
     } + if (slotSource == com.muyao.wanzaihyperos.data.schedule.SlotSource.TRONCLASS) {
-        // ★ 第 4 轮独立审计必修 1（N2）：这条路线（首页不自己爬，只照实说）是审计自己给的第二选项，
-        //   但上一轮我**只在数据层备好了句子、界面一句都没说出口** —— `jwVerdictSentence` 在首页 0 引用。
-        //   全新安装没有快照时，首页第一帧画的就是学在城院那几门课，他进一次课表页之后整块换掉：
-        //   那就是业主报的"闪过我没有的课"。现在把**教务走到哪一步**一起说出口，
-        //   换掉那一下至少不是从一句谎话换到另一句。
+        // 来源标注仍然留着：它不是重复表情，而是在说「这份数据来自哪」，属事实补充。
         " · 来自学在城院（" +
             com.muyao.wanzaihyperos.data.schedule.jwVerdictSentence(jwVerdict)
                 .removeSuffix("…") + "）"
     } else if (slotSource == com.muyao.wanzaihyperos.data.schedule.SlotSource.JIAOWU && jwIsStale) {
-        // N3：首页自己永不重取，那就必须说这份是**上次存的**，否则几周前那份能当今天画。
         " · 这是上次存的"
     } else {
         ""

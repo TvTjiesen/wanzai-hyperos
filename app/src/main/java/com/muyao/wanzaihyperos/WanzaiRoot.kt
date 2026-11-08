@@ -239,6 +239,14 @@ fun WanzaiApp(
             com.muyao.wanzaihyperos.ui.design.MotionPrefs.setRefractsGlass(
                 com.muyao.wanzaihyperos.data.UiPrefs.glassMode == "liquid",
             )
+            // ★ 返工总单 C4：「减少动态」「高对比」现在是应用内偏好，冷启动同样要推给运行期，
+            //   否则表现为「设置里开着、重启就没了」—— 这类我们栽过（见上面两条注释）。
+            com.muyao.wanzaihyperos.ui.design.MotionPrefs.setReduceMotion(
+                com.muyao.wanzaihyperos.data.UiPrefs.reduceMotion,
+            )
+            com.muyao.wanzaihyperos.ui.design.MotionPrefs.setHighContrastOverride(
+                com.muyao.wanzaihyperos.data.UiPrefs.highContrastOverride,
+            )
             if (app.portalSession.state == SessionState.LoggedIn) {
                 uiState.loggedIn = true
                 uiState.displayAccount = app.displayAccount()

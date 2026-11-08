@@ -89,8 +89,15 @@ fun AccessibilityPage(
     val highContrast = motion.highContrast
     val translucentOff = motion.reduceTransparency
 
+    // ★ 返工总单 C4：跳系统设置失败时原来被 runCatching 静默吞掉 —— 按了没反应，
+    //   用户只会以为「这个 App 坏了」。现在把失败原因交回界面显示。
+    val systemError = remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     fun openSystem(action: String) {
         runCatching { context.startActivity(Intent(action)) }
+            .onFailure {
+                systemError.value = "打不开系统设置：" + (it.message ?: "系统拒绝了这次跳转")
+            }
+            .onSuccess { systemError.value = null }
     }
 
     val listState = rememberLazyListState()
@@ -145,10 +152,19 @@ fun AccessibilityPage(
                             } else {
                                 "保留状态变化，去掉位移与弹性 · 系统动画已关闭"
                             },
-                            onClick = {
-                                openSystem(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                            // ★ 返工总单 C4：这一行以前只能跳系统设置（应用内没有开关）。
+                            //   现在它是真开关：写 UiPrefs + 推给 MotionPrefs，
+                            //   由 MotionFlags.canMove 消费，全工程位移/弹簧立刻停。
+                            trailing = {
+                                PillSwitch(
+                                    checked = UiPrefs.reduceMotion,
+                                    label = "减少动态",
+                                ) {
+                                    val next = !UiPrefs.reduceMotion
+                                    MotionPrefs.setReduceMotion(next)
+                                    UiPrefs.saveReduceMotion(next)
+                                }
                             },
-                            trailingChevron = true,
                         )
                         SettingRow(
                             icon = SettingIcon.Contrast,
@@ -159,6 +175,23 @@ fun AccessibilityPage(
                             } else {
                                 "强制实色承载层，提高弱文字对比"
                             },
+                            trailing = {
+                                PillSwitch(
+                                    checked = UiPrefs.highContrastOverride,
+                                    label = "高对比显示",
+                                ) {
+                                    val next = !UiPrefs.highContrastOverride
+                                    MotionPrefs.setHighContrastOverride(next)
+                                    UiPrefs.saveHighContrastOverride(next)
+                                }
+                            },
+                        )
+                        SettingRow(
+                            icon = SettingIcon.Screen,
+                            tint = Tone.quiet,
+                            title = "系统级开关（可选）",
+                            subtitle = systemError.value
+                                ?: "动画缩放与高对比文字在 Android 系统设置里；本页也能跳过去",
                             onClick = { openSystem(Settings.ACTION_ACCESSIBILITY_SETTINGS) },
                             trailingChevron = true,
                         )

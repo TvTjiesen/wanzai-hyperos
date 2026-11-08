@@ -118,7 +118,11 @@ class GlassSpecTuning(initial: GlassSpec) {
 }
 
 /**
- * 玻璃面通透度系数：**50 ⇒ 1f**（原值），100 ⇒ 1.38（更厚实），0 ⇒ 0.62（更通透）。
+ * 玻璃面通透度系数：**50 ⇒ 1f**（原值），100 ⇒ 0.62（更通透），0 ⇒ 1.38（更厚实）。
+ *
+ * ★ 方向说明（返工总单 C1）：滑块左端写「更厚实」、右端写「更通透」，
+ *   所以 v 越大系数必须越小。上一版把符号写反了（v=100 反而 1.38），
+ *   界面与代码各说一套 —— 现在两边一致：**系数 = 1 - (v-50)/50 × 0.38**。
  *
  * 业主 2026-11-07 对稿：设计稿外观页有「通透度 · 新增」滑块，默认 50%，
  * 左「更厚实」右「更通透」，说明写「只影响顶栏、首页焦点卡、搜索与底栏等承载层；
@@ -134,5 +138,5 @@ class GlassSpecTuning(initial: GlassSpec) {
 @Composable
 fun glassOpacityFactor(): Float {
     val v = com.muyao.wanzaihyperos.data.UiPrefs.glassOpacity
-    return 1f + (v - 50) / 50f * 0.38f
+    return 1f - (v - 50) / 50f * 0.38f
 }

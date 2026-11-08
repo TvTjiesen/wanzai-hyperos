@@ -210,7 +210,7 @@ fun SettingsSectionPage(
         // 顶栏小标题仍是「设置」，首屏大字换成「你的习惯」。
         largeTitleItem(
             pilot = pilot,
-            leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) },
+            leading = { AiBall(state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP) },
             kicker = "显示偏好",
             heroTitle = "你的习惯",
             subtitle = heroSubtitle,
@@ -606,8 +606,13 @@ fun SettingsSectionPage(
                 ) { uri ->
                     if (uri == null) return@rememberLauncherForActivityResult
                     runCatching {
-                        context.contentResolver.openOutputStream(uri)?.use { out ->
-                            out.write(com.muyao.wanzaihyperos.data.PrefsBackup.export().toByteArray())
+                        // ★ 返工总单 C6：原来写的是 openOutputStream(uri)?.use { ... }，
+                        //   返回 null 时 ?.use 直接短路、既没写也没抛异常，于是照样报
+                        //   「已导出到所选文件」—— 假的成功比失败更坏。这里把 null 变成失败。
+                        val out = context.contentResolver.openOutputStream(uri)
+                            ?: error("系统没有给出可写的数据流")
+                        out.use { s ->
+                            s.write(com.muyao.wanzaihyperos.data.PrefsBackup.export().toByteArray())
                         }
                     }.onSuccess {
                         result = "已导出到所选文件"
@@ -657,6 +662,19 @@ fun SettingsSectionPage(
                     // 提到 Text 外面，判据和代码就都对上了（不是给测试开后门）。
                     val applyNow: () -> Unit = {
                         val n = com.muyao.wanzaihyperos.data.PrefsBackup.apply(p)
+                        if (n >= 0) {
+                            // ★ 返工总单 C3：apply 只把值写进 UiPrefs 与盘，**没推给界面状态**
+                            //   ⇒ 导入成功、提示「已应用 N 项」，但主题/周视图/材质要冷启才变，
+                            //   用户会以为导入失败。这里走与冷启动（WanzaiRoot 那条 LaunchedEffect）
+                            //   完全相同的双写路径，一份口径两处复用。
+                            com.muyao.wanzaihyperos.ui.syncUiStateFromPrefs(uiState)
+                            com.muyao.wanzaihyperos.ui.design.MotionPrefs.setReduceTransparency(
+                                com.muyao.wanzaihyperos.data.UiPrefs.reduceTransparency,
+                            )
+                            com.muyao.wanzaihyperos.ui.design.MotionPrefs.setRefractsGlass(
+                                com.muyao.wanzaihyperos.data.UiPrefs.glassMode == "liquid",
+                            )
+                        }
                         result = if (n >= 0) "已应用 $n 项偏好" else {
                             com.muyao.wanzaihyperos.data.PrefsBackup.lastError ?: "没有应用"
                         }

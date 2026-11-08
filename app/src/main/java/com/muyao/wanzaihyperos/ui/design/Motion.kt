@@ -35,13 +35,50 @@ import androidx.compose.runtime.setValue
  */
 object MotionPrefs {
 
+    /** 系统「动画时长缩放」的原始读数（不带应用内覆盖）。 */
     @Volatile
-    var animationsEnabled = true
+    var systemAnimationsEnabled = true
         private set
 
+    /** 系统「高对比文字」的原始读数（不带应用内覆盖）。 */
     @Volatile
-    var highTextContrast = false
+    var systemHighTextContrast = false
         private set
+
+    /**
+     * 应用内「减少动态」（返工总单 C4）。
+     *
+     * 以前只有系统信号，稿要的是应用内自己那条 ⇒ 现在两条是**或**关系：
+     * 系统关了动不了，应用内关了同样动不了。
+     */
+    @Volatile
+    var reduceMotion = false
+        private set
+
+    /** 应用内「高对比显示」，与系统高对比是**或**关系。 */
+    @Volatile
+    var highContrastOverride = false
+        private set
+
+    /** 对外口径不变：能不能动 = 系统允许 **且** 应用内没关。 */
+    val animationsEnabled: Boolean
+        get() = systemAnimationsEnabled && !reduceMotion
+
+    /** 对外口径不变：要高对比 = 系统开了 **或** 应用内开了。 */
+    val highTextContrast: Boolean
+        get() = systemHighTextContrast || highContrastOverride
+
+    fun setReduceMotion(on: Boolean) {
+        if (reduceMotion == on) return
+        reduceMotion = on
+        version++
+    }
+
+    fun setHighContrastOverride(on: Boolean) {
+        if (highContrastOverride == on) return
+        highContrastOverride = on
+        version++
+    }
 
     /** 由设置页写入（也写进 [com.muyao.wanzaihyperos.data.UiPrefs]），不是系统来的。 */
     @Volatile
@@ -97,9 +134,11 @@ object MotionPrefs {
         //   业主原话：「你妈个逼我液态玻璃底栏没了」。两条开关的"缺失默认值"语义相反，
         //   所以这里必须显式传，不能共用一个默认。
         val contrast = secureFlag(context, "accessibility_high_text_contrast_enabled", whenMissing = false)
-        val changed = animators != animationsEnabled || contrast != highTextContrast
-        animationsEnabled = animators
-        highTextContrast = contrast
+        // 比较与赋值都用**系统原始值**：应用内覆盖不归这里管，混进来会让
+        // 「系统没变但应用内开关动了」被误判成「系统变了」。
+        val changed = animators != systemAnimationsEnabled || contrast != systemHighTextContrast
+        systemAnimationsEnabled = animators
+        systemHighTextContrast = contrast
         if (changed) version++
         // ★ 只在可调试包把这四个值写进 logcat。默认值写错的时候（2026-10-20 那次
         //   高对比被判成"永久开着"，整片玻璃变实心）界面看起来只是"风格变了"，

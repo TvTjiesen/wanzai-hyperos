@@ -67,13 +67,16 @@ class HomeCopyOnceTest {
     }
 
     @Test
-    fun `天空副行按今天有几节分叉，不是按还剩几节`() {
+    fun `天空副行改成球的话，不再复述课表统计`() {
+        // ★ 返工总单 B1（2026-11-08）改判：这一行以前是「还有 N 节课 · 下一节 09:40」这类统计，
+        //   现在按稿的口径换成**球的话**（AiBall.lineOf）——「字不许重复脸说过的话」。
+        //   原来那条「今天没课 vs 都上完了」的区别没有丢，它搬到了脸上：
+        //   前者是 Idle/Sleep，后者是 Done，两张脸的台词不同（见下一条断言）。
         val body = bodyOf(source(), "private fun HomeSkyHeader(")
-        assertTrue("副行里没有 todayCount == 0 那一支 —— 周六又会说「今天的课上完了」",
-            body.contains("todayCount == 0 ->"))
-        val zero = body.indexOf("todayCount == 0 ->")
-        val done = body.indexOf("remainingCount == 0 ->")
-        assertTrue("「都上完了」必须排在「今天没课」之后判 —— 反了就先撞上假话", done > zero)
+        assertTrue("副行没有用球的话 —— 又退回纯统计了",
+            body.contains("AiBall.lineOf(ballState)"))
+        assertFalse("副行还在画课表统计（应该只在「此刻」卡里说）",
+            body.contains("节课 · 下一节"))
     }
 
     @Test

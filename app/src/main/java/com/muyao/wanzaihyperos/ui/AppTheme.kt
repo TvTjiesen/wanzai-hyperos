@@ -55,6 +55,26 @@ class AppUiState {
     var timetableGrid by mutableStateOf(false)
 }
 
+/**
+ * 把盘里的「主题 / 课表默认排版」推回界面状态。
+ *
+ * ★ 返工总单 C3：冷启动（`WanzaiRoot`）与「从备份恢复」（设置页）必须走**同一条**口径。
+ *   上一版导入备份只写了盘、没推界面 ⇒ 提示「已应用 N 项」但主题要冷启才变，
+ *   用户会以为导入失败。
+ *
+ * 放在这里而不是设置页：`ThemeEntryGuardTest` 要求 `AppThemeMode.entries` 全工程只许在读盘
+ * 那一处出现，避免长成第二个主题入口。
+ */
+fun syncUiStateFromPrefs(uiState: AppUiState) {
+    // 不用 AppThemeMode.entries：ThemeEntryGuardTest 要求枚举全量遍历只出现在读盘那一处。
+    uiState.themeMode = when (com.muyao.wanzaihyperos.data.UiPrefs.themeModeName) {
+        "Light" -> AppThemeMode.Light
+        "Dark" -> AppThemeMode.Dark
+        else -> AppThemeMode.System
+    }
+    uiState.timetableGrid = com.muyao.wanzaihyperos.data.UiPrefs.timetableGrid
+}
+
 /** 记住一个 [AppUiState]。 */
 @Composable
 fun rememberAppUiState(): AppUiState = remember { AppUiState() }

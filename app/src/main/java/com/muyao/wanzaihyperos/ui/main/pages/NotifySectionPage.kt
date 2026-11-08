@@ -286,7 +286,7 @@ fun NotifySectionPage(
         ) {
             largeTitleItem(
                 pilot = pilot,
-                leading = { AiBall(state = ballState, hitSlop = AiBall.INLINE_SLOP) },
+                leading = { AiBall(state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP) },
                 // 2026-11-07 按设计稿 v2.1 复刻首屏英雄区：
                 // 「校园消息 / 消息与动态 / 未读 8 · 09:40」三行 + 一条分隔线。
                 // 副行是**服务端口径的未读数 + 这一份的时间**，取不到就整行不画（不编）。

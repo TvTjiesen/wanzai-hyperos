@@ -79,11 +79,21 @@ object AiBallStates {
         waitingRollcall: Boolean = false,
         urgentTodo: Boolean = false,
         fetching: Boolean = false,
+        /**
+         * 距下一节课开始还有多少分钟（返工总单 B9）。
+         *
+         * null = 算不出来（今天没课、或这一节的上下课时间学校没给）。
+         * **算不出来就不触发** —— 认不出时间的课不许猜（见 `data/schedule/TodayPlan.kt` 档头）。
+         */
+        minutesToNextClass: Int? = null,
     ): AiBallState = when {
         failure != null -> AiBallState.Error
         waitingRollcall -> AiBallState.Waiting
         loading -> AiBallState.Loading
         ongoing -> AiBallState.Busy
+        // ★ B9：马上要上课，比「24 小时内有个待办」更急。放在 ongoing 之后：
+        //   正在上课是更硬的事实。60 分钟是「现在就该动身」的口径。
+        minutesToNextClass != null && minutesToNextClass in 0..59 -> AiBallState.Focus
         urgentTodo -> AiBallState.Focus
         plan == null -> AiBallState.Loading
         fetching -> AiBallState.Thinking

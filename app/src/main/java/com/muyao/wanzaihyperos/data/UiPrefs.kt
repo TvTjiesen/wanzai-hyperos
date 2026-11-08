@@ -36,6 +36,10 @@ object UiPrefs {
     private const val KEY_THEME = "theme_mode"
     private const val KEY_TIMETABLE_GRID = "timetable_grid"
     private const val KEY_REDUCE_TRANSPARENCY = "reduce_transparency"
+
+    /** 返工总单 C4：「减少动态」与「高对比」从系统信号扩成**应用内偏好**（系统那条仍然有效）。 */
+    private const val KEY_REDUCE_MOTION = "reduce_motion"
+    private const val KEY_HIGH_CONTRAST = "high_contrast_override"
     private const val KEY_PERIOD_TIMES = "period_times"
     private const val KEY_WEEK_ANCHOR = "week_anchor"
 
@@ -119,6 +123,19 @@ object UiPrefs {
      *   [com.muyao.wanzaihyperos.ui.design.MotionPrefs]。
      */
     var reduceTransparency by mutableStateOf(false)
+        private set
+
+    /**
+     * 应用内「减少动态」。true = 只保留淡入淡出，位移/弹簧一律不动。
+     *
+     * 与系统开关是**或**关系：系统关了也动不了，系统开着但这里关了同样动不了。
+     * 稿要的是应用内自己那条，系统那条降级成次级说明（返工总单 A3/C4）。
+     */
+    var reduceMotion by mutableStateOf(false)
+        private set
+
+    /** 应用内「高对比显示」：强制实色承载层。与系统高对比是**或**关系。 */
+    var highContrastOverride by mutableStateOf(false)
         private set
 
     /**
@@ -357,6 +374,8 @@ object UiPrefs {
         themeModeName = p.getString(KEY_THEME, "System") ?: "System"
         timetableGrid = p.getBoolean(KEY_TIMETABLE_GRID, false)
         reduceTransparency = p.getBoolean(KEY_REDUCE_TRANSPARENCY, false)
+        reduceMotion = p.getBoolean(KEY_REDUCE_MOTION, false)
+        highContrastOverride = p.getBoolean(KEY_HIGH_CONTRAST, false)
         classReminderEnabled = p.getBoolean(KEY_CLASS_REMINDER, false)
         classReminderLeadMinutes = p.getInt(KEY_REMINDER_LEAD, ClassReminderPlan.DEFAULT_LEAD_MINUTES)
             .takeIf { it in ClassReminderPlan.LEAD_CHOICES } ?: ClassReminderPlan.DEFAULT_LEAD_MINUTES
@@ -476,6 +495,16 @@ object UiPrefs {
     fun saveReduceTransparency(on: Boolean) {
         reduceTransparency = on
         prefs()?.edit()?.putBoolean(KEY_REDUCE_TRANSPARENCY, on)?.apply()
+    }
+
+    fun saveReduceMotion(on: Boolean) {
+        reduceMotion = on
+        prefs()?.edit()?.putBoolean(KEY_REDUCE_MOTION, on)?.apply()
+    }
+
+    fun saveHighContrastOverride(on: Boolean) {
+        highContrastOverride = on
+        prefs()?.edit()?.putBoolean(KEY_HIGH_CONTRAST, on)?.apply()
     }
 
     fun saveTimetableGrid(grid: Boolean) {
@@ -710,6 +739,13 @@ object UiPrefs {
             ?.putString(KEY_GLASS_MODE, "liquid")
             ?.putInt(KEY_GLASS_OPACITY, 50)
             ?.putBoolean(KEY_APPS_WEB_COLLAPSED, false)
+            // ★ 返工总单 C2：上面清了内存里的取景三元组，但写盘链漏了这三个 key
+            //   ⇒ 「恢复默认 → 杀进程 → 再点相册」旧裁切原地复活。
+            //   rev 也要写：它才是让图片缓存失效的那一位。
+            ?.putFloat(KEY_WALLPAPER_PAN_X, 0f)
+            ?.putFloat(KEY_WALLPAPER_PAN_Y, 0f)
+            ?.putFloat(KEY_WALLPAPER_ZOOM, 1f)
+            ?.putInt(KEY_WALLPAPER_REV, wallpaperRev)
             ?.apply()
     }
 

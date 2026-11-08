@@ -251,6 +251,14 @@ object AiBall {
     /** 直径（行内：每页第一个区块标题左边那颗）。 */
     val DIAMETER = 36.dp
 
+    /**
+     * 页面级直径（48dp 顶栏里那颗）：**44dp**（返工总单 B5）。
+     *
+     * 44 是「眼睛能读出表情」的下限，又不抢 46dp 搜索钮的层级；顶栏 52dp 放得下。
+     * 36dp 是旧版装饰尺寸 —— 那时球只是图标，现在它是这一页的语气，得看清脸。
+     */
+    val DIAMETER_PAGE = 44.dp
+
     /** 首页标题区的主视觉直径：96dp = 560dpi 下 336px，眼睛墨迹约 88x64px —— 那是一张脸。 */
     val DIAMETER_FIELD = 96.dp
 
@@ -258,12 +266,13 @@ object AiBall {
     val HIT_SLOP = 6.dp
 
     /**
-     * 行内摆放时的外扩：3dp。
+     * 行内摆放时的外扩：**4dp**（返工总单 B8）。
      *
-     * 行内每一侧都有别的元素挨着，6dp 会把球推离文字 6dp 看得出生硬；3dp 让命中区
-     * 到 36 + 6 = 42dp，配合 [INLINE_GAP] 的 3dp，视觉间隙正好回到 6dp。
+     * 36 + 4×2 = **44dp**，正好到触控下限。原来是 3dp（42dp，低于底线）——
+     * 那时靠「反正旁边没别的东西」蒙混，但无障碍检查器量出来就是不够。
+     * 改外扩而不是改直径：视觉尺寸是设计定的，命中区是我们该补的。
      */
-    val INLINE_SLOP = 3.dp
+    val INLINE_SLOP = 4.dp
 
     /** 行内球与右侧文字的视觉间隙（球自己还有 3dp 外扩，合起来 6dp）。 */
     val INLINE_GAP = 3.dp
@@ -395,6 +404,31 @@ object AiBall {
                 }
             }
         }
+    }
+
+    /**
+     * 球的**台词**（返工总单 B1，语言层）。
+     *
+     * 设计稿 `docs/B4-12-BALL-AS-CORE.md` §4：「脸说情绪，字说事实，字不许重复脸说过的话」。
+     * 所以这句不是描述表情，而是**把这张脸反译成一句人话** —— 它是这一页的
+     * 第三行，替掉原来那句纯文字的「距离下一节课」。
+     *
+     * 与 [labelOf] 共用一套措辞：读屏念的、屏幕上写的必须是同一件事，
+     * 否则「看得见的人和看不见的人听到两个版本」。
+     */
+    fun lineOf(state: AiBallState): String = when (state) {
+        AiBallState.Sleep -> "这会儿没事，先睡一会儿"
+        AiBallState.WakeUp -> "早上好，今天的课在后面"
+        AiBallState.Idle -> "今天暂时没有要你处理的事"
+        AiBallState.Curious -> "刚拿到新的内容"
+        AiBallState.Focus -> "有件事马上要你去办"
+        AiBallState.Thinking -> "正在处理，稍等一下"
+        AiBallState.Busy -> "正在上课"
+        AiBallState.Done -> "今天的课都上完了"
+        AiBallState.Error -> "这一页没能取到数据"
+        AiBallState.Waiting -> "有一张签到在等你"
+        AiBallState.Loading -> "正在读取"
+        AiBallState.Searching -> "正在翻找资料"
     }
 
     /** 读屏文案：说事实，不说「小球」。 */
