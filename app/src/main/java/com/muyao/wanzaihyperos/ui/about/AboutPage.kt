@@ -64,12 +64,15 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * ## 三条纪律
  *
- * 1. **图标是他的原图**：`R.drawable.ic_brand` 就是业主给的 `full.png`（1254×1254），
- *    整图不裁不缩，这里只负责圆角与尺寸 —— 不是生成图，所以不算 A6 说的"拿 AI 图
- *    当最终资产"。
- * 2. **外链只放他给过的**：GitHub 与酷安都来自 `AboutLinks`（他本人主页）。GitHub
+ * 1. **图标是他的原图**：`R.drawable.ic_brand` 来自业主给的 `full.png`（1254×1254）——
+ *    2026-11-09 按他口述把那张「带奶油底色的小卡片」抠成了**透明底**（RGBA，四角
+ *    alpha=0，只留学生服鲸鱼娘本体），所以它能直接贴在页面渐变上；仍然不是生成图，
+ *    抠底脚本只删背景像素，没重画任何一笔。
+ * 2. **顶栏只留返回箭头**：业主口述去掉右上角的搜索和「关于应用」那一行标题。搜索入口
+ *    仍在底栏与设置页，这里少一枚按下去只是重复的按钮。
+ * 3. **外链只放他给过的**：GitHub 与酷安都来自 `AboutLinks`（他本人主页）。GitHub
  *    移进作者页，因为那一页要连头像一起展示；关于页只留一个入口。
- * 3. **协议与隐私是本地文本**：`LegalText.kt` 里的常量，字面量写在源码里，不联网、
+ * 4. **协议与隐私是本地文本**：`LegalText.kt` 里的常量，字面量写在源码里，不联网、
  *    不拉远程文档 —— 断网时也必须读得到。
  *
  * 换算沿用稿的比例：稿 392px 画板 ↔ 真机 347dp ⇒ 1px = 0.886dp；
@@ -106,9 +109,11 @@ fun AboutPage(
 
     SecondaryScaffold(
         scrollProgress = veil,
-        title = "关于应用",
+        // ★ 2026-11-09 业主口述：关于页顶栏不要搜索图标、也不要「关于应用」那一行字，
+        //   整页只留左上角的返回箭头 —— 进来的路只有设置页那一条，不需要在这里再搜一遍。
+        title = "",
         onBack = onBack,
-        onSearch = onSearch,
+        onSearch = null,
         modifier = modifier,
     ) { inner ->
         Column(
@@ -124,18 +129,21 @@ fun AboutPage(
                     bottom = inner.calculateBottomPadding() + 24.dp,
                 ),
         ) {
-            // ── 应用图标（业主给的原图，整图不裁；尺寸沿用稿的 112px 占位框）──
+            // ── 应用图标（透明底版本，直接铺在页面底色上，没有卡片、没有描边）──
             // ★ 2026-11-09 业主更正：**不要**把应用图标换成头像 —— 头像只作为「作者」
             //   行前面那枚小图标；应用图标留在原位。
+            // ★ 2026-11-09 业主口述：「把图标的背景变透明，用那个无背景的图标，图标再大一点」。
+            //   原图（`full.png`）是**带奶油色底的一张卡片**，这里换成了抠掉底色的
+            //   `ic_brand.png`（RGBA，四角 alpha=0，只留学士服鲸鱼娘本体），
+            //   于是图标与页面渐变直接接上，不再像一张小卡片浮在上面。
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Image(
                     painter = painterResource(R.drawable.ic_brand),
                     contentDescription = "柒合院的图标",
-                    contentScale = ContentScale.Crop,
+                    contentScale = ContentScale.Fit,
                     modifier = Modifier
-                        .padding(vertical = 21.dp)
-                        .size(99.dp)
-                        .clip(RoundedCornerShape(25.dp)),
+                        .padding(vertical = 12.dp)
+                        .size(168.dp),
                 )
             }
 
