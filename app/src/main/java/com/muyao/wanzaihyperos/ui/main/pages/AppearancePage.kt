@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -423,22 +424,6 @@ fun AppearancePage(
                 )
             }
 
-            // ---- 容器背景（业主 2026-11-07：「整个 app 的容器背景做两版」）----
-            //
-            // 两版**不是同一个色的深浅**，是两条渲染路径：
-            //  · 保留 = 页内这一层自己铺纸色渐变 + 首页天光（`AppColors.pageBrush` 那层）
-            //  · 只留最外层 = 页内这一层让开，露出的仍是根节点画的那一整块
-            // 见 `ui/design/ContainerStyle.kt` 里的说明。这里只负责把它写进偏好。
-            item(key = "container-style") {
-                CtlRow(label = "容器背景", first = true) {
-                    Segmented(
-                        options = ContainerStyle.entries.map { it.label to it.id },
-                        selectedValue = UiPrefs.containerStyle,
-                        onSelect = { UiPrefs.saveContainerStyle(it) },
-                    )
-                }
-            }
-
             // ---- 三行控件（板 `.ctl` 一组，**不加「光感 / 材质」这种板上没有的分组头**）----
             //
             // 板上的顺序就是 柔化 → 暗度 → 玻璃（`wz-v2.html` 里那三条 `.ctl`），
@@ -543,135 +528,6 @@ fun AppearancePage(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-            }
-
-            // ---- 首頁 ----------------------------------------------------
-            item(key = "home-label") { SubSection("首页", "立即生效") }
-            item(key = "home-density") {
-                CtlRow(label = "界面密度", first = true) {
-                    Segmented(
-                        options = listOf("舒适" to "comfortable", "紧凑" to "compact"),
-                        selectedValue = if (UiPrefs.homeDensity == "compact") "compact" else "comfortable",
-                        onSelect = { UiPrefs.saveHomeDensity(it) },
-                    )
-                }
-            }
-            item(key = "home-modules") {
-                // 板 `.mods{display:flex;flex-wrap:wrap;gap:6px;padding:0 18px}` +
-                //   `span{font-size:9.5px;font-weight:600;border:1px solid var(--line-strong);
-                //    border-radius:999px;padding:5px 9px}` +
-                //   `.on{color:var(--accent);border-color:transparent;background:var(--accent-soft)}`
-                // ⇒ 模块开关是一排**胶囊**，点一下就切；不是四行 switch。
-                Column {
-                    Text(
-                        text = "至少保留一项。隐藏模块仅是个人显示偏好，不删除其功能入口。",
-                        fontSize = Type.micro,
-                        color = colors.onSurfaceVariantSummary,
-                        lineHeight = 12.sp,
-                        modifier = Modifier.padding(bottom = 7.dp),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(5.3.dp)) {
-                        ModuleChip("课程", "courses")
-                        ModuleChip("签到", "rollcall")
-                        ModuleChip("待办", "todos")
-                        ModuleChip("校园跑", "szty")
-                    }
-                }
-            }
-
-            // ---- 應用 ----------------------------------------------------
-            item(key = "apps-label") { SubSection("应用") }
-            item(key = "apps") {
-                BorderedRow(
-                    title = "默认折叠网页服务",
-                    subtitle = "展开后仍可访问全部目录",
-                ) {
-                    PillSwitch(
-                        checked = UiPrefs.appsWebCollapsed,
-                        label = "默认折叠网页服务",
-                    ) { UiPrefs.saveAppsWebCollapsed(!UiPrefs.appsWebCollapsed) }
-                }
-            }
-
-            item(key = "reduce-motion") {
-                // 稿 `appearance` 最后那张卡的第二行：`row("减少动态与高对比", "系统动画关闭优先级最高", "", "reduceMotion")`。
-                // 它**不是开关**：真正能改的是系统设置（本应用只读），所以给 › 而不是 switch ——
-                // 画成开关就是假按钮（工程里栽过：`MotionPrefs` 的只读项被画成可点）。
-                BorderedRow(
-                    title = "减少动态与高对比",
-                    subtitle = "系统动画关闭优先级最高",
-                    onClick = onOpenAccessibility,
-                ) {
-                    Icon(
-                        imageVector = MiuixIcons.ChevronForward,
-                        contentDescription = null,
-                        tint = colors.onSurfaceVariantSummary,
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
-            }
-
-            note?.let { msg ->
-                item(key = "note") {
-                    Text(
-                        text = msg,
-                        fontSize = Type.caption,
-                        color = colors.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(horizontal = 4.dp),
-                    )
-                }
-            }
-
-            item(key = "footnote") {
-                // 板 `.footnote{text-align:center;font-size:8.5px;color:var(--faint);
-                // padding:2px 18px 18px;line-height:1.6}` ⇒ 7.5sp（取 floor 8sp）。
-                // 原来那句「只改这一台手机的显示…」挂在标题下面当副标题 ——
-                // 板上 `.subbar` 只有 返回 + 标题 + 实时预览，没有第二行。
-                Text(
-                    text = "只改这一台手机的显示 · 壁纸存在本机，不上传、不涉及账号信息。",
-                    fontSize = Type.micro,
-                    color = colors.onSurfaceVariantSummary,
-                    lineHeight = 12.sp,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            item(key = "reset") {
-                Text(
-                    text = "恢复默认",
-                    fontSize = Type.body,
-                    fontWeight = Type.weightTitle,
-                    color = colors.onSurfaceVariantSummary,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(Dims.containerCorner))
-                        .background(colors.onBackground.copy(alpha = 0.05f))
-                        .clickable(onClickLabel = "恢复默认外观") {
-                            UiPrefs.resetAppearance()
-                            // 盘改了就把**运行期那一份**一起推（不然要等下次冷启动才生效，
-                            // 中间这段时间就是"界面说液态、画面还是关闭"那类脱钩）。
-                            MotionPrefs.setReduceTransparency(UiPrefs.reduceTransparency)
-                            MotionPrefs.setRefractsGlass(UiPrefs.glassMode == "liquid")
-                            // ⚠️ 这里以前紧跟了两发**写死的** `setReduceTransparency(false)` /
-                            //   `setRefractsGlass(true)`：今天与 `resetAppearance()` 的默认值碰巧一致，
-                            //   但那是"恢复默认"的**第二份定义** —— 哪天默认值改了，上面那两发读盘的就
-                            //   被这里盖掉，界面与画面又脱钩（同一类 bug 第 2 轮已经为 `KEY_GLASS_MODE` 修过一次）。
-                            note = "已恢复默认外观。"
-                        }
-                        .padding(vertical = 12.dp),
-                )
-            }
-
-            item(key = "privacy") {
-                Text(
-                    text = "壁纸只保存在这台手机的应用私有目录（files/home_wallpaper.img），" +
-                        "不会上传到任何服务器；外观偏好与账号凭据分开存放。",
-                    fontSize = Type.micro,
-                    color = colors.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                )
             }
 
             // ---- 壁紙 ----------------------------------------------------
@@ -869,6 +725,157 @@ fun AppearancePage(
                     )
                 }
             }
+            // ---- 首頁 ----------------------------------------------------
+            item(key = "home-label") { SubSection("首页", "立即生效") }
+            item(key = "home-density") {
+                CtlRow(label = "界面密度", first = true) {
+                    Segmented(
+                        options = listOf("舒适" to "comfortable", "紧凑" to "compact"),
+                        selectedValue = if (UiPrefs.homeDensity == "compact") "compact" else "comfortable",
+                        onSelect = { UiPrefs.saveHomeDensity(it) },
+                    )
+                }
+            }
+            item(key = "home-modules") {
+                // 板 `.mods{display:flex;flex-wrap:wrap;gap:6px;padding:0 18px}` +
+                //   `span{font-size:9.5px;font-weight:600;border:1px solid var(--line-strong);
+                //    border-radius:999px;padding:5px 9px}` +
+                //   `.on{color:var(--accent);border-color:transparent;background:var(--accent-soft)}`
+                // ⇒ 模块开关是一排**胶囊**，点一下就切；不是四行 switch。
+                Column {
+                    Text(
+                        text = "至少保留一项。隐藏模块仅是个人显示偏好，不删除其功能入口。",
+                        fontSize = Type.micro,
+                        color = colors.onSurfaceVariantSummary,
+                        lineHeight = 12.sp,
+                        modifier = Modifier.padding(bottom = 7.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.3.dp)) {
+                        ModuleChip("课程", "courses")
+                        ModuleChip("签到", "rollcall")
+                        ModuleChip("待办", "todos")
+                        ModuleChip("校园跑", "szty")
+                    }
+                }
+            }
+
+            // ---- 應用 ----------------------------------------------------
+            // ---- 卡片：默认折叠网页服务 + 减少动态与高对比 ------------------
+            //
+            // 稿 `appearance` 的 12 段里，这一段是**一张卡两行**：第一行是开关，
+            // 第二行是 ›（`row("减少动态与高对比", "系统动画关闭优先级最高", "", "reduceMotion")`）。
+            // 第二行**不是开关**：真正能改的是系统设置（本应用只读），画成开关就是假按钮。
+            item(key = "apps") {
+                BorderedCard {
+                    PlainRow(
+                        title = "默认折叠网页服务",
+                        subtitle = "展开后仍可访问全部目录",
+                    ) {
+                        PillSwitch(
+                            checked = UiPrefs.appsWebCollapsed,
+                            label = "默认折叠网页服务",
+                        ) { UiPrefs.saveAppsWebCollapsed(!UiPrefs.appsWebCollapsed) }
+                    }
+                    RowDivider()
+                    PlainRow(
+                        title = "减少动态与高对比",
+                        subtitle = "系统动画关闭优先级最高",
+                        onClick = onOpenAccessibility,
+                    ) {
+                        Icon(
+                            imageVector = MiuixIcons.ChevronForward,
+                            contentDescription = null,
+                            tint = colors.onSurfaceVariantSummary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
+            }
+            note?.let { msg ->
+                item(key = "note") {
+                    Text(
+                        text = msg,
+                        fontSize = Type.caption,
+                        color = colors.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
+            }
+
+            // ---- 实验 ----------------------------------------------------
+            //
+            // 「容器背景」是业主 2026-11-07 口头加的两版，评审稿 v2.1 的 12 段里没有它。
+            // 返工总单 A2 要求「12 段顺序可逐条对照」，D4 又要求保留这项设置 ——
+            // 所以它不占 12 段里的位置，收在页尾「实验」里，功能一个不少。
+            item(key = "experiment-label") { SubSection("实验", "未在评审稿里") }
+            // ---- 容器背景（业主 2026-11-07：「整个 app 的容器背景做两版」）----
+            //
+            // 两版**不是同一个色的深浅**，是两条渲染路径：
+            //  · 保留 = 页内这一层自己铺纸色渐变 + 首页天光（`AppColors.pageBrush` 那层）
+            //  · 只留最外层 = 页内这一层让开，露出的仍是根节点画的那一整块
+            // 见 `ui/design/ContainerStyle.kt` 里的说明。这里只负责把它写进偏好。
+            item(key = "container-style") {
+                CtlRow(label = "容器背景", first = true) {
+                    Segmented(
+                        options = ContainerStyle.entries.map { it.label to it.id },
+                        selectedValue = UiPrefs.containerStyle,
+                        onSelect = { UiPrefs.saveContainerStyle(it) },
+                    )
+                }
+            }
+
+            item(key = "footnote") {
+                // 板 `.footnote{text-align:center;font-size:8.5px;color:var(--faint);
+                // padding:2px 18px 18px;line-height:1.6}` ⇒ 7.5sp（取 floor 8sp）。
+                // 原来那句「只改这一台手机的显示…」挂在标题下面当副标题 ——
+                // 板上 `.subbar` 只有 返回 + 标题 + 实时预览，没有第二行。
+                Text(
+                    text = "只改这一台手机的显示 · 壁纸存在本机，不上传、不涉及账号信息。",
+                    fontSize = Type.micro,
+                    color = colors.onSurfaceVariantSummary,
+                    lineHeight = 12.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            item(key = "privacy") {
+                Text(
+                    text = "壁纸只保存在这台手机的应用私有目录（files/home_wallpaper.img），" +
+                        "不会上传到任何服务器；外观偏好与账号凭据分开存放。",
+                    fontSize = Type.micro,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+            }
+
+            item(key = "reset") {
+                Text(
+                    text = "恢复默认",
+                    fontSize = Type.body,
+                    fontWeight = Type.weightTitle,
+                    color = colors.onSurfaceVariantSummary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(Dims.containerCorner))
+                        .background(colors.onBackground.copy(alpha = 0.05f))
+                        .clickable(onClickLabel = "恢复默认外观") {
+                            UiPrefs.resetAppearance()
+                            // 盘改了就把**运行期那一份**一起推（不然要等下次冷启动才生效，
+                            // 中间这段时间就是"界面说液态、画面还是关闭"那类脱钩）。
+                            MotionPrefs.setReduceTransparency(UiPrefs.reduceTransparency)
+                            MotionPrefs.setRefractsGlass(UiPrefs.glassMode == "liquid")
+                            // ⚠️ 这里以前紧跟了两发**写死的** `setReduceTransparency(false)` /
+                            //   `setRefractsGlass(true)`：今天与 `resetAppearance()` 的默认值碰巧一致，
+                            //   但那是"恢复默认"的**第二份定义** —— 哪天默认值改了，上面那两发读盘的就
+                            //   被这里盖掉，界面与画面又脱钩（同一类 bug 第 2 轮已经为 `KEY_GLASS_MODE` 修过一次）。
+                            note = "已恢复默认外观。"
+                        }
+                        .padding(vertical = 12.dp),
+                )
+            }
+
         }
 
         // 滚上去的正文会钻到状态栏底下（edge-to-edge 的正常行为）。
@@ -1194,7 +1201,14 @@ private fun CtlRow(
                 fontSize = Type.summary,
                 fontWeight = Type.weightBody,
                 color = colors.onBackground,
-                modifier = Modifier.width(46.dp),
+                // 46dp 是板上的标签列宽，但它是按**字重 600 的 3 字标签**量的。
+                // 「玻璃材质」「界面密度」是 4 字，用户把系统字号调到 1.15 倍后
+                // 46dp 装不下，于是折成「玻璃材 / 质」—— 一行标签变两行，右侧控件
+                // 也跟着错位。改成「至少 46dp、按需取宽、绝不折行」：短标签仍是 46dp
+                // 的对齐基线，长标签多占几 dp，右侧控件按 weight 自动让位。
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.widthIn(min = 46.dp),
             )
             Box(Modifier.weight(1f)) { content() }
         }
@@ -1267,12 +1281,52 @@ private fun BorderedRow(
     onClick: (() -> Unit)? = null,
     trailing: @Composable () -> Unit,
 ) {
+    BorderedCard { PlainRow(title, subtitle, onClick, trailing) }
+}
+
+/**
+ * 一张描边卡，里面可以放**多行**。
+ *
+ * 稿里 `.appline` 是一行一卡，但外观页第 11 段是「开关 + ›」两行同处一张卡；
+ * 两行各自描边会看成两张卡，所以在中间用 [RowDivider] 分一行，外壳只描一次。
+ */
+@Composable
+private fun BorderedCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    androidx.compose.foundation.layout.Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Dims.containerCorner))
+            .border(1.dp, colors.dividerLine, RoundedCornerShape(Dims.containerCorner)),
+        content = content,
+    )
+}
+
+/** 卡内两行之间的分隔线。比整卡描边淡一档，避免「卡里还有卡」的错觉。 */
+@Composable
+private fun RowDivider() {
+    val colors = MiuixTheme.colorScheme
+    androidx.compose.foundation.layout.Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.6.dp)
+            .height(1.dp)
+            .background(colors.dividerLine.copy(alpha = 0.6f)),
+    )
+}
+
+/** 卡里的一行（只有内容，没有描边）。 */
+@Composable
+private fun PlainRow(
+    title: String,
+    subtitle: String,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable () -> Unit,
+) {
     val colors = MiuixTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(Dims.containerCorner))
-            .border(1.dp, colors.dividerLine, RoundedCornerShape(Dims.containerCorner))
             .then(
                 if (onClick != null) {
                     Modifier.clickable(onClickLabel = title, onClick = onClick)
@@ -1286,14 +1340,12 @@ private fun BorderedRow(
         Column(Modifier.weight(1f)) {
             Text(
                 text = title,
-                // 板 `.appline .t{font-size:11px;font-weight:620}` ⇒ 9.7sp
                 fontSize = Type.summary,
                 fontWeight = Type.weightBody,
                 color = colors.onBackground,
             )
             Text(
                 text = subtitle,
-                // 板 `.appline .s{font-size:8.5px;color:var(--faint)}` ⇒ 7.5sp（取 floor 8sp）
                 fontSize = Type.micro,
                 color = colors.onSurfaceVariantSummary,
                 lineHeight = 12.sp,
