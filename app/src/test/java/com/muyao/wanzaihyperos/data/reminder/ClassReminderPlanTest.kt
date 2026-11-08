@@ -203,4 +203,25 @@ class ClassReminderPlanTest {
         )
         assertTrue(out.isEmpty())
     }
+    // ── D4（业主 2026-11-08 20:11 拍板）───────────────────────────────
+    // 总单说「提醒隐私现在默认 true，无依据的默认关」，但这里的 true 是「隐藏课名与教室」
+    // 那一侧 —— 默认关 = 默认把课程名和教室推到锁屏上，泄露面更大。
+    // 业主看过两个方向后选择保持现状。这条断言把决定钉住：
+    // 以后谁想把它改成 false，必须同时改这条理由，而不是顺手改个默认值。
+    @Test
+    fun `D4 提醒隐私默认开，默认不把课名推到锁屏上`() {
+        val prefs = java.io.File("src/main/java/com/muyao/wanzaihyperos/data/UiPrefs.kt")
+        assertTrue("UiPrefs.kt 不见了", prefs.isFile)
+        val text = prefs.readText(Charsets.UTF_8)
+        assertTrue(
+            "reminderPrivate 的默认值不再是 true ⇒ 通知会默认带课程名与教室",
+            "var reminderPrivate by mutableStateOf(true)" in text,
+        )
+        // 读盘那一支也必须 true（否则首次读到缺键时会变成 false，与上面的默认不一致）
+        assertTrue(
+            "读盘缺键时的兜底值不是 true，与内存默认不一致",
+            "p.getBoolean(KEY_REMINDER_PRIVATE, true)" in text,
+        )
+    }
+
 }
