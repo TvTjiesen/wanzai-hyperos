@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -758,6 +759,26 @@ internal fun reminderSubtitle(context: android.content.Context): String {
 }
 
 /**
+ * 提醒页那条 notice 的正文。
+ *
+ * 稿上是静态一句「尚未排程。开启时先请求通知权限，拒绝后开关回到关闭。」——
+ * 这里按**真实状态**分叉，因为静态文案在「已经排上 7 条」时是在骗人。
+ */
+internal fun reminderNotice(context: android.content.Context): String {
+    if (!UiPrefs.classReminderEnabled) {
+        return "尚未开启。开启时会先请求通知权限，拒绝后开关会回到关闭 —— 不假装开着。"
+    }
+    val count = UiPrefs.reminderPlannedCount
+    val late = !com.muyao.wanzaihyperos.data.reminder.ReminderScheduler.canBeExact(context)
+    return when {
+        count < 0 -> "还没排上。进一次课表页就会重新排。"
+        count == 0 -> "这七天没有要提醒的课。"
+        late -> "已在本机排上 $count 条；系统没给精确闹钟，可能晚到几分钟。"
+        else -> "已在本机排上 $count 条，只存这台手机，不改学校任何数据。"
+    }
+}
+
+/**
  * 提前量三选一（5 / 10 / 15 分钟）。只在开关打开时才出现。
  *
  * 为什么不做滑杆：滑杆能拖到 1 分钟（来不及）或 60 分钟（上一节课还在上就响），
@@ -766,54 +787,33 @@ internal fun reminderSubtitle(context: android.content.Context): String {
 @Composable
 internal fun ReminderLeadPicker(selected: Int, onSelect: (Int) -> Unit) {
     val colors = MiuixTheme.colorScheme
-    val isDark = com.muyao.wanzaihyperos.ui.design.liquid.isInDarkTheme()
+    // 稿 screens/reminders.png 是**三颗各自描边的胶囊**（选中那颗描 primary、字也转 primary），
+    // 不是一条灰底轨道里塞三段——轨道那种写法在浅色底上几乎看不出边界。
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            // 稿 v2.1 `reminders.png` 这小节的标题是「提前多久」——
-            // 只写「提前」两个字，左边悬空、读起来像被截断。
-            text = "提前多久",
-            fontSize = Type.caption,
-            color = colors.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.width(10.dp))
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(Dims.chipCorner))
-                .background(colors.onBackground.copy(alpha = 0.045f))
-                .padding(1.8.dp),
-        ) {
-            ClassReminderPlan.LEAD_CHOICES.forEach { minutes ->
-                val on = minutes == selected
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(Dims.chipCorner))
-                        .background(
-                            if (on) {
-                                if (isDark) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.66f)
-                            } else {
-                                Color.Transparent
-                            },
-                        )
-                        // 选中**不换字重**：加粗让字变宽，整排会横抖（外观页 Segmented 同一条规矩）。
-                        .clickable(onClickLabel = "提前 $minutes 分钟") { onSelect(minutes) }
-                        .padding(vertical = 4.4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "$minutes 分钟",
-                        fontSize = Type.caption,
-                        fontWeight = Type.weightBody,
-                        color = if (on) colors.onBackground else colors.onSurfaceVariantSummary,
-                        maxLines = 1,
+        ClassReminderPlan.LEAD_CHOICES.forEach { minutes ->
+            val on = minutes == selected
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .border(
+                        1.dp,
+                        if (on) colors.primary else colors.dividerLine,
+                        RoundedCornerShape(999.dp),
                     )
-                }
+                    .clickable(onClickLabel = "提前 $minutes 分钟") { onSelect(minutes) }
+                    .padding(horizontal = 17.dp, vertical = 9.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "$minutes 分钟",
+                    fontSize = Type.bodyEmphasis,
+                    fontWeight = Type.weightBody,
+                    color = if (on) colors.primary else colors.onSurfaceVariantSummary,
+                    maxLines = 1,
+                )
             }
         }
     }

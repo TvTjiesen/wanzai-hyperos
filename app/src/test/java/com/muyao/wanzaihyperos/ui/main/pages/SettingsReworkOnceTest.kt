@@ -15,12 +15,28 @@ class SettingsReworkOnceTest {
     private val prefs = File("src/main/java/com/muyao/wanzaihyperos/data/UiPrefs.kt")
     private val theme = File("src/main/java/com/muyao/wanzaihyperos/ui/AppTheme.kt")
     private val settings = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/SettingsSectionPage.kt")
+    private val reminders = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/RemindersPage.kt")
 
     private fun read(f: File): String {
         assertTrue("找不到 ${f.absolutePath}", f.isFile)
         return f.readText(Charsets.UTF_8)
     }
 
+    @Test
+    fun `A5 提醒页按稿排：开关卡、三颗胶囊、状态说明`() {
+        val page = read(reminders)
+        val settings = read(settings)
+        // 稿是 .paper.flush 的白色卡，不是设置页的玻璃组。
+        assertTrue(page.contains("PaperCard {"))
+        assertTrue(page.contains("item(key = \"lead-chips\")"))
+        assertTrue(page.contains("item(key = \"lead-notice\")"))
+        // notice 必须按真实状态分叉，不许一句静态文案糊过去。
+        val notice = settings.substringAfter("internal fun reminderNotice")
+        assertTrue(notice.contains("尚未开启"))
+        assertTrue(notice.contains("还没排上"))
+        assertTrue(notice.contains("这七天没有要提醒的课"))
+        assertTrue(notice.contains("只存这台手机"))
+    }
     @Test
     fun `C2 恢复默认必须连取景三元组一起写盘`() {
         // 只在内存里清、不写盘 ⇒ 「恢复默认 → 杀进程重进 → 点相册」旧裁切原地复活。

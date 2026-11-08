@@ -4,6 +4,18 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
@@ -89,34 +101,10 @@ fun RemindersPage(
                 bottom = innerPadding.calculateBottomPadding(),
             ),
         ) {
-            item(key = "hero") {
-                Column(Modifier.padding(top = 4.dp, bottom = 10.dp)) {
-                    Text(
-                        text = "提醒只在本机排。",
-                        // 读屏要能把这句当标题读出来（TypeRatchet 要求最小字号文件必须有等效标签）。
-                        modifier = Modifier.semantics { heading() },
-                        fontSize = Type.displayTitle,
-                        fontWeight = Type.weightTitle,
-                        letterSpacing = (-0.02).sp,
-                        color = colors.onBackground,
-                    )
-                    Text(
-                        text = "开启时先请求通知权限，拒绝后开关会回到关闭 —— 不假装开着。" +
-                            "这里的每一项都只作用于本机通知，不改学校任何数据。",
-                        fontSize = Type.secondary,
-                        color = colors.onSurfaceVariantSummary,
-                        lineHeight = Type.secondary * 1.65f,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                }
-            }
-
-            item(key = "reminder-label") {
-                SettingSectionLabel("提醒", icon = MarkIcon.Clock)
-            }
-
             item(key = "reminder-rows") {
-                SettingGroup {
+                // 稿是 .paper.flush：表面色 + 1px 描边 + 圆角，无阴影。
+                // 设置页的 SettingGroup 是玻璃卡，比稿重一档。
+                PaperCard {
                     SettingRow(
                         icon = SettingIcon.Alarm,
                         tint = if (UiPrefs.classReminderEnabled) Tone.ok else Tone.quiet,
@@ -141,17 +129,53 @@ fun RemindersPage(
                             }
                         },
                     )
-                    if (UiPrefs.classReminderEnabled) {
-                        Text(
-                            text = "提前多久",
-                            fontSize = Type.title,
-                            fontWeight = Type.weightTitle,
-                            color = colors.onBackground,
-                            modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 2.dp),
+                }
+            }
+
+            if (UiPrefs.classReminderEnabled) {
+                item(key = "lead-heading") {
+                    Text(
+                        // 稿 h3 = 20.3px × 0.886 ≈ 18sp，正好是 Type.title；
+                        // 它在这页是**小节标题**，所以带上 heading 语义给读屏。
+                        text = "提前多久",
+                        modifier = Modifier
+                            .padding(top = 18.dp, bottom = 10.dp)
+                            .semantics { heading() },
+                        fontSize = Type.title,
+                        fontWeight = Type.weightTitle,
+                        color = colors.onBackground,
+                    )
+                }
+
+                item(key = "lead-chips") {
+                    ReminderLeadPicker(
+                        selected = UiPrefs.classReminderLeadMinutes,
+                        onSelect = { UiPrefs.saveReminderLead(it) },
+                    )
+                }
+
+                item(key = "lead-notice") {
+                    // 稿 `.notice`：左侧 2dp 竖线 + surface 底 + 11dp 圆角，正文 quiet。
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(colors.surface)
+                            .height(IntrinsicSize.Min),
+                    ) {
+                        Box(
+                            Modifier
+                                .width(2.dp)
+                                .fillMaxHeight()
+                                .background(colors.onSurfaceVariantSummary.copy(alpha = 0.45f)),
                         )
-                        ReminderLeadPicker(
-                            selected = UiPrefs.classReminderLeadMinutes,
-                            onSelect = { UiPrefs.saveReminderLead(it) },
+                        Text(
+                            text = reminderNotice(context),
+                            fontSize = Type.caption,
+                            color = colors.onSurfaceVariantSummary,
+                            lineHeight = Type.caption * 1.6f,
+                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
                         )
                     }
                 }
@@ -244,4 +268,22 @@ fun RemindersPage(
             }
         }
     }
+}
+
+/** 稿 `.paper.flush`：表面色 + 1px 描边 + 20px 圆角 + 无内距，行自己带内距。 */
+@Composable
+private fun PaperCard(content: @Composable ColumnScope.() -> Unit) {
+    val colors = MiuixTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.7.dp))
+            .background(colors.surface)
+            .border(
+                width = 1.dp,
+                color = colors.dividerLine.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(17.7.dp),
+            ),
+        content = content,
+    )
 }
