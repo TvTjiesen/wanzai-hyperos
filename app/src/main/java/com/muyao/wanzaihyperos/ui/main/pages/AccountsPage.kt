@@ -32,6 +32,7 @@ import com.muyao.wanzaihyperos.data.account.snapshotAccountSources
 import com.muyao.wanzaihyperos.ui.AppUiState
 import com.muyao.wanzaihyperos.ui.design.AppColors
 import com.muyao.wanzaihyperos.ui.design.Dims
+import com.muyao.wanzaihyperos.ui.design.PaperCard
 import com.muyao.wanzaihyperos.ui.design.SettingGroup
 import com.muyao.wanzaihyperos.ui.design.SettingIcon
 import com.muyao.wanzaihyperos.ui.design.SettingRow
@@ -197,7 +198,8 @@ fun AccountsPage(
                 )
             }
         } else {
-            SettingGroup {
+            // 稿 .paper.flush：来源列表是一张纸，行自带内距与分隔线。
+            PaperCard {
                 sources.forEach { source ->
                     AccountSourceRow(
                         source = source,
