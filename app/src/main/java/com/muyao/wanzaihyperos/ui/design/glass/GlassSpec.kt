@@ -136,7 +136,18 @@ class GlassSpecTuning(initial: GlassSpec) {
  * 读的是 `UiPrefs.glassOpacity`（mutableStateOf）⇒ 拖动滑块时所有玻璃面同一帧跟着变。
  */
 @Composable
-fun glassOpacityFactor(): Float {
-    val v = com.muyao.wanzaihyperos.data.UiPrefs.glassOpacity
-    return 1f - (v - 50) / 50f * 0.38f
-}
+fun glassOpacityFactor(): Float =
+    opacityFactorFor(com.muyao.wanzaihyperos.data.UiPrefs.glassOpacity.toFloat())
+
+/**
+ * 通透度滑块的纯函数形式：`0..100` 的滑块值 → 垫底层 alpha 系数。
+ *
+ * 单独抽出来是为了**能被单元测试钉住方向**（返工总单 C1 就是因为符号反了、
+ * 而且没有任何断言守着，才一路活到对稿）。Composable 版本读 `UiPrefs` 再调它，
+ * 数学只有这一处，测试与界面不可能各说一套。
+ *
+ * - v = 0   ⇒ 1.38（更厚实）
+ * - v = 50  ⇒ 1.00（默认，原样）
+ * - v = 100 ⇒ 0.62（更通透）
+ */
+fun opacityFactorFor(v: Float): Float = 1f - (v - 50f) / 50f * 0.38f

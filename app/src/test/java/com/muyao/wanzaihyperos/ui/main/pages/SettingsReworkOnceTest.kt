@@ -77,4 +77,65 @@ class SettingsReworkOnceTest {
         assertTrue("导出失败必须给用户一句能看懂的话",
             "系统没有给出可写的数据流" in export)
     }
+
+    @Test
+    fun `C1 通透度滑块越往右越通透，不许符号反`() {
+        // 界面左端写「更厚实」、右端写「更通透」⇒ 滑块值越大，alpha 系数必须越小。
+        // 上一版写成 1 + (v-50)/50×0.38，v=100 反而更厚，界面与代码各说一套。
+        val glass = File("src/main/java/com/muyao/wanzaihyperos/ui/design/glass/GlassSpec.kt")
+        assertTrue("GlassSpec.kt 不见了", glass.isFile)
+
+        val mid = com.muyao.wanzaihyperos.ui.design.glass.opacityFactorFor(50f)
+        val max = com.muyao.wanzaihyperos.ui.design.glass.opacityFactorFor(100f)
+        val min = com.muyao.wanzaihyperos.ui.design.glass.opacityFactorFor(0f)
+
+        // 50 是原值：系数必须正好 1
+        assertTrue("通透度 50% 应该等于原样（1.0），实际 $mid", kotlin.math.abs(mid - 1f) < 0.001f)
+        // 100 = 更通透 ⇒ 系数 < 1；0 = 更厚实 ⇒ 系数 > 1
+        assertTrue("通透度拉满反而变厚了（v=100 得 $max）", max < 1f)
+        assertTrue("通透度拉到最左没有变厚（v=0 得 $min）", min > 1f)
+        // 方向单调：越往右越小
+        assertTrue("0..100 上系数不是单调下降", min > mid && mid > max)
+        // 具体幅度按稿：100 ⇒ 0.62
+        assertTrue("v=100 应为 0.62，实际 $max", kotlin.math.abs(max - 0.62f) < 0.001f)
+        assertTrue("v=0 应为 1.38，实际 $min", kotlin.math.abs(min - 1.38f) < 0.001f)
+    }
+
+    @Test
+    fun `C4 应用内的减少动态与高对比必须真的进到 Motion 的判定里`() {
+        // 原来这两项只能跳系统设置 ⇒ 应用内没有开关。现在有两个真偏好，
+        // 但光有偏好不够：Motion 的计算属性必须把它们并进结果，否则开关是摆设。
+        val motion = File("src/main/java/com/muyao/wanzaihyperos/ui/design/Motion.kt")
+        assertTrue("Motion.kt 不见了", motion.isFile)
+        val text = motion.readText(Charsets.UTF_8)
+
+        assertTrue("Motion 没有应用内「减少动态」的原始字段",
+            "systemAnimationsEnabled" in text && "reduceMotion" in text)
+        assertTrue("animationsEnabled 没有把应用内开关并进来",
+            "systemAnimationsEnabled && !reduceMotion" in text)
+        assertTrue("Motion 没有应用内「高对比」的原始字段", "highContrastOverride" in text)
+        assertTrue("highTextContrast 没有把应用内开关或进来",
+            "systemHighTextContrast || highContrastOverride" in text)
+
+        // 两条偏好必须落在 UiPrefs（有读写、有键名），否则装不住
+        val prefsText = read(prefs)
+        assertTrue("UiPrefs 缺 reduce_motion 键", "reduce_motion" in prefsText)
+        assertTrue("UiPrefs 缺 high_contrast_override 键", "high_contrast_override" in prefsText)
+        assertTrue("UiPrefs 缺 saveReduceMotion", "fun saveReduceMotion" in prefsText)
+        assertTrue("UiPrefs 缺 saveHighContrastOverride", "fun saveHighContrastOverride" in prefsText)
+    }
+
+    @Test
+    fun `C5 从外观进辅助显示，返回必须落回外观而不是关掉它`() {
+        // 原来 onOpenAccessibility 里顺手写了 showAppearance = false，
+        // 结果关掉上层辅助显示时，下层的「外观」也一起没了 —— 返回落到错误的层级。
+        val shell = File("src/main/java/com/muyao/wanzaihyperos/ui/main/WanzaiMainShell.kt")
+        assertTrue("WanzaiMainShell.kt 不见了", shell.isFile)
+        val text = shell.readText(Charsets.UTF_8)
+        val block = text.substringAfter("onOpenAccessibility = {").substringBefore("}")
+        assertTrue("从外观进辅助显示时又顺手关掉了外观层（返回会落到错误的层）",
+            "showAppearance = false" !in block)
+        assertTrue("onOpenAccessibility 没有真的打开辅助显示层",
+            "showAccessibility = true" in block)
+    }
 }
