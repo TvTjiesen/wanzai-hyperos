@@ -105,10 +105,17 @@ class HomeSkyTest {
         // 「拖到一半变黏、要重新按一次才动」的标准成因：把**回调自己写入的状态**放进了
         // `pointerInput(...)` 的 key ⇒ 每个指针事件都取消并重启检测器、累积锚点被清零。
         // 这条能静态判（第 1 轮台账原话），不该留给录屏。
-        val f = java.io.File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/AppearancePage.kt")
+        // A10（2026-11-08）：取景框从外观页搬到了独立页，入口改成一行跳转。
+        // 断言不删，改指向新文件；另加一条「外观页不再有取景手势」的守卫。
+        val f = java.io.File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/WallpaperCropPage.kt")
         assertTrue("找不到 ${f.absolutePath}", f.isFile)
         val keys = f.readLines().filter { it.contains(".pointerInput(") }
-        assertTrue("外观页找不到 pointerInput", keys.isNotEmpty())
+        assertTrue("取景页找不到 pointerInput", keys.isNotEmpty())
+        val oldPage = java.io.File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/AppearancePage.kt")
+        assertTrue(
+            "外观页不该再有自己的取景手势（已搬去 WallpaperCropPage）",
+            !oldPage.readText().contains("detectTransformGestures"),
+        )
         val bad = keys.filter { k ->
             val arg = k.substringAfter("pointerInput(").substringBefore(")")
             listOf("panX", "panY", "zoom").any { arg.contains(it) }

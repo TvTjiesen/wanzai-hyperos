@@ -124,3 +124,23 @@ fun rememberScrollProgress(
         (scrolled / viewport).coerceIn(0f, 1f)
     }
 }
+
+/**
+ * 同上，但給 `Modifier.verticalScroll` 的 [androidx.compose.foundation.ScrollState]。
+ *
+ * 為什麼要有這支：`LazyColumn` 那支吃的是 `LazyListState`，而**短頁面**（關於、開源許可、
+ * 品牌與圖標、取景）用的是普通 `Column + verticalScroll` —— 它們一樣會把內容捲到頂欄下面，
+ * 卻拿不到 progress，於是頂欄底下沒有紗、字直接壓在標題上。
+ *
+ * 分母同樣取「一屏高度」（[androidx.compose.foundation.ScrollState.viewportSize]），
+ * 超過一屏即視為 1，與 LazyColumn 那支的行為一致。
+ */
+@Composable
+fun rememberScrollProgress(
+    state: androidx.compose.foundation.ScrollState,
+): androidx.compose.runtime.State<Float> {
+    return androidx.compose.runtime.derivedStateOf {
+        val viewport = state.viewportSize.coerceAtLeast(1)
+        (state.value.toFloat() / viewport).coerceIn(0f, 1f)
+    }
+}

@@ -40,9 +40,21 @@ sealed interface Route : NavKey {
     @Serializable
     data object Scanner : Route
 
-    /** 关于 + 开源许可（B4-10）：从设置页「关于」那一行走进来。 */
+    /** 关于应用（A7）：从设置页「关于」那一行走进来。开源许可已拆到 Licenses。 */
     @Serializable
     data object About : Route
+
+    /** A9：开源许可与字体（三级页，从关于页「开源许可」进来）。 */
+    @Serializable
+    data object Licenses : Route
+
+    /** A6：品牌与图标（二级页，从设置首屏「名称与图标」进来）。 */
+    @Serializable
+    data object Brand : Route
+
+    /** A10：本地照片取景（三级页，从外观页「调整照片取景」进来）。 */
+    @Serializable
+    data object WallpaperCrop : Route
 
     /**
      * B4-06：设置页「账号」二级页（六源逐条）。

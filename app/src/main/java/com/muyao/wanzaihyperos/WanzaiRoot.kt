@@ -673,6 +673,8 @@ fun WanzaiApp(
                     onOpenMessages = { uiState.selectedTab = 2 },
                     onOpenTodos = { backStack.add(Route.TodoBoard) },
                     onOpenAbout = { backStack.add(Route.About) },
+                    onOpenBrand = { backStack.add(Route.Brand) },
+                    onOpenCrop = { backStack.add(Route.WallpaperCrop) },
                     onOpenAccounts = { backStack.add(Route.AccountSources) },
                     // 返回栈深度：设置页账号聚合行按它重算（B4-06 第 1 处真缺陷）
                     navDepth = backStack.size,
@@ -790,6 +792,29 @@ fun WanzaiApp(
             // B4-10：关于 + 开源许可（外链与依赖清单都是真的，见 `AboutLinks` / `Credits`）。
             entry<Route.About> {
                 com.muyao.wanzaihyperos.ui.about.AboutPage(
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenLicenses = { backStack.add(Route.Licenses) },
+                    onOpenBrand = { backStack.add(Route.Brand) },
+                )
+            }
+
+            // A9：开源许可与字体（三级页）。
+            entry<Route.Licenses> {
+                com.muyao.wanzaihyperos.ui.about.LicensesPage(
+                    onBack = { backStack.removeLastOrNull() },
+                )
+            }
+
+            // A6：品牌与图标（二级页）。
+            entry<Route.Brand> {
+                com.muyao.wanzaihyperos.ui.about.BrandPage(
+                    onBack = { backStack.removeLastOrNull() },
+                )
+            }
+
+            // A10：本地照片取景（三级页）。点应用才落盘，点取消原样退出。
+            entry<Route.WallpaperCrop> {
+                com.muyao.wanzaihyperos.ui.main.pages.WallpaperCropPage(
                     onBack = { backStack.removeLastOrNull() },
                 )
             }

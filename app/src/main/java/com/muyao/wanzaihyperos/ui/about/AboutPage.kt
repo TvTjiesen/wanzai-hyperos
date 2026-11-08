@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -32,6 +33,7 @@ import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.AppColors
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
+import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import top.yukonga.miuix.kmp.basic.Text
@@ -53,7 +55,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *    不在这里手写任何一条 —— 手写就会出现"界面上列了一个根本没用的库"。
  */
 @Composable
-fun AboutPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun AboutPage(
+    onBack: () -> Unit,
+    /** A9：开源许可与字体（三级页）。 */
+    onOpenLicenses: () -> Unit = {},
+    /** A6：品牌与图标（二级页）。 */
+    onOpenBrand: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
 
@@ -64,7 +73,12 @@ fun AboutPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
         }
     }
 
+    // 内容会捲到透明顶栏下面：用「已捲距离 / 一屏」驱动顶栏那层纱，
+    // 否则标题会被正文压住（真机在开源许可页看到过）。
+    val scroll = rememberScrollState()
+    val veil by rememberScrollProgress(scroll)
     SecondaryScaffold(
+        scrollProgress = veil,
         title = "关于应用",
         onBack = onBack,
         modifier = modifier,
@@ -72,7 +86,7 @@ fun AboutPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scroll)
                 .padding(horizontal = Dims.screenH)
                 .padding(
                     top = inner.calculateTopPadding(),
@@ -125,12 +139,21 @@ fun AboutPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 Spacer(Modifier.height(Dims.tight))
                 LinkRow("酷安", AboutLinks.coolapk, enabled = AboutLinks.coolapk.isNotBlank()) { open(AboutLinks.coolapk) }
                 Spacer(Modifier.height(Dims.tight))
-                // 稿 v2.1 `about.png` 第三行「品牌与图标方案 / 名称、图标、遮罩与小尺寸」。
-                // 它是**说明**不是链接：稿上那个 `›` 通向品牌页，而品牌页是评审专用
-                // （原型里 3 个命名候选是设计阶段的东西）。名字已定稿，这里只把结果写在行上。
-                AboutInfoRow(
+                // A6/A7：「品牌与图标方案」不再是死行 —— 稿上那个 `›` 通向品牌页，
+                // 页里写名称状态（待定）、角色来源与四个尺寸。
+                NavRow(
                     title = "品牌与图标方案",
-                    subtitle = "鲸集 · 学士服鲸鱼娘 · 自适应图标（含圆形与五档密度）",
+                    subtitle = "鲸集 · 学士服鲸鱼娘 · 名称待业主确认",
+                    onClickLabel = "打开品牌与图标方案",
+                    onClick = onOpenBrand,
+                )
+                Spacer(Modifier.height(Dims.tight))
+                // A9：开源许可从「内嵌三组清单」收成一行摘要，点进独立页。
+                NavRow(
+                    title = "开源许可",
+                    subtitle = "依赖 " + Credits.dependencies.size + " 条 · 改写自 " + Credits.derived.size + " 件 · 字体 " + Credits.fonts.size + " 款",
+                    onClickLabel = "打开开源许可",
+                    onClick = onOpenLicenses,
                 )
                 Spacer(Modifier.height(Dims.tight))
                 Text(
@@ -143,72 +166,14 @@ fun AboutPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
             }
         }
 
+        // A9：三组清单已搬到 ui/about/LicensesPage.kt（条数与 Credits 数据层一致，
+        // 由 LicensesPageOnceTest 断言）。关于页只留摘要入口，见上面那张卡。
         Spacer(Modifier.height(Dims.cardGap))
         Text(
-            text = "开源许可 · 感谢这些项目",
-            fontSize = Type.body,
-            fontWeight = Type.weightTitle,
-            color = colors.onBackground,
-        )
-        Text(
-            text = "下面每一条都对应本工程依赖声明里的一个真实依赖（逐个从 Gradle 报告与 Maven POM 取）。",
+            text = "包名与签名在升级中保持不变；本应用与学校、DeepSeek 均无隶属关系。",
             fontSize = Type.caption,
             color = colors.onSurfaceVariantSummary,
         )
-        Spacer(Modifier.height(Dims.tight))
-        AppCard {
-            Column(Modifier.padding(Dims.cardPadding)) {
-                Credits.dependencies.forEachIndexed { i, c ->
-                    CreditRow(c)
-                    if (i != Credits.dependencies.lastIndex) {
-                        Spacer(Modifier.height(10.dp))
-                    }
-                }
-            }
-        }
-        // ── 衍生作品署名（许可义务，比依赖更要紧）──────────────────────────
-        Spacer(Modifier.height(24.dp))
-        Text(
-            text = "改写自的开源作品",
-            fontSize = Type.title,
-            fontWeight = Type.weightTitle,
-            color = colors.onBackground,
-        )
-        Text(
-            // 许可证名**从数据层取**，不在这里手写（`CreditsTest` 守这条）。
-            text = "这些不是依赖，是把别人的实现改写进了本工程 —— " +
-                "${Credits.derived.map { it.license }.distinct().joinToString(" / ")} 要求署名。",
-            fontSize = Type.caption,
-            color = colors.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.height(Dims.tight))
-        AppCard {
-            Column(Modifier.padding(Dims.cardPadding)) {
-                Credits.derived.forEachIndexed { i, c ->
-                    CreditRow(c)
-                    if (i != Credits.derived.lastIndex) Spacer(Modifier.height(10.dp))
-                }
-            }
-        }
-
-        // ── 随包字体 ────────────────────────────────────────────────────
-        Spacer(Modifier.height(24.dp))
-        Text(
-            text = "随包字体",
-            fontSize = Type.title,
-            fontWeight = Type.weightTitle,
-            color = colors.onBackground,
-        )
-        Spacer(Modifier.height(Dims.tight))
-        AppCard {
-            Column(Modifier.padding(Dims.cardPadding)) {
-                Credits.fonts.forEachIndexed { i, c ->
-                    CreditRow(c)
-                    if (i != Credits.fonts.lastIndex) Spacer(Modifier.height(10.dp))
-                }
-            }
-        }
-
         Spacer(Modifier.height(32.dp))
         }
     }
@@ -236,7 +201,7 @@ private fun LinkRow(label: String, url: String, enabled: Boolean, onClick: () ->
 }
 
 @Composable
-private fun CreditRow(c: Credit) {
+internal fun CreditRow(c: Credit) {
     val colors = MiuixTheme.colorScheme
     Column(Modifier.fillMaxWidth()) {
         Text(
@@ -256,17 +221,28 @@ private fun CreditRow(c: Credit) {
         Text(text = c.license, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
     }
 }
-/** 关于页的一行「标题 + 说明」事实（不可点的信息行，不是链接）。 */
+/** 关于页里通向下一级页面的行（标题 + 说明 + ›）。 */
 @Composable
-private fun AboutInfoRow(title: String, subtitle: String) {
+private fun NavRow(title: String, subtitle: String, onClickLabel: String, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(text = title, fontSize = Type.body, color = colors.onBackground)
-        Text(
-            text = subtitle,
-            fontSize = Type.micro,
-            color = colors.onSurfaceVariantSummary,
-            modifier = Modifier.padding(top = 2.dp),
-        )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Dims.chipCorner))
+            .clickable(onClickLabel = onClickLabel) { onClick() }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(text = title, fontSize = Type.body, color = colors.onBackground)
+            Text(
+                text = subtitle,
+                fontSize = Type.micro,
+                color = colors.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Text(text = "›", fontSize = Type.body, color = colors.onSurfaceVariantSummary)
     }
 }
+

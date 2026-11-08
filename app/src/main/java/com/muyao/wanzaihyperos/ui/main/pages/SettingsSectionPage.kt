@@ -133,6 +133,8 @@ fun SettingsSectionPage(
     onOpenPeriods: () -> Unit = {},
     /** 上课提醒搬到独立页（返工总单 A5）。 */
     onOpenReminders: () -> Unit = {},
+    /** 名称与图标搬到独立页（返工总单 A6）。 */
+    onOpenBrand: () -> Unit = {},
     /**
      * 刷新键（返回栈深度）。**光靠 `uiState.loggedIn` 不够**：它只会 false→true，
      * 已登录门户之后再登教务 / CJH52 / 智慧公寓，那个布尔不再变化 ⇒ 聚合行的「已登录 n 项」不会重算。
@@ -660,13 +662,16 @@ fun SettingsSectionPage(
                 SettingRow(
                     icon = SettingIcon.Badge,
                     tint = Tone.quiet,
-                    // 稿 `settings` 这一行叫「名称与图标」，副标题写名称状态、右值是「提案」。
+                    // ★ 返工总单 A6：这一行以前也是死行（无 onClick）。稿里它是一个二级页
+                    //   （`brand`），页内写名称状态、角色来源与四个尺寸预览。
+                    //   右值不能写「已定稿」—— 业主 2026-11-07 说过现用名不满意，
+                    //   状态只能如实写「待定」。
                     title = "名称与图标",
                     subtitle = "鲸集 · 学士服鲸鱼娘 · 版本 ${rememberAppVersion()}",
+                    onClick = onOpenBrand,
                     trailing = {
                         Text(
-                            // 稿写「提案」（命名未定时）；现在已经定稿，如实说，不画假箭头。
-                            text = "已定稿",
+                            text = "待定 ›",
                             fontSize = Type.caption,
                             color = colors.onSurfaceVariantSummary,
                         )

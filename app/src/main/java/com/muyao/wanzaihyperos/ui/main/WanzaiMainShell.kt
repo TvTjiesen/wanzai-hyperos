@@ -138,6 +138,10 @@ fun WanzaiMainShell(
     onOpenSzty: () -> Unit = {},
     /** 设置页「关于」那一行：关于 + 开源许可页（B4-10）。 */
     onOpenAbout: () -> Unit = {},
+    /** A6：设置首屏「名称与图标」→ 品牌与图标页。 */
+    onOpenBrand: () -> Unit = {},
+    /** A10：外观页「调整照片取景」→ 取景页（点应用才落盘）。 */
+    onOpenCrop: () -> Unit = {},
     /** B4-06：设置页「账号」二级页。 */
     onOpenAccounts: () -> Unit = {},
     /** 消息裡點一條：把它的 openurl 交給根導航開 WebView（Route.Web）。 */
@@ -430,6 +434,7 @@ fun WanzaiMainShell(
                                 // 所以那一行的「去哪登」就是切到应用板块。
                                 onOpenApps = { uiState.selectedTab = MainSection.Apps.ordinal },
                                 onOpenAbout = onOpenAbout,
+                                onOpenBrand = onOpenBrand,
                                 onOpenAccounts = onOpenAccounts,
                                 refreshKey = navDepth,
                             )
@@ -584,6 +589,7 @@ fun WanzaiMainShell(
                             //   现在两层同时挂着：外观在下、辅助显示在上，关掉上层自然回下层。
                             showAccessibility = true
                         },
+                        onOpenCrop = onOpenCrop,
                     )
                 }
             }

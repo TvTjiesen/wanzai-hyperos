@@ -85,7 +85,6 @@ import com.muyao.wanzaihyperos.ui.design.glass.GlassSurfaceKind
 import com.muyao.wanzaihyperos.ui.design.rememberMotion
 import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import com.muyao.wanzaihyperos.ui.home.SkyPreset
-import androidx.compose.foundation.gestures.detectTransformGestures
 import com.muyao.wanzaihyperos.ui.home.coverSlackPx
 import com.muyao.wanzaihyperos.ui.home.drawCoverBitmap
 import com.muyao.wanzaihyperos.data.schedule.PeriodClock
@@ -144,6 +143,8 @@ fun AppearancePage(
      * 这里**不重复实现**那张表：`AccessibilityPage` 是唯一一处，外观页只负责开它。
      */
     onOpenAccessibility: () -> Unit = {},
+    /** A10：相册取景的出口（拖动只改草稿，点应用才落盘）。 */
+    onOpenCrop: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onClose)
@@ -710,19 +711,22 @@ fun AppearancePage(
             //
             // 只有真的选了相册图、并且当前就在用相册档时才出现 —— 内置天空没有可裁的东西，
             // 摆一个拖了不动的框就是假开关（本工程栽过好几次）。
+            // A10：取景搬去独立页（拖动只改草稿，点应用才落盘，点取消原样退出）。
+            // 这里只留入口 —— 摆一个「拖一下就保存」的框，等于没有取消。
             if (wallpaper != null && effectivePreset == SkyPreset.ALBUM) {
                 item(key = "wallpaper-crop") {
-                    WallpaperCropFrame(
-                        wallpaper = wallpaper,
-                        panX = UiPrefs.wallpaperPanX,
-                        panY = UiPrefs.wallpaperPanY,
-                        zoom = UiPrefs.wallpaperZoom,
-                        onCrop = { x, y, z -> UiPrefs.saveWallpaperCrop(x, y, z) },
-                        onReset = {
-                            UiPrefs.resetWallpaperCrop()
-                            note = "已回到居中裁满。"
-                        },
-                    )
+                    BorderedRow(
+                        title = "调整照片取景",
+                        subtitle = "拖动平移、双指缩放；点应用才生效",
+                        onClick = onOpenCrop,
+                    ) {
+                        Icon(
+                            imageVector = MiuixIcons.ChevronForward,
+                            contentDescription = null,
+                            tint = colors.onSurfaceVariantSummary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
                 }
             }
             // ---- 首頁 ----------------------------------------------------
@@ -1708,7 +1712,7 @@ private fun PresetChip(
  * 拖的過程中**不寫 SharedPreferences**（否則一次拖動會寫幾十次）。
  */
 @Composable
-private fun ValueSlider(
+internal fun ValueSlider(
     value: Int,
     max: Int,
     /** 板 `.ctl .val` 写的是「38%」这种带单位的数，不是裸整数。 */
@@ -1856,138 +1860,4 @@ private fun AppearanceStatusIcons(isDark: Boolean) {
 private val WEEKDAYS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 private val TIME_HM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
-/**
- * v3 #10：相册壁纸的**取景框**（拖动 + 双指缩放）。
- *
- * ## 为什么这一框要自己算 slack
- *
- * 手指拖的是像素，落盘的是归一化的 `pan ∈ [-1,1]`。换算必须用
- * [com.muyao.wanzaihyperos.ui.home.coverSlackPx] —— 和首页 `drawCoverBitmap`
- * 同一个函数，两边各写一份就会漂，漂了就是"这里看着没切到、首页却切过头露白边"。
- *
- * ## 为什么这框是 1:0.62
- *
- * 首页那条天空是「屏宽 × 250dp」，1080×2400 上约等于 1:0.62。
- * 用同样的比例，框里看到的构图就是首页 will 看到的构图（WYSIWYG）；
- * 这一页左右各有 12dp 内边距，所以宽度比首页窄一点点 —— 取景是归一化的，不影响结果。
- */
-@Composable
-internal fun WallpaperCropFrame(
-    wallpaper: androidx.compose.ui.graphics.ImageBitmap,
-    panX: Float,
-    panY: Float,
-    zoom: Float,
-    onCrop: (Float, Float, Float) -> Unit,
-    onReset: () -> Unit,
-) {
-    val colors = MiuixTheme.colorScheme
-    Column {
-        Text(
-            text = "取景：一根手指拖动，两根手指缩放",
-            fontSize = Type.caption,
-            color = colors.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.height(6.dp))
-        // 取景的三个量在**组合期**取快照（`rememberUpdatedState` 不是 composable 上下文以外能调的），
-        // 手势协程里读 `.value` 拿到最新值，却不会因为它们变化而重启检测器 —— 见下面 key 的注释。
-        val curPanX = rememberUpdatedState(panX)
-        val curPanY = rememberUpdatedState(panY)
-        val curZoom = rememberUpdatedState(zoom)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f / 0.62f)
-                .clip(RoundedCornerShape(Dims.cardCorner))
-                .background(colors.surfaceContainer)
-                // ★★ 独立审计（v3 #10 第 1 轮，与 OOM 同优先级）：key 里以前放了
-                //   `panX / panY / zoom` —— 而这三个正是**本回调自己每一帧都在写**的状态
-                //   （`onCrop` 落到 `UiPrefs.wallpaperPanX/Y/Zoom`）。
-                //   后果是标准的那个手感命门：**每个指针事件都取消并重启同一颗手势协程**，
-                //   `detectTransformGestures` 的累积锚点被清零、重新 `awaitFirstDown`
-                //   ⇒ "拖到一半变黏、要重新按一次才动"。
-                //   key 只留 `wallpaper`（换图才该重启检测器）；三个取景量改走
-                //   `rememberUpdatedState`，读到最新值但不触发重启。
-                .pointerInput(wallpaper) {
-                    detectTransformGestures { _, pan, zoomIn, centroid ->
-                        val zoomNow = curZoom.value
-                        val (sx, sy) = coverSlackPx(
-                            imgW = wallpaper.width,
-                            imgH = wallpaper.height,
-                            boxW = size.width.toFloat(),
-                            boxH = size.height.toFloat(),
-                            zoom = zoomNow,
-                        )
-                        val nx = curPanX.value + if (sx > 0f) pan.x / sx else 0f
-                        val ny = curPanY.value + if (sy > 0f) pan.y / sy else 0f
-                        // 上限 4× 只是防手滑捏到无穷大，不是设计值。
-                        onCrop(nx.coerceIn(-1f, 1f), ny.coerceIn(-1f, 1f), (zoomNow * zoomIn).coerceIn(1f, 4f))
-                    }
-                },
-        ) {
-            Canvas(Modifier.fillMaxSize()) {
-                drawCoverBitmap(
-                    wallpaper,
-                    panX = panX,
-                    panY = panY,
-                    zoom = zoom,
-                )
-            }
-            // ── 建议一：构图辅助（业主 2026-11-07「五项新增设置全做」）──────────────
-            //
-            // 只画**轮廓**，不画任何实体：他要在图上判断"人脸会不会被球挡住"，
-            // 画一块不透明色块就把要看的东西盖住了，等于没给辅助。
-            //
-            // 比例取自首页真实分层（347dp 宽下的实测，见 HOME-V2 首屏结构）：
-            //   球：左上、直径约 0.26w；「今天」大标题从 0.30h 起；焦点卡在 0.62h 处、
-            //   左右各留 0.06w。用**比例**而不是 dp，是因为取景框本身随屏宽缩放。
-            //
-            // 这些线**只在编辑态出现**，不进壁纸位图、也不落盘成新开关（§3 批准点）。
-            Canvas(Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                val guideColor = Color.White.copy(alpha = 0.82f)
-                val shadowColor = Color.Black.copy(alpha = 0.28f)
-                val stroke = 1.6.dp.toPx()
 
-                fun ring(cx: Float, cy: Float, r: Float) {
-                    drawCircle(shadowColor, radius = r + 1.dp.toPx(), center = Offset(cx, cy), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-                    drawCircle(guideColor, radius = r, center = Offset(cx, cy), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-                }
-
-                fun band(l: Float, t: Float, r: Float, b: Float, corner: Float) {
-                    drawRoundRect(shadowColor, topLeft = Offset(l, t), size = Size(r - l, b - t),
-                        cornerRadius = CornerRadius(corner), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-                    drawRoundRect(guideColor, topLeft = Offset(l, t), size = Size(r - l, b - t),
-                        cornerRadius = CornerRadius(corner), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-                }
-
-                ring(w * 0.20f, h * 0.15f, w * 0.13f)
-                band(w * 0.08f, h * 0.30f, w * 0.62f, h * 0.375f, 6.dp.toPx())
-                band(w * 0.08f, h * 0.405f, w * 0.42f, h * 0.455f, 5.dp.toPx())
-                band(w * 0.06f, h * 0.62f, w * 0.94f, h * 0.86f, 20.dp.toPx())
-            }
-
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = if (zoom <= 1.001f && panX == 0f && panY == 0f) "当前：居中裁满"
-                else "当前：放大 ${"%.1f".format(zoom)}×",
-                fontSize = Type.micro,
-                color = colors.onSurfaceVariantSummary,
-            )
-            Text(
-                text = "重置取景",
-                fontSize = Type.micro,
-                color = colors.primary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(Dims.chipCorner))
-                    .clickable(onClickLabel = "重置取景") { onReset() }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
-        }
-    }
-}
