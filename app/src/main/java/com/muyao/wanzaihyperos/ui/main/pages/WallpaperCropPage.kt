@@ -2,10 +2,14 @@ package com.muyao.wanzaihyperos.ui.main.pages
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -91,7 +95,7 @@ fun WallpaperCropPage(
     val veil by rememberScrollProgress(scroll)
     SecondaryScaffold(
         scrollProgress = veil,
-        title = "调整照片",
+        title = "本地照片取景",
         onBack = onBack,
         onSearch = onSearch,
         modifier = modifier,
@@ -106,18 +110,15 @@ fun WallpaperCropPage(
                     bottom = inner.calculateBottomPadding(),
                 ),
         ) {
-            Text(
-                text = "这张照片只保存在本机，不会上传到任何服务器。",
-                fontSize = Type.caption,
-                color = colors.onSurfaceVariantSummary,
-                modifier = Modifier.semantics { heading() },
+            NoticeBlock(
+                "仅本地预览，不上传。请使用无敏感内容的照片；未选择时保留上一张壁纸。",
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
 
             if (wallpaper == null) {
                 // 没图就照实说，不拿一片自动天空冒充「你的图」。
                 Text(
-                    text = "相册里还没有存过照片。回上一页点「相册」选一张。",
+                    text = "选择照片后可以拖动与缩放。相册里还没有存过照片，回上一页点「相册」选一张。",
                     fontSize = Type.body,
                     color = colors.onSurfaceVariantSummary,
                 )
@@ -150,50 +151,41 @@ fun WallpaperCropPage(
                     percent = true,
                     onChange = { v -> zoom = (1f + v / 100f * 3f).coerceIn(1f, 4f) },
                 )
-                Spacer(Modifier.height(14.dp))
-                Row(
+                Spacer(Modifier.height(20.dp))
+                // 稿的 .bottom-action：三颗全宽竖排，间距 10dp。
+                ActionButton(
+                    text = "应用取景",
+                    primary = true,
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ActionButton(
-                        text = "应用",
-                        primary = true,
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            UiPrefs.saveWallpaperCrop(panX, panY, zoom)
-                            onBack()
-                        },
-                    )
-                    ActionButton(text = "取消", primary = false, modifier = Modifier.weight(1f), onClick = onBack)
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(
+                    onClick = {
+                        UiPrefs.saveWallpaperCrop(panX, panY, zoom)
+                        onBack()
+                    },
+                )
+                Spacer(Modifier.height(10.dp))
+                ActionButton(
+                    text = "重置取景",
+                    primary = false,
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ActionButton(
-                        text = "重置",
-                        primary = false,
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            // 只重置草稿 —— 未点应用之前，盘上仍是原来那份。
-                            panX = 0f
-                            panY = 0f
-                            zoom = 1f
-                            note = "已回到居中裁满，点应用才生效。"
-                        },
-                    )
-                    ActionButton(
-                        text = "移除照片",
-                        primary = false,
-                        danger = true,
-                        modifier = Modifier.weight(1f),
-                        onClick = { confirmRemove = true },
-                    )
-                }
+                    onClick = {
+                        // 只重置草稿 —— 未点应用之前，盘上仍是原来那份。
+                        panX = 0f
+                        panY = 0f
+                        zoom = 1f
+                        note = "已回到居中裁满，点应用才生效。"
+                    },
+                )
+                Spacer(Modifier.height(10.dp))
+                ActionButton(
+                    text = "移除本地照片",
+                    primary = false,
+                    modifier = Modifier.fillMaxWidth(),
+                    danger = true,
+                    onClick = { confirmRemove = true },
+                )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "一根手指拖动，两根手指缩放。取景比例与首页天空一致，这里看到的构图就是首页的构图。",
+                    text = "拖动平移；滑杆缩放。Android 保留原双指手势。不点应用直接返回，这次调整就作废。",
                     fontSize = Type.micro,
                     color = colors.onSurfaceVariantSummary,
                 )
@@ -343,7 +335,7 @@ private fun ActionButton(
     }
     val bg = when {
         primary -> colors.primary
-        else -> colors.onBackground.copy(alpha = 0.05f)
+        else -> Color.Transparent
     }
     Text(
         text = text,
@@ -352,9 +344,43 @@ private fun ActionButton(
         color = fg,
         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         modifier = modifier
-            .clip(RoundedCornerShape(Dims.containerCorner))
+            .clip(RoundedCornerShape(999.dp))
             .background(bg)
+            // 稿 .btn.outline：次按钮只描边、透明底。
+            .then(
+                if (primary) Modifier else Modifier.border(
+                    1.dp,
+                    colors.dividerLine.copy(alpha = 0.8f),
+                    RoundedCornerShape(999.dp),
+                )
+            )
             .clickable(onClickLabel = text) { onClick() }
             .padding(vertical = 12.dp),
     )
+}
+
+/** 稿 `.notice`：左侧 2dp 竖线 + 表面色底 + 11dp 圆角，字是 Type.caption。 */
+@Composable
+private fun NoticeBlock(text: String) {
+    val colors = MiuixTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(11.dp))
+            .background(colors.surface)
+            .height(IntrinsicSize.Min),
+    ) {
+        Box(
+            Modifier
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(colors.onSurfaceVariantSummary.copy(alpha = 0.45f)),
+        )
+        Text(
+            text = text,
+            fontSize = Type.caption,
+            color = colors.onSurfaceVariantSummary,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+        )
+    }
 }
