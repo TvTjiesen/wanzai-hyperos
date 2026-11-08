@@ -673,7 +673,6 @@ fun WanzaiApp(
                     onOpenMessages = { uiState.selectedTab = 2 },
                     onOpenTodos = { backStack.add(Route.TodoBoard) },
                     onOpenAbout = { backStack.add(Route.About) },
-                    onOpenBrand = { backStack.add(Route.Brand) },
                     onOpenCrop = { backStack.add(Route.WallpaperCrop) },
                     onOpenAccounts = { backStack.add(Route.AccountSources) },
                     // 返回栈深度：设置页账号聚合行按它重算（B4-06 第 1 处真缺陷）
@@ -795,7 +794,9 @@ fun WanzaiApp(
                     onBack = { backStack.removeLastOrNull() },
                     onSearch = { backStack.add(Route.Search) },
                     onOpenLicenses = { backStack.add(Route.Licenses) },
-                    onOpenBrand = { backStack.add(Route.Brand) },
+                    onOpenAuthor = { backStack.add(Route.Author) },
+                    onOpenTerms = { backStack.add(Route.Terms) },
+                    onOpenPrivacy = { backStack.add(Route.Privacy) },
                 )
             }
 
@@ -807,9 +808,27 @@ fun WanzaiApp(
                 )
             }
 
-            // A6：品牌与图标（二级页）。
-            entry<Route.Brand> {
-                com.muyao.wanzaihyperos.ui.about.BrandPage(
+            // 作者页：头像 + GitHub / 酷安主页。
+            entry<Route.Author> {
+                com.muyao.wanzaihyperos.ui.about.AuthorPage(
+                    onBack = { backStack.removeLastOrNull() },
+                    onSearch = { backStack.add(Route.Search) },
+                )
+            }
+
+            // 用户协议与隐私政策：同一套渲染器，正文来自 LegalText。
+            entry<Route.Terms> {
+                com.muyao.wanzaihyperos.ui.about.LegalPage(
+                    title = "用户协议",
+                    sections = com.muyao.wanzaihyperos.ui.about.LegalText.terms,
+                    onBack = { backStack.removeLastOrNull() },
+                    onSearch = { backStack.add(Route.Search) },
+                )
+            }
+            entry<Route.Privacy> {
+                com.muyao.wanzaihyperos.ui.about.LegalPage(
+                    title = "隐私政策",
+                    sections = com.muyao.wanzaihyperos.ui.about.LegalText.privacy,
                     onBack = { backStack.removeLastOrNull() },
                     onSearch = { backStack.add(Route.Search) },
                 )

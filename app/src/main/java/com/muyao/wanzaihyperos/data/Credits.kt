@@ -109,6 +109,15 @@ object AboutLinks {
      */
     const val github = "https://github.com/TvTjiesen"
 
+    /**
+     * 本 App 自己的仓库（业主 2026-11-09：「保留原项目的 github 地址」）。
+     *
+     * 值取自工程 git remote `origin`：`git remote -v` 实得
+     * `https://github.com/TvTjiesen/wanzai-hyperos.git`。仓库当前是**私有**的
+     * （匿名 curl 得 404），业主自己登录后能打开；这里不猜别的地址，也不改包名。
+     */
+    const val repo = "https://github.com/TvTjiesen/wanzai-hyperos"
+
     /** 他的酷安主页（同一处来源）。 */
     const val coolapk = "https://www.coolapk.com/u/22174009"
 }

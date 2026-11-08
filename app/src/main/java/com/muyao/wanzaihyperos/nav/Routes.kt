@@ -48,9 +48,17 @@ sealed interface Route : NavKey {
     @Serializable
     data object Licenses : Route
 
-    /** A6：品牌与图标（二级页，从设置首屏「名称与图标」进来）。 */
+    /** 作者页（三级页，从关于页「作者」进来）：GitHub 头像 + 两个主页。 */
     @Serializable
-    data object Brand : Route
+    data object Author : Route
+
+    /** 用户协议（三级页，从关于页最底下进来）。 */
+    @Serializable
+    data object Terms : Route
+
+    /** 隐私政策（三级页，从关于页最底下进来）。 */
+    @Serializable
+    data object Privacy : Route
 
     /** A10：本地照片取景（三级页，从外观页「调整照片取景」进来）。 */
     @Serializable

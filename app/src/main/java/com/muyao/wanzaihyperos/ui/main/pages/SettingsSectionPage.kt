@@ -134,8 +134,6 @@ fun SettingsSectionPage(
     onOpenPeriods: () -> Unit = {},
     /** 上课提醒搬到独立页（返工总单 A5）。 */
     onOpenReminders: () -> Unit = {},
-    /** 名称与图标搬到独立页（返工总单 A6）。 */
-    onOpenBrand: () -> Unit = {},
     /**
      * 刷新键（返回栈深度）。**光靠 `uiState.loggedIn` 不够**：它只会 false→true，
      * 已登录门户之后再登教务 / CJH52 / 智慧公寓，那个布尔不再变化 ⇒ 聚合行的「已登录 n 项」不会重算。
@@ -660,24 +658,8 @@ fun SettingsSectionPage(
         item(key = "about-label") { SettingSectionLabel("关于", icon = MarkIcon.Info) }
         item(key = "about") {
             SettingGroup {
-                SettingRow(
-                    icon = SettingIcon.Badge,
-                    tint = Tone.quiet,
-                    // ★ 返工总单 A6：这一行以前也是死行（无 onClick）。稿里它是一个二级页
-                    //   （`brand`），页内写名称状态、角色来源与四个尺寸预览。
-                    //   右值不能写「已定稿」—— 业主 2026-11-07 说过现用名不满意，
-                    //   状态只能如实写「待定」。
-                    title = "名称与图标",
-                    subtitle = "版本 ${rememberAppVersion()} · 非官方校园聚合客户端",
-                    onClick = onOpenBrand,
-                    trailing = {
-                        Text(
-                            text = "待定 ›",
-                            fontSize = Type.caption,
-                            color = colors.onSurfaceVariantSummary,
-                        )
-                    },
-                )
+                // 2026-11-08 业主：「底下的品牌与图标方案可以去掉」—— 品牌页连同这一行
+                // 一起下线。名称与图标现在只在关于页出现（真图标 + 「柒合院」）。
                 // ★ 返工总单 A11：这一行以前没有 onClick（死行）。稿里它是个弹层（R.sheet），
                 //   不是独立页 —— 一条「这些数据归谁」的说明不值得占一个 Route。
                 SettingRow(
@@ -688,12 +670,15 @@ fun SettingsSectionPage(
                     onClick = { showSources = true },
                     trailingChevron = true,
                 )
-                // B4-10：关于页（GitHub / 酷安 / 逐条开源许可）收在二级页里
+                // B4-10：关于页（原项目仓库 / 作者 / 逐条开源许可）收在二级页里。
+                // 2026-11-09 业主让把关于页底下的注释去掉，版本号挪到这条副标题上，
+                // 免得「我装的是哪一版」只能靠猜。
                 SettingRow(
                     icon = SettingIcon.Doc,
                     tint = Tone.ok,
                     title = "关于与开源许可",
-                    subtitle = "GitHub、酷安，以及本应用用到的开源项目与许可证",
+                    subtitle = "版本 " + com.muyao.wanzaihyperos.BuildConfig.VERSION_NAME +
+                        " · GitHub、酷安与开源项目清单",
                     onClick = onOpenAbout,
                     trailingChevron = true,
                 )

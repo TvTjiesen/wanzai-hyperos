@@ -138,6 +138,9 @@ enum class MarkIcon {
 
     /** 电话 / 联系。 */
     Phone,
+
+    /** 隐私 / 锁（用户协议与隐私政策里"只留在本机"那一条用挂锁）。 */
+    Lock,
 }
 
 /**
@@ -540,6 +543,15 @@ private fun DrawScope.drawMark(
             box(0.62f, 0.62f, 0.84f, 0.84f, corner = 0.34f)
             line(0.36f, 0.34f, 0.66f, 0.64f)
         }
+
+        MarkIcon.Lock -> {
+            // 锁体 + 一段从锁体上沿立起来的拱形锁梁（没有 arc 助手，用三段折线近似）。
+            box(0.24f, 0.46f, 0.76f, 0.90f, corner = 0.10f)
+            line(0.36f, 0.46f, 0.36f, 0.30f)
+            line(0.36f, 0.30f, 0.50f, 0.18f)
+            line(0.50f, 0.18f, 0.64f, 0.30f)
+            line(0.64f, 0.30f, 0.64f, 0.46f)
+        }
     }
 }
 
@@ -578,6 +590,7 @@ fun markDescription(icon: MarkIcon): String = when (icon) {
     MarkIcon.Search -> "搜索"
     MarkIcon.Wrench -> "报修"
     MarkIcon.Phone -> "联系电话"
+    MarkIcon.Lock -> "隐私"
 }
 
 /** 给图标挂无障碍描述的小工具（`contentDescription` 只能这样挂）。 */

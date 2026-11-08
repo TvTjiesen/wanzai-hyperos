@@ -113,7 +113,20 @@ class CreditsTest {
             root,
             "app/src/main/java/com/muyao/wanzaihyperos/ui/about/AboutPage.kt",
         ).readText(Charsets.UTF_8)
-        assertTrue("关于页没引用 AboutLinks", "AboutLinks.github" in about && "AboutLinks.coolapk" in about)
+        // 2026-11-08 改判：业主把两个外链收进了新的「作者」页（要连 GitHub 头像一起展示），
+        // 关于页只留一个「作者」入口。所以「链接真的被渲染」这条改指 AuthorPage，
+        // 关于页反向钉住它不再自己摆外链（免得出现两处入口、改一处忘一处）。
+        val author = java.io.File(
+            root,
+            "app/src/main/java/com/muyao/wanzaihyperos/ui/about/AuthorPage.kt",
+        ).readText(Charsets.UTF_8)
+        assertTrue("作者页没引用 AboutLinks", "AboutLinks.github" in author && "AboutLinks.coolapk" in author)
+        // 2026-11-09 业主改口：关于页保留**原项目仓库**这一个外链，作者主页仍在作者页。
+        assertTrue("关于页没留原项目仓库", "AboutLinks.repo" in about)
+        assertTrue(
+            "关于页又摆回了作者主页外链（那只该在作者页）",
+            "AboutLinks.github" !in about,
+        )
         // 许可证名只允许从数据层来：**模式匹配**（上一版只黑名单三个完整串，
         // 写成 `Apache 2.0` / `GPL-3.0` 照样过）
         val licensePattern = Regex("""(?i)\b(apache|mit|bsd|gpl|lgpl|mpl|zlib)\b[\s-]*[\d.\-]*(license)?""")
@@ -189,7 +202,12 @@ class CreditsTest {
         val page = about + "\n" + licenses
         assertTrue("关于页/许可页都没渲染 Credits.derived（衍生作品署名没履行）", "Credits.derived" in page)
         assertTrue("关于页/许可页都没渲染 Credits.fonts（随包字体没披露）", "Credits.fonts" in page)
-        assertTrue("关于页没有版本号（BuildConfig.VERSION_NAME）", "BuildConfig.VERSION_NAME" in about)
+        // 2026-11-09 业主让把关于页底下的注释去掉，版本号改由设置页那行副标题承担。
+        val settings = java.io.File(
+            root,
+            "app/src/main/java/com/muyao/wanzaihyperos/ui/main/pages/SettingsSectionPage.kt",
+        ).readText(Charsets.UTF_8)
+        assertTrue("关于页/设置页都没有版本号（BuildConfig.VERSION_NAME）", "BuildConfig.VERSION_NAME" in settings || "BuildConfig.VERSION_NAME" in about)
     }
 
     /**

@@ -53,39 +53,34 @@ class BrandLicensesCropOnceTest {
         // 关于页那两行按稿换了副标题（不再带条数），同样要钉住：
         // 稿的文案是固定的，不许再手写库名或许可证名。
         assertTrue("开源许可行没用稿的副标题", "沿用项目完整许可清单" in about)
-        assertTrue("品牌与图标行没用稿的副标题", "名称、图标、遮罩与小尺寸" in about)
+        // 2026-11-08 业主：「底下的品牌与图标方案可以去掉」—— 那一行连同 BrandPage
+        // 一起下线，取代它的是「作者」入口（GitHub 头像 + 主页在作者页）。
+        assertTrue("关于页又冒出品牌与图标方案行", "品牌与图标方案" !in about)
+        assertTrue("作者行没有副标题", "TvTjiesen" in about)
     }
 
     @Test
-    fun `关于页两行都能点进`() {
+    fun `关于页四行都能点进`() {
         val about = code("ui/about/AboutPage.kt")
         assertTrue("开源许可行没接 onClick", "onClick = onOpenLicenses" in about)
-        assertTrue("品牌与图标行没接 onClick", "onClick = onOpenBrand" in about)
+        assertTrue("作者行没接 onClick", "onClick = onOpenAuthor" in about)
+        assertTrue("用户协议行没接 onClick", "onClick = onOpenTerms" in about)
+        assertTrue("隐私政策行没接 onClick", "onClick = onOpenPrivacy" in about)
     }
 
-    // ── A6 ────────────────────────────────────────────────────────────
+    // ── A6 下线（2026-11-08 业主拍板）─────────────────────────────────
     @Test
-    fun `品牌与图标页不许出现已定稿，状态如实写待定`() {
-        val brand = code("ui/about/BrandPage.kt")
-        assertTrue("品牌页出现了「已定稿」", "已定稿" !in brand)
-        // 稿原文：「当前只锁定界面方向，不锁定名称」。
-        assertTrue("品牌页没写名称状态", "不锁定名称" in brand)
+    fun `品牌与图标页已下线，设置页与关于页都不再有那条入口`() {
+        val brand = java.io.File(mainRoot, "ui/about/BrandPage.kt")
+        assertTrue("BrandPage.kt 还在（品牌页应当已删除）", !brand.exists())
 
         val settings = code("ui/main/pages/SettingsSectionPage.kt")
-        assertTrue("设置行右值还在写「已定稿」", "已定稿" !in settings)
-        assertTrue("设置行右值没改成「待定」", "\"待定" in settings)
-        assertTrue("设置行没接 onClick（还是死行）", "onClick = onOpenBrand" in settings)
-    }
+        assertTrue("设置页还留着「名称与图标」入口", "名称与图标" !in settings)
+        assertTrue("设置页还在传 onOpenBrand", "onOpenBrand" !in settings)
+        assertTrue("设置页还写着「已定稿」", "已定稿" !in settings)
 
-    @Test
-    fun `品牌页写明图标由业主提供，不把生成图当最终资产`() {
-        val brand = code("ui/about/BrandPage.kt")
-        // 稿的措辞：「由你提供透明前景、背景及希望保留的安全区…没有素材前只用占位」。
-        assertTrue("没写素材由业主提供", "由你提供" in brand)
-        assertTrue("没写没有素材时只用占位", "占位" in brand)
-        assertTrue("没写未做商标检索", "商标" in brand)
-        // 稿里没有四档尺寸预览（那是我上一版自己加的），钉住它别回来。
-        assertTrue("又加了稿里没有的尺寸预览", "listOf(32, 48, 64, 96)" !in brand)
+        val routes = code("nav/Routes.kt")
+        assertTrue("路由表里还留着 Route.Brand", "data object Brand" !in routes)
     }
 
     // ── A10 ───────────────────────────────────────────────────────────
