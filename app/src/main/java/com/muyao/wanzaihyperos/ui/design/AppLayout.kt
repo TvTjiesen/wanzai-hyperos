@@ -3,6 +3,7 @@ package com.muyao.wanzaihyperos.ui.design
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +29,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import io.github.neoruaa.glasmio.core.GlasmioTheme
+import com.kyant.capsule.ContinuousRoundedRectangle
+import io.github.neoruaa.glasmio.ui.GlasmioGroupedList
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Card
@@ -112,46 +116,21 @@ fun AppList(
  *   （有的頁放按鈕、有的放徽章，美化時就沒法統一調）。
  * @param trailingColor 尾值顏色。預設用 primary；要強調錯誤時傳 error。
  */
-/**
- * **全 App 統一的卡片**：Miuix `Card` + 1dp 描邊。
- *
- * ## ★ 為什麼需要這一層（真機量到的數字）
- *
- * 深色下量測（`build/contrast.py` 對真機截圖取像素）：
- *
- * | | 顏色 | 相對亮度 |
- * |---|---|---|
- * | 卡片（Miuix 預設 `surfaceContainer`） | `(36,36,36)` | 0.0176 |
- * | 漸層背景最暗處 | `(15,26,52)` | 0.0109 |
- * | **對比度** | | **1.11 : 1** |
- *
- * 1.11:1 是「肉眼看不出邊界」的程度（正常 UI 分層要 ≥3:1）。
- * 把卡片提亮到 `(40,40,40)` 也只有 1.22:1 —— **仍然不足**。
- *
- * 所以真正的解法是**描邊**：一條 1dp 亮線明確畫出邊界，
- * 而它不改變卡片整體明度（不會像「把卡片調很亮」那樣刺眼）。
- * 這正是規範 §5 說的「描邊只在需要區分同色相鄰兩層時加，寬 1」。
- *
- * ## 為什麼不直接改 Miuix Card
- *
- * 它是函式庫元件、沒有 `border` 參數。而各頁自己包一層的話
- * 「有描邊 / 沒描邊」會不一致 —— 所以收成這一個殼。
- */
+/** Opaque Glasmio grouped card; callers own their insets and content slots. */
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    /** 長按回調。**只在 [onClick] 也給的時候有效**（Miuix Card 的重載限制）。 */
+    /** 長按回調。只在 [onClick] 也給的時候有效，保留既有呼叫契約。 */
     onLongPress: (() -> Unit)? = null,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
-    val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
-    val cardShape = RoundedCornerShape(Dims.cardCorner)
+    val colors = GlasmioTheme.colors
+    val motion = rememberMotion()
+    val isDark = colors.isDark
+    val cardShape = ContinuousRoundedRectangle(26.dp)
     val bordered = modifier
         .fillMaxWidth()
-        // 定稿板的卡片不是平贴的：--shadow 0 22px 52px rgba(58,50,38,.18)
-        // + 0 2px 8px rgba(58,50,38,.08)。这里取一半强度（手机尺寸更小），
-        // 暖灰投影，深色下换纯黑，否则卡片和纸面之间没有景深。
         .shadow(
             elevation = 7.dp,
             shape = cardShape,
@@ -161,32 +140,26 @@ fun AppCard(
             spotColor = if (isDark) Color.Black.copy(alpha = 0.45f)
             else Color(0x263A3226),
         )
-        // 描邊畫在卡片**外緣**：`border` 用的是同一個圓角，
-        // 所以視覺上像卡片自帶的一圈亮邊，而不是多套一個方框。
         .border(
             width = 1.dp,
-            color = AppColors.cardStroke(isDark),
+            color = if (motion.highContrast) colors.content else AppColors.cardStroke(isDark),
             shape = cardShape,
         )
-    when {
-        // 帶長按時走 Miuix 的 clickable 重載（它有 built-in 的 press feedback，
-        // 自己用 Modifier.clickable 會丟掉那個回饋）。
-        onClick != null && onLongPress != null -> Card(
-            modifier = bordered,
-            cornerRadius = Dims.cardCorner,
+        .clip(cardShape)
+        .background(colors.elevatedBackground.copy(alpha = 1f))
+    val interactive = when {
+        onClick != null && onLongPress != null -> Modifier.combinedClickable(
             onClick = onClick,
-            onLongPress = onLongPress,
-            content = content,
+            onLongClick = onLongPress,
         )
-
-        else -> Card(
-            modifier = bordered
-                .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
-            // 圓角與描邊必須一致，否則描邊會浮在圓角外面。
-            cornerRadius = Dims.cardCorner,
-            content = content,
-        )
+        onClick != null -> Modifier.clickable(onClick = onClick)
+        else -> Modifier
     }
+    GlasmioGroupedList(
+        modifier = bordered.then(interactive),
+        framed = false,
+        content = content,
+    )
 }
 
 @Composable
@@ -203,11 +176,7 @@ fun InfoItem(
     onClick: (() -> Unit)? = null,
 ) {
     val colors = MiuixTheme.colorScheme
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
-    ) {
+    AppCard(modifier = modifier, onClick = onClick) {
         Column(modifier = Modifier.padding(Dims.cardPadding)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

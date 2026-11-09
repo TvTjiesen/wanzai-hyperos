@@ -1,0 +1,55 @@
+{
+  "repository": "https://github.com/NEORUAA/Glasmio",
+  "commit": "b9502f08809d09f74814112dae44fee6318b20b7",
+  "source": "[local]/wk/glasmio-research/src",
+  "verifiedGitBlobs": 163,
+  "modules": [
+    "glasmio-core",
+    "glasmio-glass",
+    "glasmio-ui",
+    "glasmio-icons",
+    "glasmio-preference"
+  ],
+  "excludedAppleArtwork": [
+    {
+      "path": "glasmio-icons/src/main/res/drawable-nodpi/glasmio_adaptive_audio.png",
+      "gitBlob": "da7f72b5d35b2e5f2640baaa27544c2d89c7c729"
+    },
+    {
+      "path": "glasmio-icons/src/main/res/drawable-nodpi/glasmio_listening_anc.png",
+      "gitBlob": "1221b9b21c8889598f19f056a9730f5e13b980b1"
+    },
+    {
+      "path": "glasmio-icons/src/main/res/drawable-nodpi/glasmio_listening_off.png",
+      "gitBlob": "d4ac30732010b0393df303a35eada44fe7ae5eb9"
+    },
+    {
+      "path": "glasmio-icons/src/main/res/drawable-nodpi/glasmio_listening_transparency.png",
+      "gitBlob": "0b4fdda5fb704c964d299998b5c0e6eeefaaca97"
+    },
+    {
+      "path": "glasmio-ui/src/main/res/drawable-nodpi/glasmio_tapback_exclamation.webp",
+      "gitBlob": "d169c040672ff2d9b66748dab7c9feb79ed9baf9"
+    },
+    {
+      "path": "glasmio-ui/src/main/res/drawable-nodpi/glasmio_tapback_heart.webp",
+      "gitBlob": "9e06a3124311ecba96d8eec38e4a42881d29f3f6"
+    },
+    {
+      "path": "glasmio-ui/src/main/res/drawable-nodpi/glasmio_tapback_laugh.webp",
+      "gitBlob": "99b138abb983d12c656aa616d0661beff502b8f9"
+    },
+    {
+      "path": "glasmio-ui/src/main/res/drawable-nodpi/glasmio_tapback_question.webp",
+      "gitBlob": "d278dbc3b7445dbbcd80e4236f8f6e516d61f305"
+    },
+    {
+      "path": "glasmio-ui/src/main/res/drawable-nodpi/glasmio_tapback_thumbsdown.webp",
+      "gitBlob": "25b57c415cf95b69c5e3e596e9d5184d3a910483"
+    },
+    {
+      "path": "glasmio-ui/src/main/res/drawable-nodpi/glasmio_tapback_thumbsup.webp",
+      "gitBlob": "4df632244ab83f6a29ea554a1c4045dd3c7a95dc"
+    }
+  ]
+}

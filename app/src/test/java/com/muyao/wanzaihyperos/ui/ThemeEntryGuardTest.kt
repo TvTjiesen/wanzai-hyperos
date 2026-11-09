@@ -44,6 +44,7 @@ class ThemeEntryGuardTest {
     fun `主题在 UI 侧只有一个消费点`() {
         val allowed = setOf(
             "main/ui/AppTheme.kt",
+            "main/ui/design/glasmio/WanzaiGlasmioTheme.kt",
             "main/ui/main/pages/AppearancePage.kt",
             "main/WanzaiRoot.kt",
             "debug/dev/BoardPreviewActivity.kt",
@@ -79,6 +80,30 @@ class ThemeEntryGuardTest {
      * 它本来就是死页（`MinePage(` 全工程除本文件外 0 命中），留着那三行不会立刻出事，
      * 但「唯一入口」这句话会立刻变成假的 —— 任何读者按它去找都会以为有两个地方能改主题。
      */
+    @Test
+    fun `Glasmio 主题桥只读现有主题不得新增设置入口`() {
+        val bridge = SourceScan.stripComments(File("src/main/java/com/muyao/wanzaihyperos/ui/design/glasmio/WanzaiGlasmioTheme.kt").readText())
+        assertTrue("桥接必须读取传入的同一 themeMode", "themeMode: AppThemeMode" in bridge && "val isDark = when (themeMode)" in bridge)
+        listOf("AppThemeMode.System -> isSystemInDarkTheme()", "AppThemeMode.Light -> false", "AppThemeMode.Dark -> true", "isDark = isDark").forEach {
+            assertTrue("Glasmio 深浅映射丢失：$it", it in bridge)
+        }
+        listOf("saveThemeMode", "onThemeMode", "AppThemeMode.entries", "mutableStateOf(AppThemeMode", "themeMode =").forEach {
+            assertTrue("只读桥不能长出第二主题入口：$it", it !in bridge)
+        }
+        val theme = SourceScan.stripComments(File("src/main/java/com/muyao/wanzaihyperos/ui/AppTheme.kt").readText())
+        assertTrue("root 主题必须把相同 mode 传给 bridge", "WanzaiGlasmioHost(themeMode = themeMode)" in theme)
+        val root = SourceScan.stripComments(File("src/main/java/com/muyao/wanzaihyperos/WanzaiRoot.kt").readText())
+        val loadAt = root.indexOf("UiPrefs.load(context)")
+        val restoreAt = root.indexOf("uiState.themeMode = AppThemeMode.entries.firstOrNull", loadAt)
+        val loginAt = root.indexOf("if (app.portalSession.state", restoreAt)
+        assertTrue("读盘后必须先恢复主题再走登录判断", loadAt >= 0 && restoreAt > loadAt && loginAt > restoreAt)
+        assertTrue("读盘恢复主题后必须继续恢复课表状态", "uiState.timetableGrid = com.muyao.wanzaihyperos.data.UiPrefs.timetableGrid" in root)
+        val sync = theme.substringAfter("fun syncUiStateFromPrefs").substringBefore("fun rememberAppUiState")
+        listOf("UiPrefs.themeModeName", "\"Light\" -> AppThemeMode.Light", "\"Dark\" -> AppThemeMode.Dark", "else -> AppThemeMode.System").forEach {
+            assertTrue("备份恢复不得漏掉主题回填：$it", it in sync)
+        }
+    }
+
     @Test
     fun `死页不再挂主题入口`() {
         val mine = File("src/main/java/com/muyao/wanzaihyperos/ui/mine/MinePage.kt")

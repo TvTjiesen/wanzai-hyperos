@@ -469,10 +469,7 @@ fun AppearancePage(
                         )
                     }
 
-                    // 通透度（设计稿 v2.1「通透度 · 新增」）：50% = 原 App 液态/磨砂的
-                    // 透明度中值。它不是"再叠一层膜"，而是乘在 GlassSurface 的**垫底 alpha** 上
-                    // （liquid 栈 `baseAlpha` / glass 栈 `surfaceAlpha`），所以调这一根
-                    // 顶栏、焦点卡、搜索、底栏会一起变厚变薄，而正文与描边高光不受影响。
+                    // 50% 保持 Glasmio 原生配方；仅调材质强度与焦点卡垫色，不调正文透明度。
                     CtlRow(label = "通透度") {
                         Column {
                             ValueSlider(
@@ -518,11 +515,11 @@ fun AppearancePage(
                     //   只拼 `GLASS` 那几面：预览卡现在不是玻璃面（`GlassSurfaceKind.NOT_GLASS`），
                     //   把它写进"作用于"就是替它撒谎 —— 后面单独一句把它说清楚。
                     Text(
-                        text = "只影响顶栏、首页焦点卡、搜索与底栏等承载层；正文保持清楚。本版本实际作用于" +
+                        text = "正文保持清楚。本版本实际作用于" +
                             GlassSurfaceId.entries
                                 .filter { it.kind == GlassSurfaceKind.GLASS }
                                 .joinToString("、") { it.label } +
-                            "这些浮动的面。开关和返回按钮始终是实心，为了让你一眼看出开关状态；" +
+                            "这些承载层。开关保留明确的开关状态，返回按钮和正文卡片不采样页面；顶栏使用渐变遮罩。" +
                             "上面那张预览卡是同一套天空的直绘（本来就是平的，不随这三档变化）。",
                         fontSize = Type.caption,
                         color = colors.onSurfaceVariantSummary,

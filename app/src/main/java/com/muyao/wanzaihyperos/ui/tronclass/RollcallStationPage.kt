@@ -54,11 +54,11 @@ import com.muyao.wanzaihyperos.ui.design.ResultBanner
 import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.infoItems
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton as Button
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.TextButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton as TextButton
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 

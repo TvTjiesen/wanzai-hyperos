@@ -30,10 +30,10 @@ object Credits {
 
     val dependencies: List<Credit> = listOf(
         Credit("Kotlin Standard Library", "org.jetbrains.kotlin:kotlin-stdlib", "2.4.20", APACHE),
-        Credit("AndroidX Core KTX", "androidx.core:core-ktx", "1.17.0", APACHE),
+        Credit("AndroidX Core KTX", "androidx.core:core-ktx", "1.18.0", APACHE),
         Credit("AndroidX Lifecycle Runtime KTX", "androidx.lifecycle:lifecycle-runtime-ktx", "2.11.0", APACHE),
         Credit("AndroidX Lifecycle ViewModel Compose", "androidx.lifecycle:lifecycle-viewmodel-compose", "2.11.0", APACHE),
-        Credit("AndroidX Activity Compose", "androidx.activity:activity-compose", "1.12.4", APACHE),
+        Credit("AndroidX Activity Compose", "androidx.activity:activity-compose", "1.13.0", APACHE),
         Credit("Miuix UI", "top.yukonga.miuix.kmp:miuix-ui-android", "0.9.4", APACHE),
         Credit("Miuix Preference", "top.yukonga.miuix.kmp:miuix-preference-android", "0.9.4", APACHE),
         Credit("Miuix Icons", "top.yukonga.miuix.kmp:miuix-icons-android", "0.9.4", APACHE),
@@ -55,6 +55,12 @@ object Credits {
      * 依据是这些文件自己的档头注释，不是我印象里的出处。
      */
     val derived: List<Credit> = listOf(
+        Credit(
+            name = "Glasmio（主题、原生材质与公共控件）",
+            coordinate = "github.com/NEORUAA/Glasmio",
+            version = "0.1.2 · b9502f0，本地适配",
+            license = APACHE,
+        ),
         Credit(
             name = "AndroidLiquidGlass（折射、内阴影、阻尼拖拽、交互高光等）",
             coordinate = "github.com/Kyant0/AndroidLiquidGlass",

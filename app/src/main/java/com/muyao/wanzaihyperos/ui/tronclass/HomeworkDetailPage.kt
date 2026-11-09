@@ -42,11 +42,11 @@ import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.ResultBanner
 import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton as Button
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton as TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog as OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**

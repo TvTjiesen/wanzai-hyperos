@@ -19,11 +19,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import top.yukonga.miuix.kmp.basic.Button
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Refresh
@@ -205,12 +205,12 @@ fun StatePlaceholder(
         }
 
         if (onRetry != null) {
-            Button(onClick = onRetry, modifier = Modifier.padding(top = 4.dp)) {
-                Text(text = ctx.getString(R.string.action_retry))
+            WanzaiButton(onClick = onRetry, prominent = true, modifier = Modifier.padding(top = 4.dp)) {
+                androidx.compose.material3.Text(text = ctx.getString(R.string.action_retry))
             }
         }
         if (onAction != null && actionLabel != null) {
-            TextButton(text = actionLabel, onClick = onAction, modifier = Modifier.padding(top = 4.dp))
+            WanzaiTextButton(text = actionLabel, onClick = onAction, modifier = Modifier.padding(top = 4.dp))
         }
     }
 }

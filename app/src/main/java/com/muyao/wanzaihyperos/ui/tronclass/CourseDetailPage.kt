@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.em
 import com.muyao.wanzaihyperos.ui.design.infoItems
 import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton as Button
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme

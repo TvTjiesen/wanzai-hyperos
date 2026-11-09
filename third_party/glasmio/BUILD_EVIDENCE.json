@@ -1,0 +1,118 @@
+{
+  "ndk": "28.2.13676358",
+  "cmake": "3.22.1",
+  "elfMinimumLoadAlignment": 16384,
+  "abiResults": [
+    {
+      "abi": "arm64-v8a",
+      "file": "glasmio-glass/build/intermediates/cxx/Debug/2b2l2oz1/obj/arm64-v8a/libglasmio_liquid_menu_sdf.so",
+      "loadAlignments": [
+        16384,
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "abi": "armeabi-v7a",
+      "file": "glasmio-glass/build/intermediates/cxx/Debug/2b2l2oz1/obj/armeabi-v7a/libglasmio_liquid_menu_sdf.so",
+      "loadAlignments": [
+        16384,
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "abi": "x86",
+      "file": "glasmio-glass/build/intermediates/cxx/Debug/2b2l2oz1/obj/x86/libglasmio_liquid_menu_sdf.so",
+      "loadAlignments": [
+        16384,
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "abi": "x86_64",
+      "file": "glasmio-glass/build/intermediates/cxx/Debug/2b2l2oz1/obj/x86_64/libglasmio_liquid_menu_sdf.so",
+      "loadAlignments": [
+        16384,
+        16384,
+        16384,
+        16384
+      ]
+    }
+  ],
+  "testTotals": {
+    "tests": 116,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3
+  },
+  "testSuites": [
+    {
+      "file": "glasmio-core/build/test-results/testDebugUnitTest/TEST-io.github.neoruaa.glasmio.core.GlasmioTypographyTest.xml",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "glasmio-glass/build/test-results/testDebugUnitTest/TEST-io.github.neoruaa.glasmio.glass.LiquidMenuMorphMotionTest.xml",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "glasmio-glass/build/test-results/testDebugUnitTest/TEST-io.github.neoruaa.glasmio.glass.NavigationIndicatorLensTest.xml",
+      "tests": 33,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 3
+    },
+    {
+      "file": "glasmio-glass/build/test-results/testDebugUnitTest/TEST-io.github.neoruaa.glasmio.glass.render.RuntimeShaderPoolTest.xml",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "glasmio-ui/build/test-results/testDebugUnitTest/TEST-io.github.neoruaa.glasmio.ui.AlertMotionTest.xml",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "glasmio-ui/build/test-results/testDebugUnitTest/TEST-io.github.neoruaa.glasmio.ui.LicensedReactionArtworkTest.xml",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "glasmio-ui/build/test-results/testDebugUnitTest/TEST-io.github.neoruaa.glasmio.ui.LoupeMotionTest.xml",
+      "tests": 23,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "glasmio-ui/build/test-results/testDebugUnitTest/TEST-io.github.neoruaa.glasmio.ui.MessageContextMotionTest.xml",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "glasmio-ui/build/test-results/testDebugUnitTest/TEST-io.github.neoruaa.glasmio.ui.SheetMotionTest.xml",
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ]
+}

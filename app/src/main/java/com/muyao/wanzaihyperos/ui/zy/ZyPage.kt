@@ -51,7 +51,7 @@ import com.muyao.wanzaihyperos.ui.design.infoItemsIndexed
 import com.muyao.wanzaihyperos.ui.web.WebShellPage
 import java.time.LocalDate
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton as Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 

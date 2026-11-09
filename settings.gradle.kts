@@ -22,3 +22,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "WanzaiHyperOS"
 include(":app")
+
+listOf("core", "glass", "ui", "icons", "preference").forEach { module ->
+    include(":glasmio-$module")
+    project(":glasmio-$module").projectDir = file("third_party/glasmio/glasmio-$module")
+}

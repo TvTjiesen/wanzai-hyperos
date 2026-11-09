@@ -10,6 +10,9 @@ import com.muyao.wanzaihyperos.ui.design.glass.barMaterialFor
 import com.muyao.wanzaihyperos.ui.design.glass.cardFaceAlpha
 import com.muyao.wanzaihyperos.ui.design.glass.glassMechanismFiles
 import com.muyao.wanzaihyperos.ui.design.glass.unglassedSites
+import com.muyao.wanzaihyperos.ui.design.glass.legacyGlassSites
+import com.muyao.wanzaihyperos.ui.SourceScan
+import io.github.neoruaa.glasmio.core.GlassAppearance
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -38,7 +41,36 @@ class GlassModeWiringTest {
 
     private fun source(name: String): String =
         File(repoRoot, "app/src/main/java/com/muyao/wanzaihyperos/$name")
-            .readText(Charsets.UTF_8)
+            .readText(Charsets.UTF_8).let(SourceScan::stripComments)
+
+    private fun vendor(module: String, name: String): String =
+        File(repoRoot, "third_party/glasmio/glasmio-$module/src/main/java/io/github/neoruaa/glasmio/$module/$name")
+            .readText(Charsets.UTF_8).let(SourceScan::stripComments)
+
+    private fun functionCode(code: String, name: String): String {
+        val start = Regex("""fun\s+(?:<[^>]+>\s+)?${Regex.escape(name)}\s*\(""").find(code)?.range?.first
+            ?: error("Missing function $name")
+        var parentheses = 0
+        var signatureEnd = -1
+        for (i in code.indexOf('(', start) until code.length) {
+            if (code[i] == '(') parentheses++
+            if (code[i] == ')' && --parentheses == 0) {
+                signatureEnd = i
+                break
+            }
+        }
+        check(signatureEnd >= 0) { "Unclosed function signature $name" }
+        val bodyStart = code.indexOf('{', signatureEnd)
+        check(bodyStart >= 0) { "Missing function body $name" }
+        var braces = 0
+        for (i in bodyStart until code.length) {
+            if (code[i] == '{') braces++
+            if (code[i] == '}' && --braces == 0) return code.substring(start, i + 1)
+        }
+        error("Unclosed function body $name")
+    }
+
+    private val drawSite = Regex("""(?<![.\w])(?:GlassSurface|GlasmioNavigationBar|GlasmioSwitch|GlasmioButton|GlasmioAlertDialog)\s*\(|\.drawBackdrop\s*\(""")
 
     @Test
     fun `三档映射：减弱透明度永远优先退实底`() {
@@ -114,7 +146,7 @@ class GlassModeWiringTest {
         // 外层传进来的那一份（`LocalBarMaterial.current`）、以及 `GlassTheme` 的参数原样透传。
         val allowedForms = listOf("barMaterialFor(", "LocalBarMaterial.current", "material,")
         root.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
-            val lines = f.readText(Charsets.UTF_8).lines()
+            val lines = SourceScan.stripComments(f.readText(Charsets.UTF_8)).lines()
             lines.forEachIndexed { i, line ->
                 if (!line.contains("LocalBarMaterial provides")) return@forEachIndexed
                 hits++
@@ -176,7 +208,11 @@ class GlassModeWiringTest {
         val root = File(repoRoot, "app/src/main/java/com/muyao/wanzaihyperos")
         val offenders = mutableListOf<String>()
         root.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
-            val text = f.readText(Charsets.UTF_8)
+            val text = SourceScan.stripComments(f.readText(Charsets.UTF_8))
+            if (f.name == "HomeSectionPage.kt") {
+                assertHomeMaterialFlow(functionCode(text, "FocusGlassCard"))
+                return@forEach
+            }
             if (text.contains("LocalBarMaterial.current") &&
                 !text.contains("material = LocalBarMaterial.current") &&
                 !text.contains("rememberEffectiveMaterial(") &&
@@ -229,21 +265,14 @@ class GlassModeWiringTest {
     @Test
     fun `此刻卡的垫色与字色必须由档位算`() {
         val home = source("ui/main/pages/HomeSectionPage.kt")
-        val card = home.substringAfter("private fun FocusGlassCard(")
+        val card = functionCode(home, "FocusGlassCard")
         assertTrue(
             "卡的垫色又不走 cardFaceAlpha 了（三档会在卡带上糊成同一个数）",
             "cardFaceAlpha(" in card,
         )
-        assertTrue(
-            "字色/垫色必须按**此刻真正渲染的那条路径**判：读 rememberEffectiveMaterial，" +
-                "不是读 LocalBarMaterial.current（后者会说谎：降级时画面是实心纸）",
-            "rememberEffectiveMaterial(backdrop)" in card,
-        )
-        assertTrue(
-            "`surfaceAlpha` 必须吃算出来的那个数（写第二份常数就是字色与实际表面对不上的来源）",
-            "surfaceAlpha = faceAlpha," in card,
-        )
-        assertTrue("这张卡的 GlassSurface 必须显式带 material", "material = material," in card)
+        assertHomeMaterialFlow(card)
+        assertTrue("字色必须基于同一个实际卡面 alpha", "textBackingOver(it, colors.surfaceContainer, faceAlpha)" in card)
+        assertTrue("字色必须检验真实背景的最坏情况", "cardInkWorstCase(faces)" in card)
         // 那两个与档位无关的常数不许再以"卡面垫色"的身份回来
         assertTrue(
             "旧的那对与档位无关的常数（0.30 / 0.94）回来了",
@@ -251,51 +280,86 @@ class GlassModeWiringTest {
         )
     }
 
-    /**
-     * G-6（业主 13:2x 签字的口径要求的"单一真相名单"）：**名单里每一面都必须真的读玻璃材质**。
-     *
-     * 两条栈读的东西不一样，这是 #12 反复"接了却无效"的结构性原因：
-     * `glass` 栈读 `LocalBarMaterial`（档位）/ `rememberEffectiveMaterial`（此刻真正会走哪条路），
-     * `liquid` 栈读 `MotionPrefs.refractsGlass`（液态↔磨砂）与 `GlassTuning` 的旋钮。
-     * 一面登记成玻璃、代码里却一个字都不读这两样 ⇒ 它就是第 7 轮那张卡的翻版（"接线正确、画面不动"）。
-     */
+    private fun assertHomeMaterialFlow(card: String) {
+        assertTrue("减透明时字色和卡面必须一起退实底", Regex("""val material\s*=\s*if\s*\(motion\.glassIsTranslucent\)\s*LocalBarMaterial\.current\s*else\s*BarMaterial\.SOLID""").containsMatchIn(card))
+        assertTrue("有效材质必须决定卡面 alpha", "cardFaceAlpha(material, isDark)" in card)
+        assertTrue("卡面必须用计算后的同一个 alpha", "navigationSurfaceColor = colors.surfaceContainer.copy(alpha = faceAlpha)" in card)
+        assertTrue("不可额外乘隐含 alpha 让字色与卡面失配", "navigationSurfaceAlphaMultiplier = 1f" in card)
+        assertTrue("实底必须关闭真实 backdrop sampling", "sampleBackdrop = material != BarMaterial.SOLID" in card)
+    }
+
+    private fun assertGlasmioThemeFlow() {
+        val appTheme = source("ui/AppTheme.kt")
+        val host = source("ui/design/glasmio/WanzaiGlasmioTheme.kt")
+        assertTrue("主题根必须包住实际页面", "WanzaiGlasmioHost(themeMode = themeMode)" in appTheme)
+        assertTrue("液态必须同时服从盘中档位和运行时折射偏好", "liquidGlassEnabled = UiPrefs.glassMode == \"liquid\" && motion.refractsGlass" in host)
+        assertTrue("关闭或减透明必须退实底", "reduceTransparency = UiPrefs.glassMode == \"off\" || !motion.glassIsTranslucent" in host)
+        assertTrue("计算结果必须传给真正 GlasmioTheme", "appearance = appearance" in host)
+        assertTrue("vendor 必须继续提供宿主传入的 appearance", "LocalGlassAppearance provides appearance" in vendor("core", "GlasmioTheme.kt"))
+        val surface = vendor("glass", "GlassSurface.kt")
+        assertTrue("实底必须在最终绘制器用 emptyBackdrop 而非只改文案", "if (sampleBackdrop && appearance.usesBackdrop) backdrop else emptyBackdrop()" in surface)
+        assertTrue("最终折射必须服从 appearance", "refractionEnabled = appearance.usesRefraction" in surface)
+    }
+
+    private fun assertGlasmioAdapter(face: GlassSurfaceId, code: String) {
+        val call = when (face) {
+            GlassSurfaceId.NavBarContainer, GlassSurfaceId.NavBarSlider, GlassSurfaceId.NavBarHighlight -> "GlasmioNavigationBar("
+            GlassSurfaceId.SearchButton, GlassSurfaceId.HomeFocusCard -> "GlassSurface("
+            GlassSurfaceId.CommonSwitch -> "GlasmioSwitch("
+            GlassSurfaceId.CommonButton -> "GlasmioButton("
+            GlassSurfaceId.OverlayDialog -> "GlasmioAlertDialog("
+            else -> error("Unmapped native glass adapter: $face")
+        }
+        assertTrue("${face.label} 必须仍调用实际 native adapter", call in code)
+        when (face) {
+            GlassSurfaceId.NavBarContainer, GlassSurfaceId.NavBarSlider, GlassSurfaceId.NavBarHighlight -> {
+                val native = functionCode(vendor("ui", "GlassBottomBar.kt"), "GlasmioNavigationBar")
+                assertTrue("native nav 必须读取统一 appearance", "LocalGlassAppearance.current" in native)
+                assertTrue("nav 实底必须停止采样", "if (appearance.usesBackdrop) sourceBackdrop else emptyBackdrop()" in native)
+                assertTrue("nav 磨砂必须停止折射", "if (appearance.usesRefraction) selectionPressProgressState.value else 0f" in native)
+                assertTrue("nav 必须传入独立 backdrop", "backdrop = backdrop ?: LocalGlassBackdrop.current" in code)
+            }
+            GlassSurfaceId.HomeFocusCard -> assertHomeMaterialFlow(code)
+            GlassSurfaceId.SearchButton -> assertTrue("search 必须传独立采样源", "backdrop = backdrop" in code)
+            GlassSurfaceId.CommonSwitch -> {
+                val native = functionCode(vendor("ui", "GlassControls.kt"), "GlasmioSwitch")
+                assertTrue("switch 必须读取统一 appearance", "LocalGlassAppearance.current" in native)
+                assertTrue("switch 实底不得采样", "if (appearance.usesBackdrop) thumbBackdrop else emptyBackdrop()" in native)
+                assertTrue("switch 磨砂不得折射", "if (appearance.usesRefraction) animation.pressProgress else 0f" in native)
+                assertTrue("减动效必须有静态可操作 fallback", "rememberMotion().canMove" in code && "toggleable(" in code && "Role.Switch" in code && "onValueChange = onCheckedChange" in code)
+            }
+            GlassSurfaceId.CommonButton -> {
+                val native = functionCode(vendor("ui", "GlassButtons.kt"), "GlasmioButton")
+                assertTrue("button 必须把采样选择交给已审计 renderer", "GlassSurface(" in native && "sampleBackdrop = sampleBackdrop" in native)
+                assertTrue("减动效按钮仍须可点击", "rememberMotion().canMove" in code && "Button(" in code && "onClick = onClick" in code)
+            }
+            GlassSurfaceId.OverlayDialog -> {
+                val native = vendor("ui", "IosAlerts.kt")
+                assertTrue("alert 必须通过真实 surface 接 appearance", "GlasmioAlertSurface(" in functionCode(native, "GlasmioAlertDialog"))
+                val surface = functionCode(native, "GlasmioAlertSurface")
+                assertTrue("alert 实底必须停采样", "LocalGlassAppearance.current" in surface && "if (appearance.usesBackdrop)" in surface && "appearance = appearance" in surface)
+                assertTrue("减动效弹层保留关闭及业务 content", "rememberMotion().canMove" in code && "Dialog(onDismissRequest = onDismissRequest)" in code && "content()" in code)
+            }
+            else -> error("Unmapped native glass adapter: $face")
+        }
+    }
+
     @Test
     fun `名单里每一面玻璃都必须真的读材质`() {
-        val root = File(repoRoot, "app/src/main/java/com/muyao/wanzaihyperos")
-        val glassTokens = listOf("rememberEffectiveMaterial(", "LocalBarMaterial.current", "material = ")
-        val liquidTokens = listOf("refractsGlass", "LocalBarMaterial.current", "rememberGlassRenderMode(")
+        assertGlasmioThemeFlow()
         GlassSurfaceId.entries.forEach { face ->
-            val f = File(root, face.siteFile)
-            assertTrue("${face.label} 登记在 ${face.siteFile}，可这个文件不存在", f.isFile)
-            val text = f.readText(Charsets.UTF_8)
+            val text = source(face.siteFile)
+            val code = face.siteFunction?.let { functionCode(text, it) } ?: text
             when (face.kind) {
-                GlassSurfaceKind.GLASS -> {
-                    val need = when (face.stack) {
-                        GlassStack.GLASS -> glassTokens
-                        GlassStack.LIQUID -> liquidTokens
-                    }
-                    assertTrue(
-                        "${face.label}（${face.siteFile}，${face.stack} 栈）没读玻璃材质 ⇒ 它是一面假玻璃：" +
-                            "$need 一个都没有",
-                        need.any { text.contains(it) },
-                    )
+                GlassSurfaceKind.GLASS -> when (face.stack) {
+                    GlassStack.GLASS -> assertTrue(face.label, listOf("rememberEffectiveMaterial(", "LocalBarMaterial.current", "material = ").any { it in code })
+                    GlassStack.LIQUID -> assertTrue(face.label, listOf("refractsGlass", "LocalBarMaterial.current", "rememberGlassRenderMode(").any { it in code })
+                    GlassStack.GLASMIO -> assertGlasmioAdapter(face, code)
                 }
-                // 名单里写「不是玻璃面」也要能被证：这个文件里不许有玻璃绘制点。
-                // 否则它就是"标了不做、其实偷偷做了"（或者反过来：真做了却标成不做，两种都是谎）。
-                GlassSurfaceKind.NOT_GLASS -> {
-                    val code = text.lines().filterNot {
-                        val t = it.trim()
-                        t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")
-                    }.joinToString("\n")
-                    assertTrue(
-                        "${face.label} 在名单里标着「不是玻璃面」，可 ${face.siteFile} 里出现了玻璃绘制点 —— " +
-                            "要么真做（改 kind 并接材质），要么把这个面拆掉",
-                        !Regex("""(?<![.\w])GlassSurface\(""").containsMatchIn(code) &&
-                            !Regex("""\.drawBackdrop\(""").containsMatchIn(code),
-                    )
-                }
+                GlassSurfaceKind.NOT_GLASS -> assertTrue("${face.label} 已承诺不采样，却出现真实玻璃绘制点", !drawSite.containsMatchIn(code))
             }
         }
+        assertTrue("顶栏必须仍是普通渐变", "Brush.verticalGradient(" in functionCode(source("ui/design/liquid/IosChrome.kt"), "IosTopBar"))
     }
 
     /**
@@ -319,19 +383,16 @@ class GlassModeWiringTest {
             //   第一版把 `allowed`（登记过的 ∪ 机制）整个跳过，于是"3 处绘制点只登记 2 面"
             //   这条永远不会被算到（我拿变异验收试出来的：拿掉 NavBarHighlight 竟然还是绿）。
             if (rel in glassMechanismFiles) return@forEach
-            val code = f.readLines().filterNot {
-                val t = it.trim()
-                t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")
-            }.joinToString("\n")
-            val n = Regex("""(?<![.\w])GlassSurface\(""").findAll(code).count() +
-                Regex("""\.drawBackdrop\(""").findAll(code).count()
+            val code = SourceScan.stripComments(f.readText(Charsets.UTF_8))
+            val n = drawSite.findAll(code).sumOf { if (it.value.startsWith("GlasmioNavigationBar")) 3 else 1 }
             if (n == 0) return@forEach
             sitesPerFile[rel] = n
         }
         sitesPerFile.forEach { (rel, n) ->
-            val registered = GlassSurfaceId.entries.count { it.siteFile == rel }
+            val registered = GlassSurfaceId.entries.count { it.siteFile == rel && it.kind == GlassSurfaceKind.GLASS }
+            val legacy = legacyGlassSites[rel] ?: 0
             val exempt = unglassedSites[rel] ?: 0
-            if (registered < n - exempt) {
+            if (registered + legacy < n - exempt) {
                 offenders += "$rel：$n 处绘制点只登记了 $registered 面（豁免 $exempt）" +
                     " ⇒ 有一面玻璃没有 id、三档管不到它"
             }
@@ -365,11 +426,81 @@ class GlassModeWiringTest {
             "GlassSurfaceKind.GLASS" in code,
         )
         assertTrue(
-            "范围文案必须写清开关与返回按钮不做玻璃，而且得是**界面真会说的那句**（在字符串里，不在注释里）",
-            Regex(""""[^"]*开关和返回按钮始终是实心""").containsMatchIn(code),
+            "范围文案必须准确描述实际开关状态、正文不采样和顶栏渐变，不能重复旧的实心开关承诺",
+            Regex(""""[^"]*开关保留明确的开关状态，返回按钮和正文卡片不采样页面；顶栏使用渐变遮罩。""").containsMatchIn(code),
         )
         // 签字边界里明确**不做**的两处，不许被这句文案重新承诺进去
         assertTrue("界面文案里不许再出现「覆盖全应用」这类兑现不了的口径", "覆盖全应用" !in code)
+    }
+
+    @Test
+    fun `native appearance 三档真值与减透明优先级必须实际不同`() {
+        listOf("liquid", "frost", "off").forEach { mode ->
+            listOf(false, true).forEach { translucent ->
+                listOf(false, true).forEach { refracts ->
+                    val appearance = GlassAppearance(
+                        liquidGlassEnabled = mode == "liquid" && refracts,
+                        reduceTransparency = mode == "off" || !translucent,
+                        adaptiveColorScheme = false,
+                    )
+                    assertEquals("$mode/$translucent 必须控制采样", mode != "off" && translucent, appearance.usesBackdrop)
+                    assertEquals("$mode/$translucent/$refracts 必须控制折射", mode == "liquid" && translucent && refracts, appearance.usesRefraction)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `native 与主壳采样源必须分离且实底不录制`() {
+        val host = source("ui/design/glasmio/WanzaiGlasmioTheme.kt")
+        assertTrue("公共控件必须采 uniform 色而非内容自身", "sampledColor = colors.groupedBackground" in host && "overlayContent = { content() }" in host)
+        assertTrue("公共控件不得偷偷采整个主页面", "sampledContent" !in host && "layerBackdrop(" !in host)
+        val nativeHost = functionCode(vendor("glass", "GlassBackdrop.kt"), "BackdropHost")
+        assertTrue("vendor 实底必须停止 recording", "val recordBackdrop = LocalGlassAppearance.current.usesBackdrop" in nativeHost && ".then(if (recordBackdrop) Modifier.layerBackdrop(backdrop)" in nativeHost && "else Modifier)" in nativeHost)
+        assertTrue("实际 source 和 overlay 必须仍是兄弟层", "sampledContent(backdrop)" in nativeHost && "overlayContent(backdrop)" in nativeHost)
+        val shell = source("ui/main/WanzaiMainShell.kt")
+        assertTrue("主壳必须只在透明且 recording 开启时记录", Regex("""if\s*\(motion\.glassIsTranslucent\s*&&\s*!recorderOff\)\s*Modifier\.layerBackdrop\(pageBackdrop\)\.trackBackdropPosition\(pageBackdrop\)\s*else Modifier""").containsMatchIn(shell))
+        assertTrue("页面底色必须位于 layer recording 内，而不是透明内容外侧", Regex("""Modifier\.layerBackdrop\(pageBackdrop\)\.trackBackdropPosition\(pageBackdrop\)\s*else Modifier\s*\)\s*\.containerBackground\(isDark\)""").containsMatchIn(shell))
+        assertTrue("根页面渐变必须提供独立 opaque 兜底", "val pageBaseBackdrop = rememberCanvasBackdrop { drawRect(pageBrush) }" in shell)
+        assertEquals("nav/search 必须先画根底色再画当前页面，不能反序或丢失兜底", 2, Regex("""rememberCombinedBackdrop\(pageBaseBackdrop, it\)""").findAll(shell).count())
+        val home = source("ui/main/pages/HomeSectionPage.kt")
+        assertTrue("Home sampled source 必须先铺 full-size opaque 颜色，不能只录透明天空", Regex("""sampledContent\s*=\s*\{\s*Box\(Modifier\.fillMaxSize\(\)\.background\(colors\.background\)\)""").containsMatchIn(home))
+        assertTrue("Home 业务内容必须仍留在 source 的兄弟 overlay 层", "overlayContent = { skyBackdrop ->" in home)
+        assertTrue("必须按当前页面切换 source", "if (s == section) activeBackdrop.value = pageBackdrop" in shell)
+        assertTrue("销毁页面必须释放 source", "if (activeBackdrop.value === pageBackdrop) activeBackdrop.value = null" in shell)
+        assertEquals("nav/search 两处必须共同受透明录制闸门约束", 2, Regex("""activeBackdrop\.value\.takeIf\s*\{\s*motion\.glassIsTranslucent\s*&&\s*!recorderOff\s*\}""").findAll(shell).count())
+    }
+
+    @Test
+    fun `保留 legacy 绘制点须审计但不得误报为当前主界面`() {
+        legacyGlassSites.forEach { (path, quota) ->
+            val code = source(path)
+            assertEquals("legacy 配额不可因新增采样而静默漂移：$path", quota + (unglassedSites[path] ?: 0), drawSite.findAll(code).count())
+            assertTrue("legacy 必须仍接材质：$path", "refractsGlass" in code || "rememberGlassRenderMode(" in code)
+        }
+        assertEquals("保留 legacy 范围不可任意扩张", setOf("ui/design/liquid/LiquidGlassNavigationBar.kt", "ui/design/liquid/GlassControls.kt"), legacyGlassSites.keys)
+        assertEquals("机制范围不得借迁移扩大", setOf("ui/design/glass/GlassSurface.kt", "ui/design/glass/BarOptics.kt", "ui/design/liquid/CombinedBackdrop.kt", "ui/design/liquid/PageBackdrop.kt", "ui/design/liquid/IosChrome.kt"), glassMechanismFiles)
+        val shell = source("ui/main/WanzaiMainShell.kt")
+        assertTrue("主壳必须仅调用新 nav/search", "GlassNavBar(" in shell && "GlasmioSearchButton(" in shell && "LiquidGlassNavigationBar(" !in shell && "GlassSearchButton(" !in shell)
+    }
+
+    @Test
+    fun `未读未知零不画角标且超过九十九真实显示99加`() {
+        val root = source("WanzaiRoot.kt")
+        assertTrue("未知数不得伪造为已知统计", "(unreadState.value as? CountValue.Known)?.value" in root && "unreadCount = unreadCount ?: 0" in root)
+        val shell = source("ui/main/WanzaiMainShell.kt")
+        assertTrue("仅消息tab拿真实未读", "badge = if (it == MainSection.Notify) unreadCount else 0" in shell)
+        assertTrue("native adapter 不得丢弃或伪造 badge", "badge = item.badge.coerceAtLeast(0)" in source("ui/design/liquid/GlassBar.kt"))
+        val native = vendor("ui", "GlassBottomBar.kt")
+        assertTrue("零/未知必须不画角标", "if (showBadge && item.badge > 0)" in native && "hasSelection && selectedItem.badge > 0" in native)
+        assertTrue("大数必须真实显示 99+ 而非裁成99", "if (item.badge > 99) \"99+\" else item.badge.toString()" in native)
+        assertTrue("读屏必须仍承载真实未读数", "contentDescription = item.contentDescription +" in native && " 条未读" in native)
+        val tabContent = native.substringAfter("private fun <T> NavigationTabContent(")
+        val glyph = tabContent.substringAfter("val glyphModifier =").substringBefore("if (showBadge && item.badge > 0)")
+        assertTrue("选中滤色只作用于glyph，不能把红底白字角标染成蓝色", "colorFilter = selectedColorFilter?.value" in glyph && "Box(glyphModifier" in glyph)
+        val badge = tabContent.substringAfter("if (showBadge && item.badge > 0)").substringBefore("text = item.label")
+        assertTrue("角标必须独立于滤色glyph层且保持红底白字", "colorFilter" !in badge && "Color.White" in badge && "Color(0xFFD83B47)" in badge)
+        assertTrue("选中角标必须在native lens后单独叠加，不能参与滤色源", native.indexOf("badgeOnly = true") > native.indexOf(".then(indicatorBackdropModifier)") && "showBadge = badgeOnly" in native && "if (badgeOnly) Modifier.alpha(0f)" in tabContent)
     }
 
     /** G-3（第 2 轮 P1#5 的新假开关）：两条键必须一起写，恢复默认不许漏一档。 */

@@ -24,28 +24,45 @@ class PopupHostWiringTest {
     }
 
     private val theme: String by lazy {
-        File(root, "app/src/main/java/com/muyao/wanzaihyperos/ui/AppTheme.kt").readText()
+        SourceScan.stripComments(File(root, "app/src/main/java/com/muyao/wanzaihyperos/ui/AppTheme.kt").readText())
+    }
+
+    private fun blockAfter(code: String, marker: String): String {
+        val markerAt = code.indexOf(marker)
+        assertTrue("找不到代码块 $marker", markerAt >= 0)
+        val open = code.indexOf('{', markerAt + marker.length)
+        assertTrue("$marker 没有内容槽", open >= 0)
+        var depth = 1
+        var cursor = open + 1
+        while (cursor < code.length && depth > 0) {
+            when (code[cursor++]) {
+                '{' -> depth++
+                '}' -> depth--
+            }
+        }
+        assertTrue("$marker 内容槽没有闭合", depth == 0)
+        return code.substring(open + 1, cursor - 1)
     }
 
     @Test
     fun `主题里必须挂一次弹层宿主`() {
-        assertTrue(
-            "AppTheme 里没有 MiuixPopupHost()，全 App 的 OverlayDialog 都会点了没反应",
-            "MiuixPopupHost()" in theme,
+        org.junit.Assert.assertEquals(
+            "AppTheme 必须且只能挂一个 legacy 弹层宿主，不能遗漏或重复渲染",
+            1,
+            Regex("""\bMiuixPopupHost\(\)""").findAll(theme).count(),
         )
     }
 
     @Test
     fun `弹层宿主必须包住页面内容、并且叠在内容之上`() {
-        val host = theme.substringAfter("MiuixPopupHost()", "")
-        assertTrue("找不到 MiuixPopupHost 调用", host.isNotEmpty() || "MiuixPopupHost()" in theme)
-        // 宿主与 content 必须在同一个 Box 里，且宿主写在 content 之后 —— 否则弹层会被页面内容盖住。
-        val box = theme.substringAfter("androidx.compose.foundation.layout.Box(", "")
-        assertTrue("弹层宿主不在 Theme 里，页面会盖住弹窗", box.isNotEmpty())
-        val contentAt = box.indexOf("content = content")
-        val hostAt = box.indexOf("MiuixPopupHost()")
-        assertTrue("Box 里没找到 content", contentAt >= 0)
-        assertTrue("Box 里没找到宿主", hostAt >= 0)
+        val box = blockAfter(theme, "androidx.compose.foundation.layout.Box(")
+        val overlay = blockAfter(box, "WanzaiGlasmioHost(themeMode = themeMode)")
+        val contentAt = overlay.indexOf("content()")
+        val hostAt = overlay.indexOf("MiuixPopupHost()")
+        assertTrue("同一 Box 的 Glasmio 内容槽里没找到页面 content", contentAt >= 0)
+        assertTrue("同一内容槽里没找到 legacy 宿主", hostAt >= 0)
         assertTrue("宿主必须写在 content 之后，否则弹层被内容盖住", hostAt > contentAt)
+        val hostTheme = SourceScan.stripComments(File(root, "app/src/main/java/com/muyao/wanzaihyperos/ui/design/glasmio/WanzaiGlasmioTheme.kt").readText())
+        assertTrue("页面与 legacy 弹层必须位于不采自身的 overlay", "overlayContent = { content() }" in hostTheme && "sampledContent" !in hostTheme)
     }
 }

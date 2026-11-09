@@ -1,6 +1,9 @@
 package com.muyao.wanzaihyperos.ui.design.liquid
 
 import com.muyao.wanzaihyperos.ui.SourceScan
+import io.github.neoruaa.glasmio.ui.NavigationBarSurfaceHeight
+import androidx.compose.ui.unit.dp
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,7 +17,7 @@ import org.junit.Test
  * pageBottomInsetDp()，而课表页自己写死 132.dp。后果不是好看难看：底栏高度一改，
  * 就有一页的最后一行被压住，而那一页没人会去动。
  *
- * 三件东西必须同源 —— 底栏条高（LiquidGlassNavigationBar.kt 的 .height(64.dp)）、
+ * 三件东西必须同源 —— native 底栏条高（NavigationBarSurfaceHeight）、
  * 内距里的条高项、以及内距必须读真的 navigationBars inset 而不是写死一个 dp。
  * 改任何一处，这里都会有测试红。
  */
@@ -53,17 +56,25 @@ class PageBottomInsetTest {
 
     @Test
     fun `底栏条高只有一个真值`() {
-        val bar = source("main/ui/design/liquid/LiquidGlassNavigationBar.kt")
-        val heights = Regex("\\.height\\(([0-9.]+)\\.dp\\)").findAll(bar)
-            .map { it.groupValues[1] }.filter { it == "64" || it == "58" || it == "66" }.toList()
-        assertEquals("底栏条高必须恰好一处 64dp，实际：" + heights, listOf("64"), heights)
+        assertEquals("实际 native 条高必须62dp", 62.dp, NavigationBarSurfaceHeight)
+        var root: File? = File(System.getProperty("user.dir"))
+        while (root != null && !File(root, "app/build.gradle.kts").isFile) root = root.parentFile
+        val native = File(requireNotNull(root), "third_party/glasmio/glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlassBottomBar.kt")
+            .readText(Charsets.UTF_8).let(SourceScan::stripComments)
+        assertEquals("native 条高声明必须唯一", 1, Regex("""val\s+NavigationBarSurfaceHeight\s*=\s*62\.dp""").findAll(native).count())
+        assertTrue("native renderer 必须读取这一个条高", "modifier.height(NavigationBarSurfaceHeight)" in native)
+        val bar = source("main/ui/design/liquid/GlassBar.kt")
+        assertTrue("实际 adapter 必须委托 native nav", "GlasmioNavigationBar(" in bar)
+        assertTrue("adapter 不得另外写死条高", !Regex("""\.height\(\s*(?:58|62|64|66)\.dp\s*\)""").containsMatchIn(bar))
     }
 
     @Test
     fun `内距里的条高必须等于底栏条高`() {
         val text = insetBody()
-        assertTrue("内距里没有 64.dp 这一项：" + text, text.contains("64.dp"))
+        assertTrue("内距没有引用 native 同一条高：" + text, "NavigationBarSurfaceHeight + barBottomGap + 4.dp" in text)
+        assertTrue("内距不得另写数字条高：" + text, !Regex("""(?:58|62|64|66)\.dp""").containsMatchIn(text))
         assertTrue("内距里没有 4.dp 收尾余量：" + text, text.contains("4.dp"))
+        assertTrue("隐藏底栏时必须仍留列表收尾空间", "if (!barVisible) return 44.dp" in text)
     }
 
     @Test
@@ -71,6 +82,15 @@ class PageBottomInsetTest {
         val text = insetBody()
         assertTrue("inset 没读 navigationBars（写死 dp 就是旧缺陷）：" + text, text.contains("navigationBars"))
         assertTrue("inset 没用实算值：" + text, text.contains("calculateBottomPadding"))
+    }
+
+    @Test
+    fun `实际底栏和内容内距必须共用六dp与系统导航栏空隙`() {
+        val inset = insetBody()
+        val bar = source("main/ui/design/liquid/GlassBar.kt")
+        assertTrue("内容必须留系统inset加6dp，无系统栏时16dp", "if (inset > 0.dp) 6.dp + inset else 16.dp" in inset)
+        assertTrue("native adapter 必须使用同样空隙", "bottom = if (inset > 0.dp) inset + 6.dp else 16.dp" in bar)
+        assertTrue("native adapter 必须实际计算系统导航栏inset", "WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()" in bar)
     }
 
     private fun insetBody(): String {

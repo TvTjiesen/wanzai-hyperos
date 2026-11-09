@@ -103,6 +103,12 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":glasmio-core"))
+    implementation(project(":glasmio-glass"))
+    implementation(project(":glasmio-ui"))
+    implementation(project(":glasmio-icons"))
+    implementation(project(":glasmio-preference"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -113,14 +119,9 @@ dependencies {
     implementation(libs.miuix.preference)
     implementation(libs.miuix.icons)
     implementation(libs.miuix.nav)
-    // 液態玻璃（iOS 26/27 style）：真實折射 + 模糊 + 高光。Apache-2.0，minSdk 21。
-    // ★ 這條是**唯一**的玻璃引擎：折射 = `com.kyant.backdrop.effects.lens(...)`，
-    //   高光 = `BloomStrokeShader`（Miuix BloomStroke 的移植）。
+    // 保留 legacy 玻璃控件的 Kyant backdrop 依赖与原效果；主界面已接入上方 Glasmio 源码模块。
     implementation(libs.backdrop)
-    // Miuix 的玻璃模組：這裡**只**用它的 BloomStroke 高光移植参考與
-    // `sensor.rememberDeviceTilt`（重力方向）。它本身不提供折射 effect
-    //（0.9.4 的 BackdropEffectsKt 只有 blur/progressiveBlur/blendColors/noiseDither/textureBlur），
-    // 所以折射一律走上面那條 backdrop 路徑 —— 不許出現第二條渲染路徑。
+    // 保留 legacy BloomStroke 参考与 sensor.rememberDeviceTilt；不在本次迁移改动依赖或旧效果。
     implementation(libs.miuix.blur)
 
     implementation(libs.kotlinx.coroutines.android)

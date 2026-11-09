@@ -1,0 +1,18 @@
+{
+  "fixedCommit": "b9502f08809d09f74814112dae44fee6318b20b7",
+  "unchangedGitBlobs": 142,
+  "declaredAdaptations": [
+    "glasmio-core/src/main/java/io/github/neoruaa/glasmio/core/GlassTokens.kt",
+    "glasmio-glass/build.gradle.kts",
+    "glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/GlassBackdrop.kt",
+    "glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/GlassMorphRenderer.kt",
+    "glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/GlassSurface.kt",
+    "glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/NavigationMaterialRenderer.kt",
+    "glasmio-icons/src/main/java/io/github/neoruaa/glasmio/icons/GlasmioIcons.kt",
+    "glasmio-ui/src/androidTest/java/io/github/neoruaa/glasmio/ui/MessageBubbleRenderingTest.kt",
+    "glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlasmioAdaptiveSlider.kt",
+    "glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlassBottomBar.kt",
+    "glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/TapbackArtwork.kt"
+  ],
+  "excludedAppleArtwork": 10
+}

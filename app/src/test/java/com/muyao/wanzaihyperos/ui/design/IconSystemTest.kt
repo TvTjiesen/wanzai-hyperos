@@ -18,7 +18,7 @@ class IconSystemTest {
     private val design = "src/main/java/com/muyao/wanzaihyperos/ui/design"
     private val pages = "src/main/java/com/muyao/wanzaihyperos/ui/main/pages"
 
-    private fun text(path: String) = File(path).readText(Charsets.UTF_8)
+    private fun text(path: String) = com.muyao.wanzaihyperos.ui.SourceScan.stripComments(File(path).readText(Charsets.UTF_8))
 
     @Test
     fun `调用点里不许再写十六进制磁贴色`() {
@@ -86,11 +86,24 @@ class IconSystemTest {
         listOf(
             "Modifier.size(Glyph.rowSlot)",
             "Modifier.size(Glyph.size)",
-            ".size(Glyph.knob)",
         ).forEach { need ->
             assertTrue("SettingsChrome 里没有 `$need`（又被改回字面量了？）", need in chrome)
         }
-        // 把三条"改回字面量"的具体写法也禁掉
+        val switchAdapter = chrome.substringAfter("fun PillSwitch(").substringBefore("private const val ROWS")
+        assertTrue("设置开关必须调用唯一 native adapter，不能另造固定22dp钮", "WanzaiSwitch(checked = checked, label = label" in switchAdapter)
+        assertTrue("same-state native drag 不得反转业务偏好", "if (target != checked) onToggle()" in switchAdapter)
+        assertTrue("adapter 不得覆盖 native geometry", "Glyph.knob" !in switchAdapter && "Modifier.size" !in switchAdapter && ".scale(" !in switchAdapter)
+        val adapter = text("src/main/java/com/muyao/wanzaihyperos/ui/components/WanzaiGlasmioControls.kt")
+            .substringAfter("fun WanzaiSwitch(").substringBefore("fun WanzaiButton(")
+        assertTrue("实际开关必须仍交 native checked/callback", "GlasmioSwitch(" in adapter && "checked = checked" in adapter && "onCheckedChange = onCheckedChange" in adapter)
+        assertTrue("无障碍静态档必须保留真实开关语义与callback", "role = Role.Switch, onValueChange = onCheckedChange" in adapter)
+        val native = text("../third_party/glasmio/glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlassControls.kt")
+            .substringAfter("fun GlasmioSwitch(").substringBefore("fun GlasmioSlider(")
+        listOf(adapter, native).forEach { code ->
+            assertTrue("native/fallback track 必须同为63×28dp", ".size(width = 63.dp, height = 28.dp)" in code)
+            assertTrue("native/fallback thumb 必须同为37×24dp", ".size(width = 37.dp, height = 24.dp)" in code)
+        }
+        // 保留退役令牌档位及图标留白禁令，实际开关尺寸由上游唯一控件钉死。
         listOf("size(26.dp)", "size(38.dp)", "size(22.dp)").forEach { bad ->
             assertTrue("SettingsChrome 里还有字面量 `$bad`", bad !in chrome)
         }

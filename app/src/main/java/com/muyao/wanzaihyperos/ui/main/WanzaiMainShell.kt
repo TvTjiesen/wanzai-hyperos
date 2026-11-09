@@ -67,8 +67,14 @@ import com.muyao.wanzaihyperos.ui.main.pages.HomeSectionPage
 import com.muyao.wanzaihyperos.ui.main.pages.NotifySectionPage
 import com.muyao.wanzaihyperos.ui.main.pages.SettingsSectionPage
 import com.muyao.wanzaihyperos.ui.main.pages.TimetableSectionPage
-import top.yukonga.miuix.kmp.blur.LayerBackdrop
-import top.yukonga.miuix.kmp.blur.layerBackdrop
+import io.github.neoruaa.glasmio.glass.render.backdrops.LayerBackdrop
+import io.github.neoruaa.glasmio.glass.render.backdrops.layerBackdrop
+import io.github.neoruaa.glasmio.glass.render.backdrops.rememberLayerBackdrop
+import io.github.neoruaa.glasmio.glass.render.backdrops.rememberCanvasBackdrop
+import io.github.neoruaa.glasmio.glass.render.backdrops.rememberCombinedBackdrop
+import io.github.neoruaa.glasmio.glass.trackBackdropPosition
+import io.github.neoruaa.glasmio.glass.LocalGlassBackdrop
+import com.muyao.wanzaihyperos.ui.design.liquid.GlasmioSearchButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlinx.coroutines.launch
 
@@ -108,9 +114,8 @@ import kotlinx.coroutines.launch
  *
  * ## 热调通道（参考自带）
  *
- * `adb shell settings put global hzr_glass_bar_blur 8` / `hzr_glass_lens 40` /
- * `hzr_glass_pill_blur 8` / `hzr_glass_off 1`（关采样层做对照）。
- * 必须经 `tuningVersion` 走一层，否则改了 Settings 界面不动、量出来的数是假的。
+ * Glasmio 主底栏使用其原生材质配方；旧 blur/lens/pill 热调只属于 legacy 实验控件。
+ * `hzr_glass_off 1` 仍可关闭主页面录制作对照，经 `tuningVersion` 实时刷新。
  */
 @Composable
 fun WanzaiMainShell(
@@ -205,6 +210,8 @@ fun WanzaiMainShell(
 
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
     val context = LocalContext.current
+    val pageBrush = AppColors.pageBrush(isDark)
+    val pageBaseBackdrop = rememberCanvasBackdrop { drawRect(pageBrush) }
 
     // 外部导航（例如「我的→設定」）改 selectedTab 时，跟着切板块。
     LaunchedEffect(uiState.selectedTab) {
@@ -219,12 +226,8 @@ fun WanzaiMainShell(
         val closeable = GlassTuning.startObserving(context) { tuningVersion++ }
         onDispose { closeable.close() }
     }
-    val blurDp = remember(tuningVersion) { GlassTuning.barBlurDp }
-    val lensDp = remember(tuningVersion) { GlassTuning.lensDp }
     val veilBlurDp = remember(tuningVersion) { GlassTuning.veilBlurDp }
     val recorderOff = remember(tuningVersion) { GlassTuning.recorderOff >= 0.5f }
-    /** 悬浮胶囊要不要真的采页面内容（`hzr_glass_btn_live`）。默认关，理由见 GlassTuning 注释。 */
-    val btnLive = remember(tuningVersion) { GlassTuning.btnLive >= 0.5f }
 
     // 顶栏折叠进度（页面经 `rememberPageChromePilot()` 往里写）
     val chrome = remember { PageChrome() }
@@ -357,9 +360,7 @@ fun WanzaiMainShell(
                     ),
             ) { s ->
                 // ★ 键是「这一块内容自己是哪个板块」，不能用 section（见档头纪律 3）
-                val pageBackdrop = rememberPageBackdrop(
-                    recordColor = MiuixTheme.colorScheme.background,
-                )
+                val pageBackdrop = rememberLayerBackdrop()
                 LaunchedEffect(s, pageBackdrop) {
                     if (s == section) activeBackdrop.value = pageBackdrop
                 }
@@ -375,9 +376,11 @@ fun WanzaiMainShell(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        // 容器背景两版：`Designed` 铺页内纸色 + 天光；`Bare` 让开，透出根上那层整页渐变。
-                        .containerBackground(isDark)
-                        .layerBackdrop(pageBackdrop),
+                        .then(if (motion.glassIsTranslucent && !recorderOff)
+                            Modifier.layerBackdrop(pageBackdrop).trackBackdropPosition(pageBackdrop)
+                        else Modifier)
+                        // 背景必须在录制层内；Bare 保持让开，由消费端先铺根背景兜底。
+                        .containerBackground(isDark),
                 ) {
                     // 内容不留底部内距 —— 让列表一直滚到玻璃底下，否则玻璃背后永远是空白。
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -452,7 +455,7 @@ fun WanzaiMainShell(
                 chrome = chrome,
                 canGoBack = false,
                 onBack = {},
-                backdrop = activeBackdrop.value,
+                backdrop = null,
                 // 这一屏顶栏后面真正铺的色：首页是天空最上一站（浅色主题 × 夜航时它很暗），
                 // 其它页是页面渐变最上一站 —— 都**不是**主题令牌。
                 backdropColor = if (section == 0) {
@@ -477,12 +480,11 @@ fun WanzaiMainShell(
                         MainSection.entries[section] == MainSection.Notify ||
                         MainSection.entries[section] == MainSection.Settings
                     ) {
-                    GlassSearchButton(
+                    GlasmioSearchButton(
                         onClick = onOpenSearch,
-                        // 采样层只在「真的录到内容」时才交给它 —— Miuix 对空样本
-                        // 不是没模糊，而是画实心黑（`liquid/GlassBar.kt` 那条闸门）。
-                        backdrop = if (backdropIsLive(activeBackdrop.value)) activeBackdrop.value else null,
-                        liveBlur = btnLive,
+                        backdrop = activeBackdrop.value.takeIf { motion.glassIsTranslucent && !recorderOff }
+                            ?.let { rememberCombinedBackdrop(pageBaseBackdrop, it) }
+                            ?: LocalGlassBackdrop.current,
                     )
                     }
                     // 「整理」不在顶栏：板 `.topbar` 只有标题与搜索钮，
@@ -522,9 +524,8 @@ fun WanzaiMainShell(
                         uiState.selectedTab = idx
                         onOpenSection(MainSection.entries[idx])
                     },
-                    backdrop = activeBackdrop.value,
-                    blurDp = blurDp,
-                    lensDp = lensDp,
+                    backdrop = activeBackdrop.value.takeIf { motion.glassIsTranslucent && !recorderOff }
+                        ?.let { rememberCombinedBackdrop(pageBaseBackdrop, it) },
                 )
             }
 

@@ -102,7 +102,7 @@ import com.muyao.wanzaihyperos.ui.design.liquid.iosHeaderInset
 import com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp
 import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog as OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.time.LocalDate
 

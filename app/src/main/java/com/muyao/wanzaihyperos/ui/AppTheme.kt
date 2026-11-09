@@ -213,9 +213,12 @@ fun WanzaiTheme(
                                 glassMode = com.muyao.wanzaihyperos.data.UiPrefs.glassMode,
                                 translucent = motion.glassIsTranslucent,
                             ),
-                        content = content,
-                    )
-                    top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost()
+                    ) {
+                        com.muyao.wanzaihyperos.ui.design.glasmio.WanzaiGlasmioHost(themeMode = themeMode) {
+                            content()
+                            top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost()
+                        }
+                    }
                 }
             },
         )

@@ -82,6 +82,28 @@ class CreditsTest {
     }
 
     @Test
+    fun `本地 Glasmio 模块有固定来源和分发许可归属`() {
+        val build = File(repoRoot, "app/build.gradle.kts").readText()
+        val projects = Regex("""implementation\(project\("(:glasmio-[a-z]+)"\)\)""")
+            .findAll(build).map { it.groupValues[1] }.toSet()
+        assertEquals(setOf(":glasmio-core", ":glasmio-glass", ":glasmio-ui", ":glasmio-icons", ":glasmio-preference"), projects)
+        val credit = Credits.derived.single { it.coordinate == "github.com/NEORUAA/Glasmio" }
+        assertEquals("Apache License 2.0", credit.license)
+        assertTrue("固定版本没有披露", "b9502f0" in credit.version)
+        val notice = File(repoRoot, "third_party/glasmio/INTEGRATION_NOTICE.md").readText()
+        assertTrue("改写作品署名缺失", "Copyright 2026 NEORUAA" in notice)
+        assertTrue("受限资源排除未披露", "Apple-owned" in notice)
+        projects.forEach { project ->
+            val module = project.removePrefix(":")
+            val resources = File(repoRoot, "third_party/glasmio/$module/src/main/resources/META-INF/glasmio/$module")
+            listOf("LICENSE", "THIRD_PARTY_NOTICES.md", "INTEGRATION_NOTICE.md").forEach { name ->
+                val file = File(resources, name)
+                assertTrue("$module 未接入分发许可 $name", file.isFile && file.length() > 0)
+            }
+        }
+    }
+
+    @Test
     fun `感谢页每条都有版本号与许可证，且坐标不重复`() {
         val coords = Credits.dependencies.map { it.coordinate }
         assertEquals("坐标重复", coords.size, coords.distinct().size)

@@ -39,7 +39,7 @@ import com.muyao.wanzaihyperos.data.tronclass.QrDecoder
 import com.muyao.wanzaihyperos.ui.design.BodyMark
 import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import java.util.concurrent.atomic.AtomicBoolean
-import top.yukonga.miuix.kmp.basic.Button
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton as Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.concurrent.Executors

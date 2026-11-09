@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -37,12 +36,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.muyao.wanzaihyperos.ui.components.WanzaiSwitch
+import io.github.neoruaa.glasmio.core.GlasmioTheme
+import io.github.neoruaa.glasmio.ui.GlasmioGroupedList
 
 /**
  * 设置页的行组件（照参照站那套：彩色圆角方形图标 + 标题/副标题 + 右侧 chevron 或开关）。
@@ -414,7 +414,7 @@ fun SettingRow(
      */
     trailingChevron: Boolean = false,
 ) {
-    val colors = MiuixTheme.colorScheme
+    val colors = GlasmioTheme.colors
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -431,12 +431,12 @@ fun SettingRow(
             Text(
                 text = title,
                 fontSize = Type.body,
-                color = colors.onBackground,
+                color = colors.content,
             )
             Text(
                 text = subtitle,
                 fontSize = Type.caption,
-                color = colors.onSurfaceVariantSummary,
+                color = colors.secondaryContent,
                 maxLines = 2,
                 // ★ 截了要看得出来（与课表那几处同规矩）：`Clip` 是**静悄悄少字**，
                 //   业主不会知道这一行还有后半句。
@@ -468,7 +468,7 @@ fun SettingRow(
                         contentAlignment = Alignment.CenterEnd,
                     ) {
                         if (onClick != null) {
-                            Text(text = "›", fontSize = Type.title, color = colors.onSurfaceVariantSummary)
+                            Text(text = "›", fontSize = Type.title, color = colors.secondaryContent)
                         }
                     }
                 }
@@ -476,7 +476,7 @@ fun SettingRow(
 
             onClick != null -> {
                 Spacer(Modifier.width(10.dp))
-                Text(text = "›", fontSize = Type.title, color = colors.onSurfaceVariantSummary)
+                Text(text = "›", fontSize = Type.title, color = colors.secondaryContent)
             }
         }
     }
@@ -500,44 +500,18 @@ internal val ChevronSlot = 20.dp
  */
 internal val GroupLabelMarkSize = 13.dp
 
-/** 分组卡：参照站那种"一个圆角容器里塞几行"。 */
+/** Shared Glasmio frame; rows retain their existing insets and multiline summaries. */
 @Composable
 fun SettingGroup(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Dims.cardCorner * 1.6f))
-            .background(colors.onBackground.copy(alpha = 0.05f))
-            .padding(vertical = 2.dp),
-    ) {
-        content()
+    GlasmioGroupedList(modifier = modifier) {
+        Column(Modifier.padding(vertical = 2.dp)) { content() }
     }
 }
 
-/**
- * 稿 `.paper.flush`：表面色 + 1px 描边 + 20px 圆角 + **无内距**，行自己带内距。
- *
- * 与 [SettingGroup] 的区别是语法来源不同：SettingGroup 是设置总览页那种"站内分组"，
- * 轻到近乎无边界；PaperCard 是评审稿里二级页的那种"一张纸"，有边、有底色。
- * 二级页（关于 / 提醒 / 辅助显示 …）照稿用后者。
- */
+/** Secondary-page groups use the same native continuous curvature and material. */
 @Composable
 fun PaperCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Dims.paperCorner))
-            .background(colors.surface)
-            .border(
-                width = 1.dp,
-                color = colors.dividerLine.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(Dims.paperCorner),
-            ),
-    ) {
-        content()
-    }
+    GlasmioGroupedList(modifier = modifier) { content() }
 }
 
 /** 分组之间的小标题。 */
@@ -572,44 +546,12 @@ fun SettingSectionLabel(text: String, icon: MarkIcon? = null) {
     }
 }
 
-/**
- * 自绘开关（**46×28**；圆钮 22dp，见 `Glyph.knob`）。
- *
- * 不用 Miuix `Switch`：签名没在产物级核过，猜错会静默不生效；这颗自己画 20 行就够，
- * 而且颜色跟设置页那套图标一致。
- */
+/** Existing preference callbacks remain toggles; a same-state drag must not invert them. */
 @Composable
 fun PillSwitch(checked: Boolean, label: String, onToggle: () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    val knob by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (checked) 1f else 0f,
-        animationSpec = androidx.compose.animation.core.spring(
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-            stiffness = 900f,
-        ),
-        label = "pillKnob",
-    )
-    Box(
-        modifier = Modifier
-            .width(46.dp)
-            .height(28.dp)
-            .clip(CircleShape)
-            .background(if (checked) colors.primary else colors.onBackground.copy(alpha = 0.14f))
-            .clickable(onClickLabel = label) { onToggle() }
-            .semantics { contentDescription = if (checked) "$label（已开启）" else "$label（已关闭）" },
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        Box(
-            modifier = Modifier
-                // ★ 顺序不能反：先 padding 再 size，才是「把 22dp 的圆钮推到那个位置」。
-                //   反过来写（size 后 padding）是在 22dp **内部**扣掉起始留白，
-                //   滑到开态时圆钮只剩 1dp 宽 —— 真机上就是一条白竖线。
-                .padding(start = 3.dp + 18.dp * knob)
-                .size(Glyph.knob)
-                .clip(CircleShape)
-                .background(Color.White),
-        )
-    }
+    WanzaiSwitch(checked = checked, label = label, onCheckedChange = { target ->
+        if (target != checked) onToggle()
+    })
 }
 
 /**

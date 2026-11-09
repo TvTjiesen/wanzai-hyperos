@@ -90,8 +90,9 @@ import com.muyao.wanzaihyperos.ui.design.ai.AiBall
 import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
 import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.glass.BarMaterial
-import com.muyao.wanzaihyperos.ui.design.glass.GlassBackdropHost
-import com.muyao.wanzaihyperos.ui.design.glass.GlassSurface
+import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
+import io.github.neoruaa.glasmio.glass.GlassSurface
+import com.muyao.wanzaihyperos.ui.design.glass.LocalBarMaterial
 import com.muyao.wanzaihyperos.ui.design.glass.GlassSurfaceColor
 import com.muyao.wanzaihyperos.ui.design.glass.GlassSurfaceStyle
 import com.muyao.wanzaihyperos.ui.design.glass.cardFaceAlpha
@@ -354,9 +355,10 @@ fun HomeSectionPage(
     val timelineHasNothingToSay = !loading && shownFailure == null &&
         week != null && todaySlots.isEmpty()
 
-    GlassBackdropHost(
+    GlasmioBackdropHost(
         modifier = modifier.fillMaxSize(),
-        content = {
+        sampledContent = {
+            Box(Modifier.fillMaxSize().background(colors.background))
             // 板 `.atmos{height:220px}` × 0.886 ⇒ **195dp**。
             // ★ 这句以前写的是「浅色列**不做渐变收口**…硬切」—— **与实物相反**（第 6 轮必修 5）：
             //   浅色档现在既有 `fadeStart = skyBottom − 0.10h` 那段 fade，也有 24dp+4px 的底边收口
@@ -446,7 +448,7 @@ fun HomeSectionPage(
                 }
             }
         },
-    ) { skyBackdrop ->
+        overlayContent = { skyBackdrop ->
         val compact = UiPrefs.homeDensity == "compact"
         // 「此刻」卡和副标题共用同一次推导：正在上的课 / 下一节 / 还要上几节。
         val focus = remember(todaySlots, now, times) {
@@ -685,7 +687,8 @@ fun HomeSectionPage(
             }
         }
         }
-    }
+        },
+    )
 }
 
 /**
@@ -834,7 +837,7 @@ private fun HomeSkyHeader(
  */
 @Composable
 private fun FocusGlassCard(
-    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop,
+    backdrop: io.github.neoruaa.glasmio.glass.render.backdrops.LayerBackdrop,
     plan: TodayPlan?,
     focus: FocusNow,
     loading: Boolean,
@@ -858,7 +861,8 @@ private fun FocusGlassCard(
     // ★ 不是 `LocalBarMaterial.current`：那是"他选了哪一档"，这是"这一面此刻**画得出**哪一档"。
     //   采样层没活 / 减弱透明度 / 刚换上来的头两帧 ⇒ 画面是实心纸，字色就得按纸判。
     //   两个数分开写就是"代码说液态、画面是纸"那类只能靠肉眼发现的错。
-    val material = rememberEffectiveMaterial(backdrop)
+    val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
+    val material = if (motion.glassIsTranslucent) LocalBarMaterial.current else BarMaterial.SOLID
     val isDark = colors.background.luminance() < 0.5f
 
     // ★ v3 #12 的真根因（业主真机逐像素量到的那一轴）：
@@ -867,7 +871,8 @@ private fun FocusGlassCard(
     //   可 0.94 的白漆已经把身后的天空糊死了：模糊与折射只剩 6% 的像素可动，
     //   于是真机上「磨砂 vs 液态 = 卡带 0.000 / 0px」—— "接线正确、画面不动"就是这么来的。
     //   ⇒ 档位必须改**画面上那个数**（四个值逐条取自定稿板，见 `cardFaceAlpha`）。
-    val wantAlpha = cardFaceAlpha(material, isDark)
+    val wantAlpha = (cardFaceAlpha(material, isDark) *
+        com.muyao.wanzaihyperos.ui.design.glass.glassOpacityFactor()).coerceIn(0f, 1f)
     // ★ 卡身后**真的**会出现的那几层底（第 7 轮审计判死了"取带内最亮档"那条：
     //   卡顶 ≈167dp 而天空只到 200dp ⇒ 八成高度压在已经淡成纸色的那一段，我采的那一段不是它）。
     //   相册档 = 他自己的照片，亮度**未知** ⇒ 两端都算（黑与白），逼着垫色厚到两端都读得清；
@@ -949,21 +954,10 @@ private fun FocusGlassCard(
                 cornerRadius = Dims.cardCorner * 1.3f,
                 color = colors.primary,
             ),
-        cornerRadius = Dims.cardCorner * 1.3f,
-        // ★ `material` 在这里**显式传**（不靠 `GlassSurface` 那个默认参数）：
-        //   默认参数读的是同一个 `LocalBarMaterial`，但它让"这张卡吃哪一档"在源码里
-        //   看不见 —— v3 #12 就是因为只能靠读函数签名才发现"接了但没用上"。
-        //   现在 `GlassModeWiringTest` 直接扫这一处调用点。
-        material = material,
-        // 定稿板的此刻卡有**两个变体**：`.focus-card`（板的 `--card`，配 blur(22px)）
-        // 和 `.focus-card.glass`（三段白 .42/.19/.28，配 blur(26px) saturate(1.55)）。
-        // 这两档本来就画的不是一种东西 ⇒ 垫色按档位给，见上面的 `faceAlpha`。
-        style = GlassSurfaceStyle.CONTAINER.copy(
-            surfaceColor = GlassSurfaceColor.SURFACE_CONTAINER,
-            // 与上面算 `face` / 字色用的是**同一个数**（不要再写第二份常数，
-            // 那正是"字色判断和实际垫色对不上"的来源）。
-            surfaceAlpha = faceAlpha,
-        ),
+        shape = com.kyant.capsule.ContinuousRoundedRectangle(Dims.cardCorner * 1.3f),
+        navigationSurfaceColor = colors.surfaceContainer.copy(alpha = faceAlpha),
+        navigationSurfaceAlphaMultiplier = 1f,
+        sampleBackdrop = material != BarMaterial.SOLID,
     ) {
         Column(
             modifier = Modifier

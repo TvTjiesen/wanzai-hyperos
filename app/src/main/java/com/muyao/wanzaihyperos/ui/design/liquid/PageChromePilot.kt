@@ -175,6 +175,6 @@ fun pageBottomInsetDp(barVisible: Boolean): Dp {
         .only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom)
         .asPaddingValues()
         .calculateBottomPadding()
-    val barBottomGap = if (inset != 0.dp) 2.dp + inset else 16.dp
-    return 64.dp + barBottomGap + 4.dp
+    val barBottomGap = if (inset > 0.dp) 6.dp + inset else 16.dp
+    return io.github.neoruaa.glasmio.ui.NavigationBarSurfaceHeight + barBottomGap + 4.dp
 }
