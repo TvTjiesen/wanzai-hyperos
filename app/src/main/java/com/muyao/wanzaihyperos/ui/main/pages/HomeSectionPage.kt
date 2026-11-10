@@ -23,8 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import com.muyao.wanzaihyperos.ui.design.pressSpring
 import com.muyao.wanzaihyperos.ui.design.OdometerText
 import com.muyao.wanzaihyperos.ui.design.retrievalGlow
 import androidx.compose.runtime.Composable
@@ -104,6 +102,9 @@ import com.muyao.wanzaihyperos.ui.design.liquid.iosHeaderInset
 import com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp
 import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import com.muyao.wanzaihyperos.ui.home.HomeSky
+import com.muyao.wanzaihyperos.ui.home.redesign.HomeDashboardGroup
+import com.muyao.wanzaihyperos.ui.home.redesign.HomeQuickActions
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton
 import com.muyao.wanzaihyperos.ui.home.SkyLook
 import com.muyao.wanzaihyperos.ui.home.SkyPreset
 import com.muyao.wanzaihyperos.ui.home.TileGlyph
@@ -530,9 +531,7 @@ fun HomeSectionPage(
                     top = iosHeaderInset() + 2.dp,
                     bottom = pageBottomInsetDp(LocalNavBarVisible.current) + 24.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(
-                    if (compact) Dims.cardGap - 4.dp else Dims.cardGap,
-                ),
+                verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 20.dp),
             ) {
                 item(key = "hero") {
                     HomeSkyHeader(
@@ -555,6 +554,7 @@ fun HomeSectionPage(
                     item(key = "focus") {
                         FocusGlassCard(
                             backdrop = skyBackdrop,
+                            compact = compact,
                             plan = plan,
                             focus = focus,
                             loading = loading,
@@ -574,17 +574,31 @@ fun HomeSectionPage(
                         )
                     }
 
+                }
+
+                item(key = "quick-actions") {
+                    HomeQuickActions(
+                        compact = compact,
+                        onOpenTimetable = onOpenTimetable,
+                        onOpenJw = onOpenJw,
+                        onOpenMessages = onOpenMessages,
+                        onOpenAppearance = onOpenAppearance,
+                    )
+                }
+
+                if ("courses" in UiPrefs.homeModules) {
                     if (!timelineHasNothingToSay) item(key = "timeline") {
-                        TodayTimelineCard(
-                            slots = todaySlots,
-                            week = week,
-                            now = now,
-                            times = times,
-                            loading = loading,
-                            // 同一条规矩：这一屏画得出课就不说「没取到」（三张卡共用 shownFailure）。
-                            failure = shownFailure,
-                            onOpenTimetable = onOpenTimetable,
-                        )
+                        HomeDashboardGroup(compact) {
+                            TodayTimelineCard(
+                                slots = todaySlots,
+                                week = week,
+                                now = now,
+                                times = times,
+                                loading = loading,
+                                failure = shownFailure,
+                                onOpenTimetable = onOpenTimetable,
+                            )
+                        }
                     }
                 }
 
@@ -596,15 +610,18 @@ fun HomeSectionPage(
                 // 所以改成只要开着签到模块就有这一格；没有进行中的签到时如实说没有。
                 if ("rollcall" in UiPrefs.homeModules) {
                     item(key = "rollcall-open") {
+                        HomeDashboardGroup(compact) {
                         RollcallSection(
                             open = openRollcall,
                             onOpen = onOpenRollcall,
                         )
+                        }
                     }
                 }
 
                 if ("todos" in UiPrefs.homeModules) {
                     item(key = "todos") {
+                        HomeDashboardGroup(compact) {
                         TodoSummaryCard(
                             state = todoState,
                             // 本页一进来就发了这一发（见上面那个 LaunchedEffect），所以：
@@ -612,16 +629,19 @@ fun HomeSectionPage(
                             fetching = todoState is ListState.FirstLoad && inFlight > 0,
                             onClick = onOpenTodos,
                         )
+                        }
                     }
                 }
 
                 if ("szty" in UiPrefs.homeModules) {
                     item(key = "szty") {
+                        HomeDashboardGroup(compact) {
                         RunSummaryCard(
                             state = sztyState,
                             fetching = sztyState is ListState.FirstLoad && inFlight > 0,
                             onClick = onOpenSzty,
                         )
+                        }
                     }
                 }
 
@@ -632,20 +652,8 @@ fun HomeSectionPage(
                 // 第二个不是下拉刷新的替代品 —— 下拉刷的是这一页，这个是四个来源都重取，
                 // 因为首页最常出的问题是「某一份没取到」，而那一份未必归这张卡管。
                 item(key = "bottom-actions") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(Dims.cardGap),
-                    ) {
-                        BottomActionButton(
-                            text = "查看消息与通知",
-                            onClick = onOpenMessages,
-                            modifier = Modifier.weight(1f),
-                        )
-                        BottomActionButton(
-                            text = "重新读取全部来源",
-                            onClick = refreshAll,
-                            modifier = Modifier.weight(1f),
-                        )
+                    WanzaiButton(onClick = refreshAll, modifier = Modifier.fillMaxWidth()) {
+                        androidx.compose.material3.Text("重新读取全部来源")
                     }
                 }
                 item(key = "tail") { Spacer(Modifier.height(8.dp)) }
@@ -729,7 +737,7 @@ private fun HomeSkyHeader(
         com.muyao.wanzaihyperos.data.schedule.JwVerdict.NOT_STARTED,
     /** 画的是教务那份、但它是**上次存的**（首页自己不重取，N3）。 */
     jwIsStale: Boolean = false,
-    /** 标题区左侧那颗 96dp 的球要画哪张脸（见 `AiBallStates.ofHome`）。 */
+    /** 标题右侧的状态球；状态仍与课程数据同源。 */
     ballState: com.muyao.wanzaihyperos.ui.design.ai.AiBallState,
 ) {
     val weekLabel = WEEKDAYS.getOrElse(now.dayOfWeek.value - 1) { "" }
@@ -762,69 +770,44 @@ private fun HomeSkyHeader(
     //   登录要走课表页藏着的 WebView）时，这里画的是学在城院那一份。
     //   独立审计 v3 #4 抓到的正是"首页一直画另一份却不说话"。
 
-    // 第 0 期「球场」：球在左、三行字在右（docs/B4-12-BALL-AS-CORE.md §2）。
-    // 为什么放这里而不是卡里：这颗球现在**先说话**——它是这一屏的情绪，标题与副行才是补充；
-    // 埋在「此刻」卡右下角时它只是装饰，而且被卡面压住了对比度（球体 vs 卡面只有 1.05:1，
-    // 全靠 1dp 环才看得见）。
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        Modifier.fillMaxWidth().padding(top = if (compact) 8.dp else 16.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 16.dp),
     ) {
-        // 96dp 的球自己带 6dp 透明命中区（外侧），所以左边再补 6dp 让**看得见的**
-        // 球面左沿与下面各卡的内框线对齐，而不是被命中区顶出去 6dp。
-        AiBall(
-            state = ballState,
-            diameter = AiBall.DIAMETER_FIELD,
-            modifier = Modifier.padding(start = AiBall.HIT_SLOP),
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-        // 板 `.date-line{align-items:baseline}`：今天 35px/780 · 周X 15px/650 · 日期 12px/550 @.68
-        // —— 三段各有各的字号。原来把「周三 10 月 21 日」并成一个 17sp Bold，
-        // 比板上重了一档半，也少了板上那种「大字带两个小字」的层次。
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                text = "今天",
-                fontSize = if (compact) 28.sp else 31.sp,
-                fontWeight = Type.weightTitle,
-                color = ink,
-                letterSpacing = (-0.04).em,
-                lineHeight = if (compact) 30.sp else 33.sp,
-            )
-            Text(
-                text = weekLabel,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = ink.copy(alpha = 0.94f),
-                modifier = Modifier.padding(start = 11.dp, bottom = 3.dp),
-            )
-            Text(
-                text = "${now.monthValue} 月 ${now.dayOfMonth} 日",
-                // 清单 #11：改走令牌（`Type.caption` = 11sp，与 :535 那条注释现在说的是同一个数）。
-                fontSize = Type.caption,
-                fontWeight = Type.weightBody,
-                // 板 .68。深色档实测：这段日期正好压在日盘软光上时 CR 只有 3.48
-                // （同一段落在没有盘的地上是 5.04）⇒ 深色档提到 .80 补回可读性。
-                color = ink.copy(alpha = if (look.lightIcons) 0.80f else 0.68f),
-                modifier = Modifier.padding(start = 8.dp, bottom = 3.dp),
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                androidx.compose.material3.Text(
+                    text = "今天 · $weekLabel",
+                    style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
+                    color = ink,
+                )
+                androidx.compose.material3.Text(
+                    text = "${now.monthValue} 月 ${now.dayOfMonth} 日",
+                    style = androidx.compose.material3.MaterialTheme.typography.displaySmall.copy(
+                        fontSize = if (compact) Type.homeDateCompact else Type.homeDate,
+                        lineHeight = if (compact) Type.lineHomeDateCompact else Type.lineHomeDate,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    color = ink,
+                )
+            }
+            AiBall(
+                state = ballState,
+                diameter = if (compact) 64.dp else 76.dp,
+                modifier = Modifier.padding(start = 12.dp),
             )
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
+        androidx.compose.material3.Text(
             text = subline,
-            // 板 `.subline{margin-top:7px;font-size:12.5px;font-weight:550;color:rgba(27,43,40,.72)}`
-            // × 0.886 ⇒ 板上 11sp；**实物走 `Type.secondary` = 13.sp**（第 6 轮必修 5：
-            //   旧注释报 11sp 与代码差 2sp/17.8%，判据②当年正是靠这个偏大才过 4.5）/ .72 墨
-            //
-            // ★ .72 是板子压在**中调天空**上的值（实测板上副行 CR=4.83）。
-            //   暮色/夜航那两档这一行落在被 fade 收淡的带上，白字 .72 实测只剩 **3.04**
-            //   （独立审计 v3 #2 第 7 条：判据②「默认档文字仍可读」就是被这一条卡住的）。
-            //   深色天空抬到 .88；浅色档保持板上的 .72 不动。
-            fontSize = Type.secondary,
-            fontWeight = Type.weightBody,
-            color = ink.copy(alpha = if (look.lightIcons) 0.88f else 0.72f),
+            modifier = Modifier.fillMaxWidth()
+                .background(
+                    MiuixTheme.colorScheme.surface.copy(alpha = 1f),
+                    com.kyant.capsule.ContinuousRoundedRectangle(16.dp),
+                )
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            color = MiuixTheme.colorScheme.onSurface,
         )
-    }
     }
 }
 
@@ -838,6 +821,7 @@ private fun HomeSkyHeader(
 @Composable
 private fun FocusGlassCard(
     backdrop: io.github.neoruaa.glasmio.glass.render.backdrops.LayerBackdrop,
+    compact: Boolean,
     plan: TodayPlan?,
     focus: FocusNow,
     loading: Boolean,
@@ -940,7 +924,7 @@ private fun FocusGlassCard(
         modifier = Modifier
             .fillMaxWidth()
             .dropShadow(
-                shape = RoundedCornerShape(Dims.cardCorner * 1.3f),
+                shape = com.kyant.capsule.ContinuousRoundedRectangle(30.dp),
                 shadow = androidx.compose.ui.graphics.shadow.Shadow(
                     radius = 30.dp,
                     // DpOffset，不是 IntOffset：这层 API 要的是 dp
@@ -951,10 +935,10 @@ private fun FocusGlassCard(
             )
             .retrievalGlow(
                 active = fetching,
-                cornerRadius = Dims.cardCorner * 1.3f,
+                cornerRadius = 30.dp,
                 color = colors.primary,
             ),
-        shape = com.kyant.capsule.ContinuousRoundedRectangle(Dims.cardCorner * 1.3f),
+        shape = com.kyant.capsule.ContinuousRoundedRectangle(30.dp),
         navigationSurfaceColor = colors.surfaceContainer.copy(alpha = faceAlpha),
         navigationSurfaceAlphaMultiplier = 1f,
         sampleBackdrop = material != BarMaterial.SOLID,
@@ -963,11 +947,11 @@ private fun FocusGlassCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClickLabel = "打开课表") { onClick() }
-                .padding(Dims.cardPadding),
+                .padding(if (compact) 20.dp else 24.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "此刻 · " + now.format(TIME_HM),
+                    text = "课程焦点 · " + now.format(TIME_HM),
                     // 板 `.eyebrow{font-size:10px;letter-spacing:.10em;font-weight:700;color:var(--sub)}`
                     fontSize = Type.caption,
                     fontWeight = Type.weightTitle,
@@ -989,11 +973,11 @@ private fun FocusGlassCard(
                     )
                 }
             }
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.height(if (compact) 14.dp else 20.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(
                     Modifier
-                        .weight(1f)
+                        .fillMaxWidth()
                         // ★ B4 / #12：**字底衬底**（只在字块这一小块，外扩 8×6dp、圆角 10dp）。
                         //   卡面厚度按档位给（液态/磨砂各自），可读性靠这一层 —— 业主 2026-10-23 定的口径。
                         //   用 `drawBehind` 而不是 `background`：不改布局（不产生内边距/重测）。
@@ -1013,14 +997,14 @@ private fun FocusGlassCard(
                 ) {
                     Text(
                         text = headline,
-                        // 板 `.focus-title{font-size:23px;font-weight:750;letter-spacing:-.025em;line-height:1.1}`
-                        // × 0.886 ⇒ **20sp**。这是这一屏最大的一块字，原来吃 Type.title(16) 小了一档。
-                        fontSize = 20.sp,
+                        // 焦点课程独占一行；大字模式允许三行，不挤到计时读数旁。
+                        fontSize = if (compact) Type.homeFocusCompact else Type.homeFocus,
                         fontWeight = Type.weightTitle,
                         letterSpacing = (-0.025).em,
-                        lineHeight = 22.sp,
+                        lineHeight = if (compact) Type.lineHomeFocusCompact else Type.lineHomeFocus,
                         color = titleInk,
-                        maxLines = 2,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     subline?.let {
                         Spacer(Modifier.height(3.dp))
@@ -1043,7 +1027,6 @@ private fun FocusGlassCard(
                 }
                 val minutes = focus.minutes
                 if (slot != null && minutes != null) {
-                    Spacer(Modifier.width(12.dp))
                     val fraction = if (focus.ongoing && focus.totalMinutes != null &&
                         focus.totalMinutes > 0
                     ) {
@@ -1051,6 +1034,19 @@ private fun FocusGlassCard(
                     } else {
                         1f
                     }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = if (focus.ongoing) "距离下课" else "距离上课",
+                                fontSize = Type.secondary,
+                                color = quietInk,
+                            )
+                            Text(
+                                text = "按当前节次时间计算",
+                                fontSize = Type.caption,
+                                color = quietInk,
+                            )
+                        }
                     CountdownRing(
                         minutes = minutes,
                         // ★ 环只画**真的在走的那一段**：`fraction` 在「距下一节」那支是硬编码 1f，
@@ -1063,10 +1059,11 @@ private fun FocusGlassCard(
                         track = accentOnFace.copy(alpha = 0.11f),
                         accent = accentOnFace,
                     )
+                    }
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(if (compact) 16.dp else 22.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 // 板子上这两颗按钮是常驻的：去签到本身就是一个真页面（扫码/数字/自助），
                 // 没有「正在进行的签到」也应该能进去看。不要因为当前没签到就把它藏掉。
                 // 谁是主按钮看**有没有真签到可去**：有开着的签到 ⇒「去签到」填实底；
@@ -1074,25 +1071,19 @@ private fun FocusGlassCard(
                 FocusButton(
                     label = "去签到",
                     filled = openRollcall != null,
-                    lineInk = titleInk,
-                    primary = colors.primary,
-                    onFilled = colors.onPrimary,
                     onClick = onOpenRollcall,
+                    modifier = Modifier.weight(1f),
                 )
                 FocusButton(
                     label = "看课表",
                     filled = openRollcall == null,
-                    lineInk = titleInk,
-                    primary = colors.primary,
-                    onFilled = colors.onPrimary,
                     onClick = onClick,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
 
-        // 第 0 期把球从这张卡的右下角**搬走了**（业主 2026-10-25「以表情为核心」）：
-        // 它现在在标题区左侧当 96dp 的主视觉（见 HomeSkyHeader 里的球场）。
-        // 不在这张卡里再画一颗 —— 一处状态只在屏幕上一个地方说，两处迟早各说各的。
+        // 同一状态只在日期标题旁显示一颗球，课程面板不重复。
     }
 }
 
@@ -1187,44 +1178,12 @@ private fun CountdownRing(
 private fun FocusButton(
     label: String,
     filled: Boolean,
-    lineInk: Color,
-    primary: Color,
-    onFilled: Color,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(50)
-    // 板 `.btn{font-size:10.5px;font-weight:650;padding:8px 13px;border-radius:999px}`
-    // × 0.886 ⇒ 9–10sp 字、11.5×7dp 内边距。
-    // `.btn.ghost` 的描边是 **--line-strong**（rgba(26,25,23,.16)），
-    // 不是「墨色 40%」—— 原来那条边在天空上重得像支笔勾过。
-    val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
-    // 按下缩、松手过冲一点点再停（2026-11-01 抖音那条「PRESS SCALE」）。
-    // 同一枚 source 必须交给下面 clickable，否则这里收不到按下 —— 也就会与它抢手势。
-    val interaction = remember { MutableInteractionSource() }
-    Text(
-        text = label,
-        fontSize = Type.summary,
-        fontWeight = Type.weightBody,
-        // 板 `.btn.ghost{color:var(--sub)}` = #736E64 —— **不是墨黑**。
-        // 上一版这里给 lineInk（黄昏/深色时是近白、浅色时是近黑），主/次对比被抹平：
-        // 主按钮靠填色分主次，次按钮的字必须退到 --sub（复评 2026-10-22）。
-        color = if (filled) onFilled else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier
-            .pressSpring(interaction)
-            .clip(shape)
-            .background(if (filled) primary else Color.Transparent)
-            .then(
-                if (filled) Modifier
-                else Modifier.border(
-                    1.dp,
-                    if (isDark) Color(0xFFFFFFFF).copy(alpha = 0.18f)
-                    else Color(0xFF1A1917).copy(alpha = 0.16f),
-                    shape,
-                )
-            )
-            .clickable(interactionSource = interaction, indication = null) { onClick() }
-            .padding(horizontal = 11.5.dp, vertical = 7.dp),
-    )
+    WanzaiButton(onClick = onClick, prominent = filled, modifier = modifier) {
+        androidx.compose.material3.Text(label, fontSize = Type.bodyEmphasis, fontWeight = FontWeight.Medium)
+    }
 }
 
 /**
@@ -1263,7 +1222,7 @@ private fun TodayTimelineCard(
                 )
                 Text(
                     text = "今天的安排",
-                    fontSize = Type.body,
+                    style = io.github.neoruaa.glasmio.core.IosTypography.title3,
                     fontWeight = Type.weightTitle,
                     color = colors.onBackground,
                     modifier = Modifier.weight(1f),
@@ -1516,7 +1475,7 @@ private fun RollcallSection(
             )
             Text(
                 text = "课堂签到",
-                fontSize = Type.body,
+                style = io.github.neoruaa.glasmio.core.IosTypography.title3,
                 fontWeight = Type.weightTitle,
                 color = colors.onBackground,
                 modifier = Modifier.weight(1f),
@@ -1629,7 +1588,7 @@ private fun TodoSummaryCard(
                 )
                 Text(
                     text = "要处理",
-                    fontSize = Type.body,
+                    style = io.github.neoruaa.glasmio.core.IosTypography.title3,
                     fontWeight = Type.weightTitle,
                     color = colors.onBackground,
                     modifier = Modifier.weight(1f),
@@ -1808,7 +1767,7 @@ private fun RunSummaryCard(
             )
             Text(
                 text = "校园跑",
-                fontSize = Type.body,
+                style = io.github.neoruaa.glasmio.core.IosTypography.title3,
                 fontWeight = Type.weightTitle,
                 color = colors.onBackground,
                 modifier = Modifier.weight(1f),

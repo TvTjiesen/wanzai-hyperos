@@ -30,29 +30,22 @@ class AiBallWiringTest {
     }
 
     @Test
-    fun 三个内容页各自在标题左边挂一只球() {
-        // 消息 / 应用 / 设置走共享的大标题（leading 槽）。
-        // 2026-11-07 起这三页的 `largeTitleItem` 是**多行多参**调用（加了 kicker / heroTitle /
-        // subtitle / divider 四个参数去复刻稿的「球 + eyebrow + 大字 + 副行 + 细线」），
-        // 所以判据不能再钉一整行字面量，改钉两个**语义点**：
-        //   ① 调的是 `largeTitleItem(`；② leading 槽里确实是 `AiBall(state = ballState`。
-        // 中间插多少个命名参数都不影响「这一页有没有脸」。
-        val viaLargeTitle = mapOf(
-            "消息" to "main/pages/NotifySectionPage.kt",
-            "应用" to "main/pages/AppsSectionPage.kt",
-            "设置" to "main/pages/SettingsSectionPage.kt",
+    fun 三个内容页各自在滚动标题内挂一只球() {
+        val pages = mapOf(
+            "消息" to ("main/pages/NotifySectionPage.kt" to "largeTitleItem("),
+            "应用" to ("main/pages/AppsSectionPage.kt" to "largeTitleItem("),
+            "设置" to ("main/pages/SettingsSectionPage.kt" to "settingsTitleItem("),
         )
-        viaLargeTitle.forEach { (name, rel) ->
-            val src = code(rel)
-            assertTrue(
-                "$name 页没有走 largeTitleItem —— 那一页就没有标题了",
-                src.contains("largeTitleItem("),
-            )
-            assertTrue(
-                "$name 页的大标题没有把小球当 leading —— 那一页就没有脸了",
-                src.contains("leading = { AiBall(state = ballState"),
-            )
+        pages.forEach { (name, entry) ->
+            val src = code(entry.first)
+            assertTrue("$name 页没有滚动标题入口", src.contains(entry.second))
+            assertTrue("$name 页标题未接真实状态球", src.contains("leading = { AiBall(state = ballState"))
+            assertTrue("$name 页应只有一只内容层球", Regex("\\bAiBall\\(").findAll(src).count() == 1)
         }
+        val title = code("main/pages/redesign/SettingsOverview.kt")
+        assertTrue("设置标题必须在 LazyList item 内消费 leading", title.contains("item(key = \"large_title\")") && title.contains("leading()"))
+        assertTrue("自定义标题仍需上报真实高度，折叠不能失联", title.contains("pilot.titleHeightPx = it.height.toFloat()"))
+        assertTrue("设置标题必须可被读屏识别", title.contains("heading()") && title.contains("IosTypography.largeTitle"))
     }
 
     @Test
@@ -117,11 +110,12 @@ class AiBallWiringTest {
         val home = code("main/pages/HomeSectionPage.kt")
         assertTrue("首页没有 AiBall", home.contains("AiBall("))
         assertTrue("首页球的状态没用 ofHome 算", home.contains("AiBallStates.ofHome("))
-        // 第 0 期：球从卡内 36dp 搬到标题区左侧当 96dp 主视觉（B4-12-BALL-AS-CORE §2）。
-        assertTrue(
-            "首页的球没放大到主视觉档 —— 它现在是首页唯一一张脸，不是角落里的装饰",
-            home.contains("diameter = AiBall.DIAMETER_FIELD"),
-        )
+        // 2026-11-10：用户批准日期主导的 Glasmio 布局，状态球保留在滚动标题右侧。
+        val header = home.substringAfter("private fun HomeSkyHeader(").substringBefore("private fun FocusGlassCard(")
+        assertTrue("首页必须只有一只球，不能在卡内重复", Regex("\\bAiBall\\(").findAll(home).count() == 1)
+        assertTrue("首页球必须消费真实 ballState", header.contains("state = ballState"))
+        assertTrue("紧凑及常规档都必须保留可见状态球", header.contains("diameter = if (compact) 64.dp else 76.dp"))
+        assertTrue("日期与状态球必须在同一滚动标题内容内", header.contains("now.monthValue") && header.contains("now.dayOfMonth") && header.contains("Modifier.weight(1f)"))
         // 一处状态只在屏幕上一个地方说：卡内那颗已经删了，不能再冒出来。
         assertTrue(
             "卡里还留着一颗球 —— 第 0 期把球搬到了标题区，屏幕上只该有一张脸",

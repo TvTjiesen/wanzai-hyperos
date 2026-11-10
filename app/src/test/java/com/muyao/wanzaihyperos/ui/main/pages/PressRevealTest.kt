@@ -94,21 +94,22 @@ class PressRevealTest {
     }
 
     @Test
-    fun `首页两个胶囊真的接了按下回弹（同一枚 source，且写在底色之前）`() {
+    fun `首页焦点操作接原生按下响应并保减少动态退路`() {
         val body = source("main/ui/main/pages/HomeSectionPage.kt")
-        val i = body.indexOf("private fun FocusButton(")
-        assertTrue("找不到 FocusButton —— 这条判据指向了一个不存在的地方", i >= 0)
-        val fn = body.substring(i, minOf(body.length, i + 1800))
-        assertTrue("按下回弹没接上", fn.contains("pressSpring(interaction)"))
-        assertTrue(
-            "pressSpring 必须写在 clip/background **之前**：graphicsLayer 只作用于它之后画的东西，" +
-                "写反了就是「只有字在缩、底和描边不缩」",
-            fn.indexOf("pressSpring(interaction)") < fn.indexOf(".clip(shape)"),
-        )
-        assertTrue(
-            "clickable 必须收下同一枚 interaction source，否则 pressSpring 收不到按下",
-            fn.contains("clickable(interactionSource = interaction, indication = null)"),
-        )
+        val fn = body.substringAfter("private fun FocusButton(").substringBefore("private fun TodayTimelineCard(")
+        assertTrue("焦点操作没有委托 Glasmio 适配器", fn.contains("WanzaiButton(onClick = onClick, prominent = filled, modifier = modifier)"))
+        assertTrue("签到和课表回调必须分别保留", body.contains("onClick = onOpenRollcall") && body.contains("onClick = onClick"))
+        val adapter = source("main/ui/components/WanzaiGlasmioControls.kt")
+            .substringAfter("fun WanzaiButton(").substringBefore("fun WanzaiTextButton(")
+        assertTrue("动态闸门未消费", adapter.contains("rememberMotion().canMove"))
+        assertTrue("原生与静态两支都必须收回调", Regex("onClick = onClick").findAll(adapter).count() == 2)
+        assertTrue("减少动态必须仍有可用静态按钮", adapter.contains("GlasmioButton(") && adapter.contains("ButtonDefaults.buttonColors("))
+        val nativeButton = java.io.File("../third_party/glasmio/glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlassButtons.kt").readText()
+        assertTrue("原生按钮须把回调交给玻璃表面", nativeButton.contains("GlassSurface(") && nativeButton.contains("onClick = onClick"))
+        val surface = java.io.File("../third_party/glasmio/glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/GlassSurface.kt").readText()
+        assertTrue("按下变形与触摸必须是同一个状态", surface.contains("interactiveHighlight.pressProgress") && surface.contains("interactiveHighlight.gestureModifier"))
+        assertTrue("变形必须覆盖表面而非只缩文字", surface.contains("Modifier.graphicsLayer(dragScaleLayerBlock).clip(shape)"))
+        assertTrue("禁用按钮不能仍发按下动作", surface.contains("if (onClick != null && enabled) interactiveHighlight.modifier"))
     }
 
     @Test

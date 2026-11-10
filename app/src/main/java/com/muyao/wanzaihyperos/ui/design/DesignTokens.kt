@@ -274,6 +274,16 @@ object Type {
     /** 頁面大標題（**折疊的那個**，是列表首項而不是頂欄的一部分）。 */
     val largeTitle = 34.sp
 
+    /** 日期主导的首页：两种密度共用一组可调刻度。 */
+    val homeDate = 38.sp
+    val homeDateCompact = 32.sp
+    val lineHomeDate = 44.sp
+    val lineHomeDateCompact = 38.sp
+    val homeFocus = 28.sp
+    val homeFocusCompact = 24.sp
+    val lineHomeFocus = 34.sp
+    val lineHomeFocusCompact = 30.sp
+
     /** 沉浸態標題、品牌名。 */
     val displayTitle = 26.sp
 

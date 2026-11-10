@@ -1,7 +1,6 @@
 package com.muyao.wanzaihyperos.ui.main.pages
 
 import com.muyao.wanzaihyperos.ui.design.liquid.LocalNavBarVisible
-import com.muyao.wanzaihyperos.ui.design.liquid.largeTitleItem
 import com.muyao.wanzaihyperos.ui.design.liquid.rememberPageChromePilot
 import com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp
 import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
@@ -53,10 +52,12 @@ import com.muyao.wanzaihyperos.ui.AppUiState
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.SettingExpand
-import com.muyao.wanzaihyperos.ui.design.SettingGroup
+import io.github.neoruaa.glasmio.ui.GlasmioGroupedList
 import com.muyao.wanzaihyperos.ui.design.SettingIcon
-import com.muyao.wanzaihyperos.ui.design.SettingRow
-import com.muyao.wanzaihyperos.ui.design.SettingSectionLabel
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.SettingsOverviewRow
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.SettingsGroupTitle
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.SettingsConnectionCard
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.settingsTitleItem
 import com.muyao.wanzaihyperos.ui.design.PillSwitch
 import com.muyao.wanzaihyperos.ui.design.PeriodTimeEditor
 import androidx.compose.ui.platform.LocalContext
@@ -83,12 +84,8 @@ private fun rememberAppVersion(): String {
 }
 
 /**
- * **設定板塊**（业主 2026-10-19：设置页照参照站的功能与 UI 做）。
- *
- * ## 版式
- *
- * 分组小标题 + 一个圆角容器里塞几行，每行「彩色圆角方形图标 + 标题/副标题 + 右侧
- * chevron 或开关」—— 图标全部 Canvas 自绘（`ui/design/SettingsChrome.kt`）。
+ * 设置总览：Glasmio 大标题、独立连接摘要与自增长分组列表。
+ * 所有业务回调、偏好写入及提醒 helper 仍由原宿主持有。
  *
  * ## ★ 只放**真的会做事**的行
  *
@@ -239,7 +236,6 @@ fun SettingsSectionPage(
         "off" -> "关闭玻璃"
         else -> "液态玻璃"
     }
-    val heroSubtitle = "$glassLabel · 偏好保存在本机"
 
     LazyColumn(
         state = pilot.listState,
@@ -252,17 +248,12 @@ fun SettingsSectionPage(
             top = 0.dp,
             bottom = pageBottomInsetDp(LocalNavBarVisible.current),   // 玻璃底欄的高度：讓最後一行能滾到玻璃底下
         ),
-        verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // 2026-11-07 按设计稿 v2.1 复刻首屏英雄区：「显示偏好 / 你的习惯 / 液态玻璃 · 偏好保存在本机」。
-        // 顶栏小标题仍是「设置」，首屏大字换成「你的习惯」。
-        largeTitleItem(
+        // 大标题与连接卡独立成层；标题测量仍交给同一个滚动 pilot。
+        settingsTitleItem(
             pilot = pilot,
             leading = { AiBall(state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP, announceArrival = true) },
-            kicker = "显示偏好",
-            heroTitle = "你的习惯",
-            subtitle = heroSubtitle,
-            divider = true,
         )
 
         // ---- 帳號（v3 #8：业主 2026-10-22「把需要登录的账号都列出来」）--------
@@ -286,43 +277,28 @@ fun SettingsSectionPage(
         // 减弱透明度（开关）/ 动画与辅助显示（带 ›）。原来这里是「账号」「外观」两张卡，
         // 与板面一比，卡中间多了一条缝、标题也多了一行。
         item(key = "account-entry") {
-            SettingSectionLabel("账号与外观", icon = MarkIcon.Account)
-            SettingGroup {
-                SettingRow(
-                    icon = SettingIcon.Shield,
-                    tint = Tone.quiet,
-                    title = "账号与连接",
-                    subtitle = if (accountSources.isEmpty()) {
-                        "正在读取各系统的登录状态"
-                    } else {
-                        val n = accountSources.count { it.status == AccountStatus.LoggedIn }
-                        // ★ 副标题必须在一行内说完（2026-11-01 真机截图：「…逐项查看与重新
-                        //   登录」折出的第二行只有「登录」两个字，看着像排坏了）。
-                        //   真机量出的可写宽度约 229dp，Type.caption 11sp × 1.15 ⇒ 约 19 字。
-                        "$n / ${accountSources.size} 个来源 · 独立连接"
-                    },
-                    onClick = onOpenAccounts,
-                    trailingChevron = true,
-                    // 稿 `settings` 右值「7 项」= 七个来源，不是「已登录 7 个」。
-                    // 写成登录数会在未登录时变成「0 项」，读起来像「没接任何来源」。
-                    trailing = {
-                        Text(
-                            // 会变的数字必须等宽：来源数是 7 但「5 / 7」里的 5 也在变，
-                            // 不等宽时数字一变整行左右跳（#41）。
-                            text = if (accountSources.isEmpty()) "—" else accountSources.size.toString() + " 项",
-                            fontSize = Type.caption,
-                            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = Type.tabular),
-                            color = colors.onSurfaceVariantSummary,
-                        )
-                    },
-                )
+            SettingsConnectionCard(
+                summary = if (accountSources.isEmpty() || accountSources.any { it.status == AccountStatus.Unknown }) {
+                    "正在读取各系统的登录状态"
+                } else {
+                    val n = accountSources.count { it.status == AccountStatus.LoggedIn }
+                    "$n / ${accountSources.size} 个来源 · 独立连接"
+                },
+                sourceCount = if (accountSources.isEmpty()) "—" else accountSources.size.toString() + " 项",
+                reading = accountSources.isEmpty() || accountSources.any { it.status == AccountStatus.Unknown },
+                onClick = onOpenAccounts,
+            )
+        }
+        item(key = "personal-preferences") {
+            SettingsGroupTitle("个人偏好")
+            GlasmioGroupedList {
                 // ★ 主题三行**撤掉了**（工单第 15 轮）：它和外观页第一行是同一个功能两个入口。
                 //   现在主题只在外观页出现（`AppearanceOneStopTest` 守"唯一入口"）。
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.Glass,
                     tint = Tone.quiet,
                     title = "外观与壁纸",
-                    subtitle = "色彩、材质、布局与本地壁纸",
+                    subtitle = "$glassLabel · 色彩、布局与本地壁纸",
                     // 稿 `settings` 右值「自定义」：不是"已改过"的判定，是这一组设置的统称 ——
                     // 与「7 项」同一手法（右端是归类，不是状态）。
                     trailingChevron = true,
@@ -335,7 +311,7 @@ fun SettingsSectionPage(
                     },
                     onClick = onOpenAppearance,
                 )
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.Eye,
                     // 笔画色跟着开关走：OFF 时还给强调蓝，等于用颜色替一项
                     // 没生效的功能背书（复评 2026-10-22）。2026-11-07 起图形是裸线稿，
@@ -354,7 +330,7 @@ fun SettingsSectionPage(
                         }
                     },
                 )
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.Sun,
                     tint = Tone.quiet,
                     title = "动画与辅助显示",
@@ -366,10 +342,10 @@ fun SettingsSectionPage(
         }
 
         // ---- 課表 ----------------------------------------------------------
-        item(key = "timetable-label") { SettingSectionLabel("课表与提醒", icon = MarkIcon.Schedule) }
+        item(key = "timetable-label") { SettingsGroupTitle("课表与提醒") }
         item(key = "timetable-default-view") {
-            SettingGroup {
-                SettingRow(
+            GlasmioGroupedList {
+                SettingsOverviewRow(
                     icon = SettingIcon.Timetable,
                     tint = Tone.ok,
                     title = "默认整周课表",
@@ -387,7 +363,7 @@ fun SettingsSectionPage(
                         }
                     },
                 )
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.Clock,
                     tint = Tone.ok,
                     title = "节次时间表",
@@ -407,7 +383,7 @@ fun SettingsSectionPage(
                     // 原来那颗自绘的 ›/▾ 箭头随之删除 —— 现在恒为跳转，交给 trailingChevron。
                     trailingChevron = true,
                 )
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.Alarm,
                     tint = if (UiPrefs.classReminderEnabled) Tone.ok else Tone.quiet,
                     title = "上课提醒",
@@ -426,9 +402,9 @@ fun SettingsSectionPage(
         // 又不給一個看得見的大小和一鍵清除，這件事本身就不該做。
         // 稿 `settings` 把缓存单独归在一个「存储」分组下 —— 它确实是另一件事：
         // 前两组是「怎么显示」「怎么提醒」，这一组是「东西存在哪、占多大」。
-        item(key = "storage-label") { SettingSectionLabel("存储", icon = MarkIcon.Data) }
+        item(key = "storage-label") { SettingsGroupTitle("存储与数据") }
         item(key = "http-cache") {
-            SettingGroup {
+            GlasmioGroupedList {
                 // 建议五：分域清理（业主 2026-11-07「五项新增设置全做」）。
                 //
                 // 为什么不是"一键全清"了事：一键全清是最后手段。他多半只想清掉
@@ -438,7 +414,7 @@ fun SettingsSectionPage(
                 var expanded by remember { mutableStateOf(false) }
                 val totalBytes = domains.sumOf { it.bytes }
                 val totalCount = domains.sumOf { it.entries }
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.Broom,
                     tint = Tone.ok,
                     title = "本地缓存",
@@ -494,7 +470,7 @@ fun SettingsSectionPage(
                         }
                     }
                 }
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.Broom,
                     tint = if (totalCount == 0) Tone.quiet else Tone.warn,
                     title = "全部清掉",
@@ -515,9 +491,9 @@ fun SettingsSectionPage(
         }
 
         // ---- 偏好备份（建议五，业主 2026-11-07「五项新增设置全做」）--------------
-        item(key = "backup-label") { SettingSectionLabel("偏好备份", icon = MarkIcon.Data) }
+        item(key = "backup-label") { SettingsGroupTitle("偏好备份") }
         item(key = "backup") {
-            SettingGroup {
+            GlasmioGroupedList {
                 var pending by remember { mutableStateOf<com.muyao.wanzaihyperos.data.PrefsBackup.Preview?>(null) }
                 var result by remember { mutableStateOf<String?>(null) }
 
@@ -555,7 +531,7 @@ fun SettingsSectionPage(
                         .onFailure { result = "读不了这份文件：" + (it.message ?: "") }
                 }
 
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.Doc,
                     tint = Tone.ok,
                     title = "导出偏好",
@@ -563,7 +539,7 @@ fun SettingsSectionPage(
                     onClick = { exportLauncher.launch(com.muyao.wanzaihyperos.data.PrefsBackup.suggestedFileName()) },
                     trailing = { Text(text = "导出", fontSize = Type.summary, color = colors.primary) },
                 )
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.School,
                     tint = Tone.quiet,
                     title = "从备份恢复",
@@ -655,14 +631,14 @@ fun SettingsSectionPage(
         }
 
         // ---- 關於 ----------------------------------------------------------
-        item(key = "about-label") { SettingSectionLabel("关于", icon = MarkIcon.Info) }
+        item(key = "about-label") { SettingsGroupTitle("关于与来源") }
         item(key = "about") {
-            SettingGroup {
+            GlasmioGroupedList {
                 // 2026-11-08 业主：「底下的品牌与图标方案可以去掉」—— 品牌页连同这一行
                 // 一起下线。名称与图标现在只在关于页出现（真图标 + 「柒合院」）。
                 // ★ 返工总单 A11：这一行以前没有 onClick（死行）。稿里它是个弹层（R.sheet），
                 //   不是独立页 —— 一条「这些数据归谁」的说明不值得占一个 Route。
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.School,
                     tint = Tone.ok,
                     title = "资料来源",
@@ -673,7 +649,7 @@ fun SettingsSectionPage(
                 // B4-10：关于页（原项目仓库 / 作者 / 逐条开源许可）收在二级页里。
                 // 2026-11-09 业主让把关于页底下的注释去掉，版本号挪到这条副标题上，
                 // 免得「我装的是哪一版」只能靠猜。
-                SettingRow(
+                SettingsOverviewRow(
                     icon = SettingIcon.Doc,
                     tint = Tone.ok,
                     title = "关于与开源许可",
@@ -687,7 +663,7 @@ fun SettingsSectionPage(
                 // 会让 release 编译期就找不着符号）。判据用 FLAG_DEBUGGABLE 而不是 BuildConfig.DEBUG，
                 // 与本项目其它 debug 口子一致。
                 if ((context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
-                    SettingRow(
+                    SettingsOverviewRow(
                         icon = SettingIcon.Info,
                         tint = Tone.warn,
                         title = "小球调试台",
