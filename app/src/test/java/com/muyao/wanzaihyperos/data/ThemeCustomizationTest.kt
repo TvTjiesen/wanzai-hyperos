@@ -15,8 +15,7 @@ class ThemeCustomizationTest {
             predictiveBack = false, swipeDismiss = false, swipePages = false,
             pagerGestureMode = PagerGestureMode.IosLike, colorStyle = "neutral",
             cardOpacity = 40, wallpaperBlur = 22, wallpaperLightness = -60,
-            accentHex = "#A04590", navigationIcons = mapOf(0 to "home-image", 4 to "settings-image"), cardImage = "card-image",
-            stickers = listOf(HomeSticker("one", "sticker-image", .2f, .3f, 1.7f, -45f)))
+            accentHex = "#A04590", navigationIcons = mapOf(0 to "home-image", 4 to "settings-image"), cardImage = "card-image")
         val original = AppearanceSettings(customization = custom, reduceMotion = true, highContrast = true).validated()
         val buffer = ByteArrayOutputStream()
         AppearanceThemePackage.write(buffer, original)
@@ -35,10 +34,7 @@ class ThemeCustomizationTest {
         val invalid = listOf(ThemeCustomization(topBlur = -1), ThemeCustomization(textScale = 200), ThemeCustomization(cardOpacity = 29),
             ThemeCustomization(homeTitle = "bad\ntext"), ThemeCustomization(accentHex = "#bad"),
             ThemeCustomization(displayScale = 200), ThemeCustomization(wallpaperRotation = 360), ThemeCustomization(wallpaperRotation = -1), ThemeCustomization(colorStyle = "unknown"),
-            ThemeCustomization(cardImage = "../../photo"), ThemeCustomization(navigationIcons = mapOf(5 to "image")),
-            ThemeCustomization(stickers = List(6) { HomeSticker("$it", "photo") }),
-            ThemeCustomization(stickers = listOf(HomeSticker("same", "photo"), HomeSticker("same", "photo"))),
-            ThemeCustomization(stickers = listOf(HomeSticker("one", "photo", x = Float.NaN))))
+            ThemeCustomization(cardImage = "../../photo"), ThemeCustomization(navigationIcons = mapOf(5 to "image")))
         invalid.forEach { assertTrue(runCatching { it.validated() }.isFailure) }
     }
 

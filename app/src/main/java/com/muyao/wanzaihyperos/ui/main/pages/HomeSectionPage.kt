@@ -250,7 +250,6 @@ fun HomeSectionPage(
     // 也就是 `colors.background`。所以造一版「纸面天空」交给下游：
     // 三段色全取纸色（`cardBackdrops` 会据此喂出一整排纸色，焦点卡按它算字色），
     // 墨色取主题的 `onBackground`，状态栏图标跟随主题明暗。
-    val homeStickersVisible = com.muyao.wanzaihyperos.ui.design.LocalThemeCustomization.current.stickers.isNotEmpty()
     val bare = LocalContainerStyle.current == ContainerStyle.Bare
     val look = if (bare || desktop) {
         SkyLook(
@@ -607,12 +606,6 @@ fun HomeSectionPage(
                     }
                 }
 
-                if (homeStickersVisible) {
-                    item(key = "decorations") {
-                        com.muyao.wanzaihyperos.ui.home.HomeStickers(
-                            Modifier.fillMaxWidth().height(160.dp).then(if (statusMotion.canMove) Modifier.animateItem() else Modifier))
-                    }
-                }
                 item(key = "quick-actions") {
                     HomeQuickActions(
                         backdrop = skyBackdrop,

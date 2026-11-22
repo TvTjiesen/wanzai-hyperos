@@ -272,7 +272,7 @@ fun AppearancePage(
             }
             item(key = "home-layout") {
                 AppearanceSection("首页布局") {
-                    Text("独立调整贴纸、首页模块、标题和密度，隐藏模块后自动补位。", fontSize = 13.sp)
+                    Text("独立调整首页模块、标题和密度，隐藏模块后自动补位。", fontSize = 13.sp)
                     AppearanceChoice("打开首页布局", false, !busy) { layoutEditing = true }
                 }
             }

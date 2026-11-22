@@ -41,37 +41,4 @@ class WallpaperGeometryTest {
         assertEquals(WallpaperGeometry(1f, 0f, 0f), wallpaperGeometry(0, 100, 100f, 100f, 1f, 45f))
         assertEquals(WallpaperGeometry(1f, 0f, 0f), wallpaperGeometry(100, 100, Float.POSITIVE_INFINITY, 100f, 1f, 45f))
     }
-
-    @Test fun smallDragStepsEscapeSnapWithoutLosingTheirAccumulatedDistance() {
-        val axis = StickerDragAxis(.5f)
-        repeat(8) { assertEquals(.5f, axis.move(.005f), .0001f) }
-        assertTrue(axis.move(.01f) > .54f)
-        assertTrue(axis.move(.01f) > .55f)
-        repeat(5) { axis.move(-.01f) }
-        assertEquals(.5f, axis.move(-.01f), .0001f)
-        assertEquals(.5f, axis.move(Float.NaN), .0001f)
-        assertEquals(1f, axis.move(10f), 0f)
-        assertEquals(0f, axis.move(-10f), 0f)
-    }
-
-    @Test fun scaledRotatedStickersStayInsideContainerIncludingSmallPreviews() {
-        for ((width, height) in listOf(360f to 160f, 280f to 200f, 40f to 30f)) {
-            for (rotation in -180..180 step 9) for (scale in listOf(.4f, 1f, 2f)) {
-                for (x in listOf(0f, .5f, 1f)) for (y in listOf(0f, .5f, 1f)) {
-                    val frame = stickerGeometry(width, height, 64f, scale, rotation.toFloat(), x, y)
-                    val radians = Math.toRadians(rotation.toDouble())
-                    val projectedSide = frame.side * (abs(cos(radians)) + abs(sin(radians)))
-                    val centerX = frame.left + frame.side / 2
-                    val centerY = frame.top + frame.side / 2
-                    assertTrue(centerX - projectedSide / 2 >= -.001)
-                    assertTrue(centerY - projectedSide / 2 >= -.001)
-                    assertTrue(centerX + projectedSide / 2 <= width + .001)
-                    assertTrue(centerY + projectedSide / 2 <= height + .001)
-                }
-            }
-        }
-        assertEquals(.5f, snapStickerPosition(.51f), 0f)
-        assertEquals(.3f, snapStickerPosition(.3f), 0f)
-        assertEquals(0f, snapStickerPosition(-.1f), 0f)
-    }
 }

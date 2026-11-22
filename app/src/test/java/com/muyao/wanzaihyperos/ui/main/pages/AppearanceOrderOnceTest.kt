@@ -35,7 +35,7 @@ class AppearanceOrderOnceTest {
         }
         assertTrue(page.contains("HomeLayoutPage(onClose"))
         val layout = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/HomeLayoutPage.kt").readText()
-        assertTrue(layout.contains("HomeStickers(Modifier.fillMaxSize(), onChange = ::updateSticker)"))
+        assertFalse("贴纸功能已整体移除", layout.contains("HomeSticker"))
         assertTrue(layout.contains("draft.modules - id") && layout.contains("draft.modules + id"))
         assertTrue(page.contains("height(64.dp)"))
         assertFalse(page.contains("AppColors.pageBrush(true, background)"))

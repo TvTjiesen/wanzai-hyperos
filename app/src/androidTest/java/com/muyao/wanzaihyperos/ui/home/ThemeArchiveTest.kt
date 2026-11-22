@@ -34,7 +34,7 @@ class ThemeArchiveTest {
             assertEquals(0, rejected)
             val source = entries.first { it.id !in before }
             val custom = ThemeCustomization(accentHex = "#AA3399", cardImage = source.id,
-                stickers = listOf(HomeSticker("sticker", source.id, .3f, .7f, 1.2f, 80f)), navigationIcons = mapOf(2 to source.id))
+                navigationIcons = mapOf(2 to source.id))
             val settings = AppearanceSettings(sky = "album", customization = custom)
             val output = ByteArrayOutputStream()
             AppearanceThemeArchive.write(context, output, settings, image, true)
@@ -42,7 +42,7 @@ class ThemeArchiveTest {
             assertNotNull(imported.wallpaper)
             val importedId = checkNotNull(imported.settings.customization.cardImage)
             assertNotEquals(source.id, importedId)
-            assertEquals(importedId, imported.settings.customization.stickers.single().image)
+            assertEquals(importedId, imported.settings.customization.cardImage)
             assertEquals(importedId, imported.settings.customization.navigationIcons[2])
             assertArrayEquals(image.readBytes(), library.file(WallpaperEntry(importedId)).readBytes())
             assertEquals(prefsBefore, UiPrefs.appearanceSnapshot())
@@ -52,7 +52,6 @@ class ThemeArchiveTest {
             assertEquals("auto", plain.settings.sky)
             assertNull(plain.wallpaper)
             assertNull(plain.settings.customization.cardImage)
-            assertTrue(plain.settings.customization.stickers.isEmpty())
             val unsafe = ByteArrayOutputStream()
             ZipOutputStream(unsafe).use { it.putNextEntry(ZipEntry("../outside.img")); it.write(byteArrayOf(1)); it.closeEntry() }
             assertTrue(runCatching { AppearanceThemeArchive.read(context, ByteArrayInputStream(unsafe.toByteArray())) }.isFailure)

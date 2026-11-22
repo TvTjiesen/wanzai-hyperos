@@ -378,7 +378,8 @@ object UiPrefs {
         }
         loaded = true
         val p = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        themeCustomization = runCatching { kotlinx.serialization.json.Json.decodeFromString<ThemeCustomization>(p.getString("theme_customization_v1", null) ?: "{}").validated() }.getOrDefault(ThemeCustomization())
+        // 旧存档里可能残留已移除的字段（如贴纸 stickers）；忽略未知键，否则整块主题设置会被丢回默认值。
+        themeCustomization = runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<ThemeCustomization>(p.getString("theme_customization_v1", null) ?: "{}").validated() }.getOrDefault(ThemeCustomization())
         themeModeName = p.getString(KEY_THEME, "System") ?: "System"
         timetableGrid = p.getBoolean(KEY_TIMETABLE_GRID, false)
         reduceTransparency = p.getBoolean(KEY_REDUCE_TRANSPARENCY, false)

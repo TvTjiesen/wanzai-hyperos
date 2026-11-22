@@ -78,7 +78,7 @@ private fun WallpaperCanvas(appearance: AppearanceSettings, image: LoadedWallpap
 @Composable
 internal fun WallpaperEditor(initial: AppearanceSettings, image: LoadedWallpaper?, onCancel: () -> Unit, onDone: (AppearanceSettings) -> Unit, originBounds: androidx.compose.ui.geometry.Rect? = null, sourceIsValid: () -> Boolean = { true }) {
     val saver = Saver<AppearanceSettings, String>(save = { Json.encodeToString(it) },
-        restore = { runCatching { Json.decodeFromString<AppearanceSettings>(it).validated() }.getOrNull() })
+        restore = { runCatching { Json { ignoreUnknownKeys = true }.decodeFromString<AppearanceSettings>(it).validated() }.getOrNull() })
     var draft by rememberSaveable(stateSaver = saver) { mutableStateOf(initial) }
     var grid by rememberSaveable { mutableStateOf(false) }
     var gestureRotation by rememberSaveable { mutableFloatStateOf(initial.customization.wallpaperRotation.toFloat()) }

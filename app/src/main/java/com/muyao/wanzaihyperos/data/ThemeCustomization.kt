@@ -3,15 +3,6 @@ package com.muyao.wanzaihyperos.data
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class HomeSticker(val id: String, val image: String, val x: Float = .8f, val y: Float = .1f, val scale: Float = 1f, val rotation: Float = 0f) {
-    fun validated() {
-        require(id.matches(Regex("[a-zA-Z0-9-]{1,64}")) && image.matches(Regex("[a-zA-Z0-9-]{1,64}")))
-        require(x.isFinite() && y.isFinite() && scale.isFinite() && rotation.isFinite())
-        require(x in 0f..1f && y in 0f..1f && scale in .4f..2f && rotation in -180f..180f)
-    }
-}
-
-@Serializable
 enum class PagerGestureMode { Native, CrossAxis, IosLike }
 
 /** Portable visual preferences. School data and credentials never belong in this model. */
@@ -40,7 +31,6 @@ data class ThemeCustomization(
     val accentHex: String = "",
     val navigationIcons: Map<Int, String> = emptyMap(),
     val cardImage: String? = null,
-    val stickers: List<HomeSticker> = emptyList(),
 ) {
     fun validated(): ThemeCustomization {
         require(displayScale in 85..115 && wallpaperRotation in 0..359)
@@ -48,8 +38,6 @@ data class ThemeCustomization(
         require(accentHex.isEmpty() || accentHex.matches(Regex("#[0-9a-fA-F]{6}")))
         require(navigationIcons.keys.all { it in 0..4 } && navigationIcons.values.all { it.matches(Regex("[a-zA-Z0-9-]{1,64}")) })
         require(cardImage == null || cardImage.matches(Regex("[a-zA-Z0-9-]{1,64}")))
-        require(stickers.size <= 5 && stickers.map { it.id }.distinct().size == stickers.size)
-        stickers.forEach { it.validated() }
         require(accent in setOf("indigo", "blue", "teal", "purple", "rose", "orange"))
         require(homeTitle.length <= 24 && homeTitle.none { it.isISOControl() })
         require(topBlur in 0..32 && textScale in 85..130 && cardOpacity in 30..100)

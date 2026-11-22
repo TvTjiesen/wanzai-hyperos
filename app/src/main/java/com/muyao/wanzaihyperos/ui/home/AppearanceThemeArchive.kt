@@ -22,7 +22,6 @@ object AppearanceThemeArchive {
 
     private fun imageIds(settings: AppearanceSettings): Set<String> = buildSet {
         settings.customization.cardImage?.let(::add)
-        addAll(settings.customization.stickers.map { it.image })
         addAll(settings.customization.navigationIcons.values)
     }
 
@@ -32,7 +31,7 @@ object AppearanceThemeArchive {
             require(settings.sky != "album" || wallpaper?.isFile == true) { "Theme wallpaper is missing" }
             settings
         } else settings.copy(sky = if (settings.sky == "album") "auto" else settings.sky,
-            customization = settings.customization.copy(cardImage = null, stickers = emptyList(), navigationIcons = emptyMap()))
+            customization = settings.customization.copy(cardImage = null, navigationIcons = emptyMap()))
         var total = 0L
         ZipOutputStream(output).use { zip ->
             zip.putNextEntry(ZipEntry("theme.json"))
@@ -123,7 +122,6 @@ object AppearanceThemeArchive {
             val custom = original.customization
             val restored = original.copy(customization = custom.copy(
                 cardImage = custom.cardImage?.let { ids.getValue(it) },
-                stickers = custom.stickers.map { it.copy(image = ids.getValue(it.image)) },
                 navigationIcons = custom.navigationIcons.mapValues { ids.getValue(it.value) }))
             Imported(restored.validated(), if (wallpaper != null) added.last() else null)
         } finally { staging.deleteRecursively() }
