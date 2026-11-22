@@ -96,6 +96,7 @@ import com.muyao.wanzaihyperos.data.tronclass.TronSchedule
 import com.muyao.wanzaihyperos.data.tronclass.TronScheduleSlot
 import com.muyao.wanzaihyperos.data.schedule.jwVerdictOf
 import com.muyao.wanzaihyperos.data.schedule.pickSlots
+import com.muyao.wanzaihyperos.net.isCredentialRejected
 import com.muyao.wanzaihyperos.ui.AppUiState
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.ui.design.Chip
@@ -766,7 +767,7 @@ fun TimetableSectionPage(
                             )
                         }
                         item(key = "jw-fresh") {
-                            FreshnessLine(if (fromJiaowu) jwState else state, now = System.currentTimeMillis()) {
+                            FreshnessLine(if (fromJiaowu) jwState else state, now = System.currentTimeMillis(), onOpenJw = onOpenJw) {
                                 graph.fetch { if (fromJiaowu) graph.jwTimetable.refresh() else graph.schedule.refresh() }
                             }
                         }
@@ -858,7 +859,7 @@ fun TimetableSectionPage(
                         }
                         // 秒开的代价必须写在屏幕上：这份是几点存的、要不要重取。
                         item(key = "jw-fresh-day") {
-                            FreshnessLine(if (fromJiaowu) jwState else state, now = System.currentTimeMillis()) {
+                            FreshnessLine(if (fromJiaowu) jwState else state, now = System.currentTimeMillis(), onOpenJw = onOpenJw) {
                                 graph.fetch { if (fromJiaowu) graph.jwTimetable.refresh() else graph.schedule.refresh() }
                             }
                         }
@@ -1243,6 +1244,8 @@ internal fun Modifier.fullBleedHorizontal(startBleed: Dp, endBleed: Dp): Modifie
 private fun FreshnessLine(
     jwState: ListState<*>,
     now: Long,
+    // 顺序有意：尾随 lambda 是「刷新」，与旧调用点一致；新增的教务入口必须显式传名。
+    onOpenJw: () -> Unit,
     onReload: () -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -1250,6 +1253,11 @@ private fun FreshnessLine(
     //   「更新时间未知」，可 `ListState.Empty` 自己带着**真的** `updatedAtMillis`（ListState.kt:154-163）。
     val meta = (jwState as? ListState.Content)?.meta ?: (jwState as? ListState.Empty)?.meta
     val stale = meta?.stale == true
+    // ★ 2026-11-22 真机：凭据被服务器拒绝时，这一行现在会说「账号或密码不对，去教务那页重新登录」，
+    //   **但只有这句话、没有去那页的入口** —— 横幅里那个「去教务系统登录 ›」只在
+    //   `!jwUsable`（没有任何旧内容）时出现，而凭据失效最常见的现场恰恰是「有旧内容」。
+    //   于是提示指了一个走不到的地方。这里补一个同类出口。
+    val rejected = meta?.lastRefreshError.isCredentialRejected
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1264,6 +1272,18 @@ private fun FreshnessLine(
             color = colors.onSurfaceVariantSummary,
             modifier = Modifier.weight(1f),
         )
+        // ★ 只有**凭据被拒**才多出这一颗：其余失败（网络、解析、服务端 5xx）用户没有
+        //   任何要「去教务那页」的理由，多给一颗按钮只是多一个走错门的机会。
+        if (rejected) {
+            Text(
+                text = "去教务登录 ›",
+                fontSize = Type.caption,
+                color = colors.primary,
+                modifier = Modifier
+                    .clickable(onClickLabel = "打开教务系统页，重新输入账号密码") { onOpenJw() }
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
         Text(
             text = "刷新",
             fontSize = Type.caption,

@@ -225,4 +225,67 @@ class Cjh52RecoveryTest {
         assertTrue(expired.meta.lastRefreshError is HzcuException.LoginExpired)
         assertEquals(Cjh52Recovery.Status.Failed, rig.coordinator.status.value)
     }
+
+    /**
+     * §4「一次幂等读重试」的成长侧实测：
+     * 成长是**一包四接口**，任一子读 401 都必须走同一条「换新凭证后只重放一次」的路，
+     * 且重放成功后该分区要拿到真实资料（而不是被静默吞成空分区）。
+     * 这里让 KQA 第一次 401、重放时 200，其余子读直接成功——四接口各发一次 + KQA 多一次重放。
+     */
+    @Test(timeout = 5_000) fun `growth subrequest replays exactly once with fresh credential and keeps real data`() = runBlocking {
+        val rig = Rig(this)
+        val kqaSends = CopyOnWriteArrayList<String>()
+        val calls = AtomicInteger()
+        val client = rig.client { chain ->
+            val path = chain.request().url.encodedPath
+            calls.incrementAndGet()
+            when (path) {
+                HzcuEndpoints.CJH52_GET_USER_BY_TOKEN_PATH -> reply(chain, "{\"code\":200,\"data\":{\"user\":{\"sid\":\"7\"}}}")
+                HzcuEndpoints.CJH52_KQA_SCORE_PATH -> {
+                    kqaSends += chain.request().header("Authorization").orEmpty()
+                    // 第一次用旧凭证 ⇒ 业务 401（HTTP 200）；重放时用新凭证 ⇒ 真实资料。
+                    if (kqaSends.size == 1) reply(chain, "{\"code\":401,\"msg\":\"synthetic expired\"}")
+                    else reply(chain, "{\"code\":200,\"data\":{\"Q\":7,\"GY\":2,\"K\":1}}")
+                }
+                HzcuEndpoints.CJH52_PHYSIQUE_PATH -> reply(chain, "{\"code\":200,\"data\":[]}")
+                HzcuEndpoints.CJH52_ACTIVITY_MONTHS_PATH -> reply(chain, "{\"code\":200,\"data\":{\"results\":[]}}")
+                else -> reply(chain)
+            }
+        }
+        val repository = LiveGrowthRepository(client, epoch = rig.epoch)
+        repository.refresh()
+        // 只重放一次：旧凭证一次 + 新凭证一次。
+        assertEquals(listOf("Bearer synthetic-old", "Bearer synthetic-new"), kqaSends.toList())
+        assertEquals(1, rig.acquisitions.get())
+        assertEquals("重放成功后应落新凭证而不是清空", "synthetic-new", rig.credential?.token)
+        val state = repository.state.value as ListState.Content
+        val snapshot = state.items.single()
+        assertNotNull("重放成功后 KQA 分区必须是真实资料，不能被吞成空", snapshot.kqa)
+        assertFalse(state.meta.stale)
+        assertFalse(state.meta.refreshing)
+        assertNull(state.meta.lastRefreshError)
+        assertEquals(Cjh52Recovery.Status.Ready, rig.coordinator.status.value)
+    }
+
+    /**
+     * 反向契约：重放后仍然 401 ⇒ 必须停在第 2 次发送，不得无限重试。
+     * 成长页四个子读里任一持续 401，整页判定为会话失效并按既有降级路径保留旧内容。
+     */
+    @Test(timeout = 5_000) fun `growth subrequest that stays unauthorized stops after one replay`() = runBlocking {
+        val rig = Rig(this, initial = Cjh52Credential("synthetic-old", 1L))
+        val kqaSends = AtomicInteger()
+        val client = rig.client { chain ->
+            when (chain.request().url.encodedPath) {
+                HzcuEndpoints.CJH52_GET_USER_BY_TOKEN_PATH -> reply(chain, "{\"code\":200,\"data\":{\"user\":{\"sid\":\"7\"}}}")
+                HzcuEndpoints.CJH52_KQA_SCORE_PATH -> { kqaSends.incrementAndGet(); reply(chain, "{\"code\":401,\"msg\":\"synthetic expired\"}") }
+                else -> reply(chain, "{\"code\":200,\"data\":{}}")
+            }
+        }
+        val repository = LiveGrowthRepository(client, epoch = rig.epoch)
+        repository.refresh()
+        assertEquals("KQA 只应被发送两次：原请求 + 一次重放", 2, kqaSends.get())
+        assertEquals(1, rig.acquisitions.get())
+        assertTrue(repository.state.value is ListState.SessionExpired || repository.state.value is ListState.Content)
+        assertEquals(Cjh52Recovery.Status.Failed, rig.coordinator.status.value)
+    }
 }

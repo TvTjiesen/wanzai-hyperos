@@ -179,6 +179,18 @@ val HzcuException?.isRetryable: Boolean
     }
 
 /**
+ * 「这次失败是账号密码被明确拒绝」——**自动重试必须停**。
+ *
+ * ★ 为什么与 [isRetryable] 分开（2026-11-22 真机事故）：
+ *   教务那份的自动刷新循环每 15 分钟发一次，用的却是同一对**已被服务器拒绝**的账号密码。
+ *   用户**手动**点一次刷新仍该发（他可能刚去改过密码），但**自动**循环再发
+ *   就是拿同一个错密码反复敲门 —— 校方可按失败次数锁号，CAS 那边已经因此弹出验证码。
+ *   所以这里给的是「自动刷新闸门」，不是「这个异常要不要重试」。
+ */
+val HzcuException?.isCredentialRejected: Boolean
+    get() = this is HzcuException.LoginExpired || this is HzcuException.AuthenticationRejected
+
+/**
  * 给界面看的短文案。**永远不包含凭据、URL query 或服务端正文。**
  *
  * 与 [HzcuException.details] 分工：`shortErrorText` 上界面，
