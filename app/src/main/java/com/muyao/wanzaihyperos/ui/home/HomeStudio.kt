@@ -534,6 +534,7 @@ private fun DrawScope.sq(l: Float, t: Float, s: Float, color: Color) =
  * 「昨天还有壁纸，今天只剩内置场景」。存进 files 目录最稳。
  */
 fun loadWallpaperFrom(context: Context, uri: Uri): ImageBitmap? {
+    if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) return null
     val dst = wallpaperFile(context)
     // ★ 先写临时文件、解码成功后才原子替换。
     //   上一版直接覆盖 `home_wallpaper.img` 再解码：只要这张图读不出来，
@@ -569,46 +570,12 @@ fun loadWallpaperFrom(context: Context, uri: Uri): ImageBitmap? {
     return img
 }
 
+/** Existing import callers run on IO; UI callers use suspend [loadWallpaper]. */
 fun decodeWallpaper(
     file: File,
-    /**
-     * 解码上限（px）。壁纸只铺一屏，没必要把 48MP 原图整张读进内存：
-     * 8000×6000 的 ARGB_8888 是 192MB，真机上会直接把进程撑爆。
-     */
     maxWidth: Int = 1440,
     maxHeight: Int = 3200,
-): ImageBitmap? = runCatching {
-    if (!file.exists()) return null
-    // 用 BitmapFactory 而不是 ImageDecoder：后者可能给出 HARDWARE 配置的 bitmap，
-    // 那种不能 `asImageBitmap()`（Compose 要能读像素的软件位图）。
-    // 壁纸是静态图，软件位图在这里没有任何代价。
-    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
-    val w = bounds.outWidth
-    val h = bounds.outHeight
-    if (w <= 0 || h <= 0) return null
-    // inSampleSize 只能是 2 的幂；用「缩一半仍不小于上限」的最大倍数，
-    // 保证不会为了省内存把图缩到比屏幕还糊。
-    //
-    // ★★★ 这里原来是 `&&` —— **一个字符的雷，业主选一张手机原图就可能撞 OOM**。
-    //   `&&` 要求**两边都还超上限**才继续缩，而常见 4:3 照片高永远到不了 3200：
-    //     4032×3024 → 2016>=1440 ✓ 但 1512>=3200 ✗ ⇒ `inSampleSize = 1`
-    //     ⇒ 4032×3024×4B = **48,771,072 B ≈ 46.5 MiB**（还只是软件位图，两份 decodeFile 更是翻倍）
-    //     8000×6000 同样卡住 ⇒ **183 MiB** —— 正是上面那句注释自己写的"会把进程撑爆"那一档。
-    //   改 `||`（**任一边**还超上限就继续缩）之后，4032×3024 落到 sample=2 ⇒ 2016×1512 ≈ 12.2 MiB。
-    //   ⚠️ 别以为会到 1008×756：循环的语义是「**再缩一半就不小于上限才继续**」，
-    //   1008 < maxWidth(1440) ⇒ 停在 2。台账那条"sample=4 / 3.1MiB"是它的算错，
-    //   真正要紧的量级差是 **46.5MiB → 12.2MiB（8000×6000 那档 183MiB → 45.6MiB）**，
-    //   而这条测试钉的就是"不许回到 46.5MiB 那一档"。
-    //   ⚠️ 外层是 `runCatching`，OOM 会被吞成 null、界面上一个字都不说 ⇒
-    //   `getOrNull()` 那条路必须配一句实话上屏（见 `AppearancePage` 的 `note` 与 `wallpaperLoadFailed`）。
-    //   落带由 `HomeSkyTest` 钉住（4032×3024 / 8000×6000 两组输入 + `slack >= 0`），不留给录屏。
-    var sample = 1
-    while (w / (sample * 2) >= maxWidth || h / (sample * 2) >= maxHeight) sample *= 2
-    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-    val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts) ?: return null
-    bmp.asImageBitmap()
-}.getOrNull()
+): ImageBitmap? = decodeWallpaperBitmap(file, maxWidth, maxHeight)?.asImageBitmap()
 
 fun deleteWallpaper(context: Context) {
     runCatching { wallpaperFile(context).delete() }
@@ -630,37 +597,8 @@ fun deleteWallpaper(context: Context) {
  */
 data class WallpaperStats(val topBand: Color, val overall: Color)
 
-fun wallpaperStats(img: ImageBitmap): WallpaperStats {
-    val px = img.toPixelMap()
-    val stepX = maxOf(1, img.width / 24)
-    val stepY = maxOf(1, img.height / 24)
-    var tr = 0.0; var tg = 0.0; var tb = 0.0; var tn = 0
-    var ar = 0.0; var ag = 0.0; var ab = 0.0; var an = 0
-    var y = 0
-    while (y < img.height) {
-        var x = 0
-        while (x < img.width) {
-            val c = px[x, y]
-            ar += c.red; ag += c.green; ab += c.blue; an++
-            // 卡压在画面上部（顶栏 + 大标题之下、约 15%~45% 高度那一段）
-            if (y.toFloat() / img.height in 0.15f..0.45f) {
-                tr += c.red; tg += c.green; tb += c.blue; tn++
-            }
-            x += stepX
-        }
-        y += stepY
-    }
-    fun avg(r: Double, g: Double, b: Double, n: Int) =
-        if (n == 0) Color(0.5f, 0.5f, 0.5f) else Color(
-            (r / n).toFloat().coerceIn(0f, 1f),
-            (g / n).toFloat().coerceIn(0f, 1f),
-            (b / n).toFloat().coerceIn(0f, 1f),
-        )
-    return WallpaperStats(
-        topBand = avg(tr, tg, tb, tn),
-        overall = avg(ar, ag, ab, an),
-    )
-}
+/** Compatibility helper; [loadWallpaper] publishes already-computed sparse stats to the UI. */
+fun wallpaperStats(img: ImageBitmap): WallpaperStats = wallpaperStatsFromImage(img)
 
 fun wallpaperFile(context: Context): File = File(context.filesDir, WALLPAPER_FILE)
 

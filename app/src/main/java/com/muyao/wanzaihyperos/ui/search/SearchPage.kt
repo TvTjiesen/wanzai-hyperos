@@ -89,6 +89,7 @@ fun SearchPage(
     onBack: () -> Unit,
     onOpenApp: (PortalApp) -> Unit,
     modifier: Modifier = Modifier,
+    requestInputFocus: Boolean = true,
 ) {
     val colors = MiuixTheme.colorScheme
     var query by remember { mutableStateOf("") }
@@ -133,9 +134,11 @@ fun SearchPage(
     }
 
     // 进页面即聚焦输入框（搜索页的常规预期）。
-    LaunchedEffect(Unit) {
-        delay(200)
-        runCatching { focusRequester.requestFocus() }
+    LaunchedEffect(requestInputFocus) {
+        if (requestInputFocus) {
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching { focusRequester.requestFocus() }
+        }
     }
 
     ThemedScaffold(
@@ -218,6 +221,7 @@ color = Color.Transparent,
                             state = AiBallState.Searching,
                             diameter = AiBall.DIAMETER_PAGE,
                             hitSlop = AiBall.INLINE_SLOP,
+                            stateDescription = "正在检索学校门户的应用入口。\n结果尚未返回，不代表没有匹配。\n这是学校检索，不是大模型对话。",
                         )
                         Text(
                             text = "正在翻找资料",

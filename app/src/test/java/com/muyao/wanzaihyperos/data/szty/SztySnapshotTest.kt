@@ -1,6 +1,7 @@
 package com.muyao.wanzaihyperos.data.szty
 
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
 import com.muyao.wanzaihyperos.net.SztyClient
 import com.muyao.wanzaihyperos.net.TestHttpServer
 import com.muyao.wanzaihyperos.session.InMemorySecureStore
@@ -60,6 +61,7 @@ class SztySnapshotTest {
             session(),
             clock = { now },
             snapshotDir = snapshotDir,
+            epoch = AccountEpoch().apply { activate("sport-test-owner") },
         )
 
     private val envelope = """{"statusCode":1,"message":null,"obj":"""
@@ -117,7 +119,9 @@ class SztySnapshotTest {
 
         // ★ 必须标 stale：界面靠它显示「这是上次存的」，不能假装是刚取的。
         assertEquals(true, content.meta?.stale)
-        assertEquals(java.io.File(dir, "szty_snapshot.json").lastModified(), content.meta?.updatedAtMillis)
+        // 快照里记的是**那次取数的时间**（savedAt），不是写盘时的文件 mtime：
+        // 沿用上次分区时写盘会晚于数据本身，用 mtime 会把旧分区说成新的。
+        assertEquals(now, content.meta?.updatedAtMillis)
     }
 
     @Test
@@ -150,6 +154,21 @@ class SztySnapshotTest {
         // 读不懂 ⇒ 回到 FirstLoad（而不是 Empty：我们并不知道服务端有没有内容）。
         assertTrue("坏文件不该让构造崩，实际 ${repo.state.value}", repo.state.value is ListState.FirstLoad)
         assertNotNull(repo.state.value)
+    }
+
+    @Test
+    fun `旧裸快照没有 owner 信封就忽略而不冒充当前账号`() = runTest {
+        enqueueAllSix()
+        repository().refresh()
+        val owned = kotlinx.serialization.json.Json.parseToJsonElement(snapshotFile().readText())
+            as kotlinx.serialization.json.JsonObject
+        val legacyPayload = owned["payload"] as? kotlinx.serialization.json.JsonPrimitive
+            ?: error("Owned snapshot payload missing")
+        snapshotFile().writeText(legacyPayload.content)
+
+        val next = repository()
+        assertTrue("无 owner 的旧快照不得填当前账号", next.state.value is ListState.FirstLoad)
+        assertEquals(6, server.requestCount)
     }
 
     @Test

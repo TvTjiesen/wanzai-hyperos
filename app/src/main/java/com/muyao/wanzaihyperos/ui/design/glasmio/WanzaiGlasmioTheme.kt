@@ -1,6 +1,9 @@
 package com.muyao.wanzaihyperos.ui.design.glasmio
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import com.muyao.wanzaihyperos.ui.design.BackgroundPreset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -21,6 +24,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun WanzaiGlasmioHost(
     themeMode: AppThemeMode,
+    appearanceSettings: com.muyao.wanzaihyperos.data.AppearanceSettings? = null,
     content: @Composable () -> Unit,
 ) {
     val isDark = when (themeMode) {
@@ -30,20 +34,22 @@ fun WanzaiGlasmioHost(
     }
     val legacy = MiuixTheme.colorScheme
     val motion = rememberMotion()
+    val glassMode = appearanceSettings?.glass ?: UiPrefs.glassMode
     val colors = defaultGlassColors(isDark, legacy.primary).copy(
         content = legacy.onSurface,
         secondaryContent = legacy.onSurfaceVariantSummary,
-        groupedBackground = if (isDark) AppColors.pageBackgroundDark else AppColors.pageBackgroundLight,
-        elevatedBackground = AppColors.surface(isDark),
-        container = AppColors.surface(isDark).copy(alpha = if (isDark) 0.54f else 0.64f),
+        groupedBackground = legacy.background,
+        elevatedBackground = legacy.surface,
+        container = legacy.surface.copy(alpha = if (isDark) 0.54f else 0.64f),
         separator = legacy.dividerLine,
         destructive = legacy.error,
     )
     val appearance = GlassAppearance(
-        liquidGlassEnabled = UiPrefs.glassMode == "liquid" && motion.refractsGlass,
-        reduceTransparency = UiPrefs.glassMode == "off" || !motion.glassIsTranslucent,
+        liquidGlassEnabled = glassMode == "liquid" && motion.refractsGlass,
+        reduceTransparency = glassMode == "off" || !motion.glassIsTranslucent,
         adaptiveColorScheme = false,
-        materialAlphaMultiplier = com.muyao.wanzaihyperos.ui.design.glass.glassOpacityFactor(),
+        materialAlphaMultiplier = appearanceSettings?.let { com.muyao.wanzaihyperos.ui.design.glass.opacityFactorFor(it.opacity.toFloat()) }
+            ?: com.muyao.wanzaihyperos.ui.design.glass.glassOpacityFactor(),
     )
     GlasmioTheme(
         isDark = isDark,
@@ -63,11 +69,12 @@ fun WanzaiGlasmioHost(
         colors = colors,
         appearance = appearance,
     ) {
-        // Controls sample only the uniform background, never their own rendered page.
-        // Shell navigation/search may receive a separate page backdrop explicitly.
+        val background = BackgroundPreset.of(appearanceSettings?.background ?: UiPrefs.backgroundPreset)
         GlasmioBackdropHost(
-            sampledColor = colors.groupedBackground,
             modifier = Modifier.fillMaxSize(),
+            sampledContent = {
+                com.muyao.wanzaihyperos.ui.home.ThemePageBackground(Modifier.fillMaxSize(), isDark, background)
+            },
             overlayContent = { content() },
         )
     }

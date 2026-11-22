@@ -137,7 +137,9 @@ class GlassSpecTuning(initial: GlassSpec) {
  */
 @Composable
 fun glassOpacityFactor(): Float =
-    opacityFactorFor(com.muyao.wanzaihyperos.data.UiPrefs.glassOpacity.toFloat())
+    opacityFactorFor(LocalGlassOpacityPreview.current ?: com.muyao.wanzaihyperos.data.UiPrefs.glassOpacity.toFloat())
+
+internal val LocalGlassOpacityPreview = androidx.compose.runtime.staticCompositionLocalOf<Float?> { null }
 
 /**
  * 通透度滑块的纯函数形式：`0..100` 的滑块值 → 垫底层 alpha 系数。

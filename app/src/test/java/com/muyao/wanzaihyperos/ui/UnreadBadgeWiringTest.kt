@@ -27,7 +27,7 @@ class UnreadBadgeWiringTest {
         )
         assertTrue(
             "底栏没有把 unreadCount 挂到 MainSection.Notify 上",
-            Regex("""badge\s*=\s*if\s*\(\s*it\s*==\s*MainSection\.Notify\s*\)\s*unreadCount\s+else\s+0""")
+            Regex("""badge\s*=\s*if\s*\(\s*it\s*==\s*MainSection\.Notify\s*&&\s*UiPrefs\.themeCustomization\.showNavigationBadges\s*\)\s*unreadCount\s+else\s+0""")
                 .containsMatchIn(shell),
         )
     }
@@ -39,6 +39,13 @@ class UnreadBadgeWiringTest {
             "WanzaiRoot 没有把 unreadCount 传给 WanzaiMainShell —— 算了不用，底栏永远是空的",
             Regex("""unreadCount\s*=\s*unreadCount\s*\?:\s*0""").containsMatchIn(rootText),
         )
+    }
+
+    @Test
+    fun staleUnreadDoesNotKeepAFalseFreshBadge() {
+        val source = text("WanzaiRoot.kt")
+        assertTrue(source.contains("if (unreadState.stale) null"))
+        assertTrue(source.contains("takeIf { it >= 0 }"))
     }
 
     @Test

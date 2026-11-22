@@ -2,8 +2,13 @@ package com.muyao.wanzaihyperos.data.cjh52
 
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.failWith
+import com.muyao.wanzaihyperos.data.metaOrNull
 import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startRefresh
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
+import com.muyao.wanzaihyperos.data.repo.finishRefresh
+import com.muyao.wanzaihyperos.data.repo.retainCachedOnFailure
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
 import com.muyao.wanzaihyperos.net.Cjh52Client
 import com.muyao.wanzaihyperos.net.HzcuEndpoints
@@ -89,18 +94,22 @@ interface NoticeRepository {
 class LiveNoticeRepository(
     private val client: Cjh52Client,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : NoticeRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<Cjh52Notice>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<Cjh52Notice>> = _state.asStateFlow()
     private val inFlight = Mutex()
 
+    init { epoch.registerReset { guard.invalidate(); _state.value = ListState.FirstLoad } }
+
     override suspend fun refresh() {
+        val token = guard.begin()
+        try {
         inFlight.withLock {
-            val token = guard.begin()
-            _state.value = _state.value.startRefresh()
-            val result = runCatching {
+            if (!guard.publish(token) { _state.value = _state.value.startRefresh() }) return
+            val result = catchingActive {
                 val me = client.currentUser()
                 // ★ `scope` 的四個值從用戶信息推出來（真機實測的請求形態就是這樣）。
                 //   硬編碼院系/年級會讓換了專業的人看不到通知。
@@ -121,11 +130,16 @@ class LiveNoticeRepository(
                     .mapNotNull { it.asObjectOrNull() }
                 Cjh52NoticeParser.parse(rows)
             }
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = { _state.value.settleFirstPage(it, clock()) { n -> n.id } },
-                onFailure = { _state.value.failWith(it.asCjh52Failure()) },
-            )
+            guard.publish(token) {
+                _state.value = result.fold(
+                    onSuccess = { _state.value.settleFirstPage(it, clock()) { n -> n.id } },
+                    onFailure = { retainCachedOnFailure(_state.value, it.asCjh52Failure()) },
+                )
+            }
+        }
+        } finally {
+            // ★ 取消（切页/换账号/退出）不会走到上面的 fold：转圈标志必须在这里收掉。
+            guard.publish(token) { _state.value = _state.value.finishRefresh() }
         }
     }
 
@@ -147,18 +161,22 @@ interface ExamRepository {
 class LiveExamRepository(
     private val client: Cjh52Client,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : ExamRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<Cjh52Exam>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<Cjh52Exam>> = _state.asStateFlow()
     private val inFlight = Mutex()
 
+    init { epoch.registerReset { guard.invalidate(); _state.value = ListState.FirstLoad } }
+
     override suspend fun refresh() {
+        val token = guard.begin()
+        try {
         inFlight.withLock {
-            val token = guard.begin()
-            _state.value = _state.value.startRefresh()
-            val result = runCatching {
+            if (!guard.publish(token) { _state.value = _state.value.startRefresh() }) return
+            val result = catchingActive {
                 val body = buildJsonObject {
                     // ⚠️ 考試這批 pageNum 實測從 0 起。
                     put("pageNum", 0)
@@ -169,13 +187,17 @@ class LiveExamRepository(
                 val rows = data["data"].asArrayOrNull().orEmpty().mapNotNull { it.asObjectOrNull() }
                 Cjh52ExamParser.parse(rows)
             }
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                // 考試的條目**沒有穩定 id**（欄位名未取證），所以用整條 JSON 去重 ——
-                // 用它當 key 是安全的：同一條重複出現時 JSON 也相同。
-                onSuccess = { _state.value.settleFirstPage(it, clock()) { e -> e.raw.toString() } },
-                onFailure = { _state.value.failWith(it.asCjh52Failure()) },
-            )
+            guard.publish(token) {
+                _state.value = result.fold(
+                    // 考試的條目沒有穩定 id，沿用整條 JSON 去重。
+                    onSuccess = { _state.value.settleFirstPage(it, clock()) { e -> e.raw.toString() } },
+                    onFailure = { retainCachedOnFailure(_state.value, it.asCjh52Failure()) },
+                )
+            }
+        }
+        } finally {
+            // ★ 取消（切页/换账号/退出）不会走到上面的 fold：转圈标志必须在这里收掉。
+            guard.publish(token) { _state.value = _state.value.finishRefresh() }
         }
     }
 
@@ -194,6 +216,8 @@ data class GrowthSnapshot(
     val physique: List<Cjh52PhysiqueScore>,
     val credits: Cjh52CreditProgress?,
     val activityMonths: List<Cjh52ActivityMonth>,
+    val successfulAtMillis: Map<String, Long> = emptyMap(),
+    val completeUpdatedAtMillis: Long? = null,
 )
 
 interface GrowthRepository {
@@ -209,25 +233,32 @@ interface GrowthRepository {
  * 這樣做是為了**沿用既有的載入/空/錯誤/stale 狀態機**（不必再造一套），
  * 代價是「一項」這個語義有點繞，故在此註明。
  *
- * ⚠️ **單個子接口失敗不讓整頁失敗**：四個接口裡任何一個掛了，
- * 其餘的照樣顯示（各自為 null / 空）。整頁失敗只在「全掛」時才報。
+ * 普通子请求失败时保留该区旧内容并标记过期；鉴权失败停止后续请求，
+ * 有旧内容时保留并提示重连，没有旧内容时显示登录失效。
  */
 class LiveGrowthRepository(
     private val client: Cjh52Client,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : GrowthRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<GrowthSnapshot>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<GrowthSnapshot>> = _state.asStateFlow()
     private val inFlight = Mutex()
 
-    override suspend fun refresh() {
-        inFlight.withLock {
-            val token = guard.begin()
-            _state.value = _state.value.startRefresh()
+    init { epoch.registerReset { guard.invalidate(); _state.value = ListState.FirstLoad } }
 
-            val result = runCatching {
+    override suspend fun refresh() {
+        val token = guard.begin()
+        try {
+        inFlight.withLock {
+            if (!guard.publish(token) { _state.value = _state.value.startRefresh() }) return
+
+            var partialFailure: Throwable? = null
+            val previousAt = _state.value.metaOrNull?.updatedAtMillis
+            try {
+                val result = catchingActive {
                 // 先拿 userId（成長頁的接口都要它）。
                 val me = client.currentUser()
                 val userId = me.userSid.toIntOrNull()
@@ -235,29 +266,32 @@ class LiveGrowthRepository(
                         "CJH52 的 user.sid 不是数字，成长页接口无法使用",
                     )
 
-                // 四個子請求各自 runCatching：**一個掛不拖累其它**。
-                val kqa = runCatching {
+                val previous = (_state.value as? ListState.Content)?.items?.firstOrNull()
+                suspend fun <T> part(block: suspend () -> T): Result<T> = growthPart(block).onFailure {
+                    if (partialFailure == null) partialFailure = it
+                }
+                val kqa = part {
                     Cjh52GrowthParser.parseKqaScore(
                         client.postForObject(
                             HzcuEndpoints.CJH52_KQA_SCORE_PATH,
                             buildJsonObject { put("userId", userId) },
                         ),
                     )
-                }.getOrNull()
+                }.getOrElse { previous?.kqa }
 
-                val physique = runCatching {
+                val physique = part {
                     Cjh52GrowthParser.parsePhysique(
                         client.postForArray(HzcuEndpoints.CJH52_PHYSIQUE_PATH),
                     )
-                }.getOrDefault(emptyList())
+                }.getOrElse { previous?.physique.orEmpty() }
 
-                val credits = runCatching {
+                val credits = part {
                     Cjh52GrowthParser.parseCreditProgress(
                         client.postForObject(HzcuEndpoints.CJH52_CREDIT_PROGRESS_PATH),
                     )
-                }.getOrNull()
+                }.getOrElse { previous?.credits }
 
-                val months = runCatching {
+                val months = part {
                     val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
                     val data = client.postForObject(
                         HzcuEndpoints.CJH52_ACTIVITY_MONTHS_PATH,
@@ -268,7 +302,7 @@ class LiveGrowthRepository(
                         },
                     )
                     Cjh52GrowthParser.parseActivityMonths(data)
-                }.getOrDefault(emptyList())
+                }.getOrElse { previous?.activityMonths.orEmpty() }
 
                 // 「全掛」才算失敗：四個都拿不到東西時，回報錯誤比顯示一片空白誠實。
                 if (kqa == null && physique.isEmpty() && credits == null && months.isEmpty()) {
@@ -280,16 +314,48 @@ class LiveGrowthRepository(
                 GrowthSnapshot(kqa = kqa, physique = physique, credits = credits, activityMonths = months)
             }
 
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                // 只有一項：`settleFirstPage` 拿到空清單會變 Empty，
-                // 所以成功時一定是「一項的 Content」。
-                onSuccess = { _state.value.settleFirstPage(listOf(it), clock()) { s -> s.hashCode() } },
-                onFailure = { _state.value.failWith(it.asCjh52Failure()) },
-            )
+            guard.publish(token) {
+                    _state.value = result.fold(
+                        onSuccess = {
+                            val updated = _state.value.settleFirstPage(listOf(it), clock()) { s -> s.hashCode() }
+                            partialFailure?.let { error ->
+                                // 部分分区沿用了上次的资料 ⇒ 整页「更新时间」不能前进到刚刚，
+                                // 否则界面会把旧资料标成刚取的。
+                                updated.keepGrowthOnFailure(error.asCjh52Failure(), previousAt)
+                            } ?: updated
+                        },
+                        onFailure = { _state.value.keepGrowthOnFailure(it.asCjh52Failure()) },
+                    )
+                }
+            } finally {
+                // 取消（切页/换账号/退出）不会走到上面的 fold：转圈标志必须在这里收掉，
+                // 否则 Content(refreshing = true) 会一直转，下次进页也一直转。
+                guard.publish(token) { _state.value = _state.value.finishRefresh() }
+            }
+        }
+        } finally {
+            // ★ 外层兜底（同 LectureRepository 的放置位置）：若下一次刷新在锁上等待时被取消，
+            //   它从不进入 withLock lambda，内层 finally 不会执行，只有这里收得了转圈标志。
+            guard.publish(token) { _state.value = _state.value.finishRefresh() }
         }
     }
 }
+
+private fun ListState<GrowthSnapshot>.keepGrowthOnFailure(
+    error: com.muyao.wanzaihyperos.net.HzcuException,
+    previousAt: Long? = null,
+): ListState<GrowthSnapshot> = when (this) {
+    is ListState.Content -> copy(meta = meta.copy(
+        refreshing = false, loadingMore = false, stale = true, lastRefreshError = error,
+        updatedAtMillis = previousAt ?: meta.updatedAtMillis,
+    ))
+    else -> retainCachedOnFailure(this, error)
+}
+
+private suspend fun <T> growthPart(block: suspend () -> T): Result<T> =
+    catchingActive { block() }.onFailure {
+        if (it is com.muyao.wanzaihyperos.net.HzcuException.LoginExpired) throw it
+    }
 
 /**
  * 把任意異常歸一到 [com.muyao.wanzaihyperos.net.HzcuException]。

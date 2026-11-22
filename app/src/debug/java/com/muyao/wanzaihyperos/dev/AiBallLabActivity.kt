@@ -11,9 +11,9 @@ import androidx.activity.ComponentActivity
 /**
  * AI 小球调试台（仅 debug 源集，release 不含）。
  *
- * 打开 app/src/debug/assets/grokball/lab.html，里面跑的是 grok-ball 引擎原版
- * （1980 行，MIT，未改一行），因此这里能调的就是引擎自己的全部能力：
- * 32 个表情、6 种动画类型、body/eyes 每个参数、巡演、注视、自旋、撒花、草图风。
+ * 打开 app/src/debug/assets/grokball/lab.html，保留 MIT grok-ball 动作与公开 API。
+ * 应用安全眼形策略已替换旧眼环，导入与最终绘制均限制同向平行眼形；
+ * 呼吸、球体缩放和独立眼偏转不再可用。巡演、注视、自旋、撒花、草图风仍保留。
  *
  * 为什么用 WebView 而不是 Compose 重画：业主的要求是「保留他的完整特性和动画」，
  * 重画一份就等于第二套实现，两边迟早对不上。调试台先验真，验完再决定移植哪几条。

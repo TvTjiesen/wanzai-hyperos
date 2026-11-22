@@ -30,6 +30,11 @@ class DeadPageRegistryTest {
 
     private val registry = listOf(
         Dead(
+            "main/ui/main/pages/AccessibilityPage.kt",
+            "AccessibilityPage",
+            "辅助显示已并入外观页「动画与显示」段；独立页保留待接线",
+        ),
+        Dead(
             "main/ui/messages/MessagesPage.kt",
             "MessagesPage",
             "B4-12：未读角标与消息页实现在这里 ⇒ 小球接线前不许删",

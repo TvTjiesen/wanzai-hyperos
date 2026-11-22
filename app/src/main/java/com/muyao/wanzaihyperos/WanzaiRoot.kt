@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +57,8 @@ import com.muyao.wanzaihyperos.ui.login.LoginPage
 import com.muyao.wanzaihyperos.ui.search.SearchPage
 import com.muyao.wanzaihyperos.ui.web.WebShellPage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import com.muyao.wanzaihyperos.ui.web.completeLogin
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -261,6 +264,18 @@ fun WanzaiApp(
             },
         )
 
+        val accountRevision by app.accountRevision.collectAsState()
+        LaunchedEffect(accountRevision) {
+            uiState.notifyListPositions.clear()
+            uiState.notifyFilter = 4
+            uiState.notifyListState.scrollToItem(0)
+            if (app.startRoute() == AppGraph.StartRoute.Login) {
+                uiState.loggedIn = false
+                uiState.displayAccount = ""
+                backStack.resetTo(Route.Login)
+            }
+        }
+
         // ★ B17：收到外部帶進來的智慧公寓連結（使用者在別處點連結／分享進來）。
         //
         //   這裡直接**存下憑據並跳進智慧公寓**，而不是落到閘門頁要他再貼一次 ——
@@ -302,37 +317,9 @@ fun WanzaiApp(
             // 只记「走了哪条路 + 应用 id」，不记地址与任何凭据（地址里之后会带 tempcode）。
             android.util.Log.i("WanzaiOpen", "打开策略=${plan.javaClass.simpleName} appId=${target.id}")
             when (plan) {
-                is AppOpenPlan.TempCode -> scope.launch {
-                    val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
-                    if (tempCode == null) {
-                        Toast.makeText(
-                            context,
-                            "没能取到一次性临时码，请稍后重试（不会用旧码凑数）",
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    } else {
-                        // ★ B1：把 tempcode 存进 CJH52 会话。
-                        //
-                        // 实测定理（docs/B0-CJH52-CONTRACT.md §2.1）：
-                        // 门户签发的 tempcode **本身就是 CJH52 的 Bearer token**，
-                        // 不需要任何换码步骤。所以原生直连只要在手里有它就够了。
-                        //
-                        // 这条同时**不影响**下面照旧打开 WebView ——
-                        // 两条路并存：WebView 是已验证可用的路径，
-                        // 原生页是新增的；原生页失败时用户仍可走 WebView。
-                        runCatching {
-                            app.cjh52Session.save(tempCode, System.currentTimeMillis())
-                        }
-                        val url = AppOpenStrategy.buildTempCodeUrl(
-                            appUrl = plan.url,
-                            appId = plan.appId,
-                            colorArgb = target.tint?.toArgb(),
-                            tempCode = tempCode,
-                            nowMillis = System.currentTimeMillis(),
-                        )
-                        backStack.add(Route.Web(target.id, target.name, url))
-                    }
-                }
+                is AppOpenPlan.TempCode -> backStack.add(
+                    Route.Web(target.id, target.name, com.muyao.wanzaihyperos.nav.WebTarget.fromTempCodeUrl(plan.url, target.tint?.toArgb())),
+                )
 
                 is AppOpenPlan.CampusOnly -> Toast.makeText(
                     context,
@@ -398,48 +385,21 @@ fun WanzaiApp(
                 //
                 // 只負責導航；取數失敗時由原生頁底部的「改用網頁版」回退，
                 // 回退那條複用下面的 identity-token 邏輯（已驗證的免登路）。
-                is AppOpenPlan.NativeTronclass -> backStack.add(Route.TronHome(tileUrl = plan.tileUrl))
+                is AppOpenPlan.NativeTronclass -> backStack.add(Route.TronHome())
 
-                is AppOpenPlan.TronclassFreeLogin -> scope.launch {
-                    val access = app.tronclassSession.accessToken()
-                    val refresh = app.tronclassSession.refreshToken()
-                    val fresh = if (refresh.isNullOrBlank()) null else runCatching {
-                        app.casService.refreshTronclassTokens(refresh)
-                    }.getOrNull()
-                    val url = when {
-                        fresh != null -> {
-                            // 续期成功：落盘（SSO cookie 原样带上，别丢）。
-                            app.tronclassSession.saveTokens(
-                                fresh.accessToken,
-                                fresh.refreshToken,
-                                ssoCookiesJson = app.tronclassSession.ssoCookiesJson(),
-                            )
-                            android.util.Log.i("WanzaiLogin", "学在城院 token 已续期")
-                            TronclassBoot.identityTokenUrl(fresh.accessToken, fresh.refreshToken)
-                        }
-                        !access.isNullOrEmpty() -> {
-                            if (fresh == null && !refresh.isNullOrBlank()) {
-                                android.util.Log.w(
-                                    "WanzaiLogin",
-                                    "学在城院续期失败，回退用旧 token（可能已过期，SPA 会落到自己的登录页）",
-                                )
-                            }
-                            TronclassBoot.identityTokenUrl(access, refresh)
-                        }
-                        else -> plan.tileUrl   // 从没登录过：进 SPA 自己的登录页
-                    }
-                    backStack.add(Route.Web(target.id, target.name, url))
-                }
+                is AppOpenPlan.TronclassFreeLogin -> backStack.add(
+                    Route.Web(target.id, target.name, com.muyao.wanzaihyperos.nav.WebTarget.tronclass()),
+                )
 
-                // 普通外鏈 / 無地址：開外鏈即可。
-                else -> backStack.add(Route.Web(target.id, target.name, target.url))
+                // Validation also covers direct links: arbitrary credentials cannot enter saved state.
+                else -> backStack.add(Route.Web(target.id, target.name, com.muyao.wanzaihyperos.nav.WebTarget.fromUrl(target.url)))
             }
         }
 
         // 未读数角标。**未知（CountValue.Unknown）时不画角标**，
         // 但也不显示 0 —— 具体「未读 —」由消息页用文字承担。
         val unreadState by app.unread.state.collectAsState()
-        val unreadCount = (unreadState.value as? CountValue.Known)?.value
+        val unreadCount = if (unreadState.stale) null else (unreadState.value as? CountValue.Known)?.value?.takeIf { it >= 0 }
 
 
         // ── 上课提醒 ────────────────────────────────────────────────────
@@ -492,76 +452,18 @@ fun WanzaiApp(
             }
         }
 
-        // ★ 學在城院「改用網頁版」的**唯一**出口。
-        //
-        // 抽成函式而不是在每個原生頁各寫一遍：這段涉及
-        // 「先續期 token → 失敗回退舊 token → 再失敗才用原始地址」三步，
-        // 抄三遍就會有一處漏掉續期（那條路徑的表現是「使用者突然要重新登入」）。
-        fun openTronWeb(tileUrl: String) {
-            scope.launch {
-                val access = app.tronclassSession.accessToken()
-                val refresh = app.tronclassSession.refreshToken()
-                val fresh = if (refresh.isNullOrBlank()) null else runCatching {
-                    app.casService.refreshTronclassTokens(refresh)
-                }.getOrNull()
-                val url = when {
-                    fresh != null -> {
-                        // 續期成功：落盤（SSO cookie 原樣帶上）。
-                        app.tronclassSession.saveTokens(
-                            fresh.accessToken,
-                            fresh.refreshToken,
-                            ssoCookiesJson = app.tronclassSession.ssoCookiesJson(),
-                        )
-                        TronclassBoot.identityTokenUrl(fresh.accessToken, fresh.refreshToken)
-                    }
-                    !access.isNullOrEmpty() -> TronclassBoot.identityTokenUrl(access, refresh)
-                    tileUrl.isNotBlank() -> tileUrl
-                    else -> HzcuEndpoints.TRONCLASS_MOBILE_TILE
-                }
-                backStack.add(Route.Web(156, "学在城院", url))
-            }
+        fun openTronWeb() {
+            backStack.add(Route.Web(156, "学在城院", com.muyao.wanzaihyperos.nav.WebTarget.tronclass()))
         }
 
-        // 打开一条门户给的地址（消息 openurl 与扫到的网址都走这里）。
-        //
-        // 原樣交過去對 cjh52 是不行的（真機 2026-10-30 實測）：
-        // 它的 SPA 只認 URL 上的臨時碼，沒帶碼就 replace 到登錄頁、
-        // 一幀內容都不渲染 —— 使用者看到一片灰，還以為 App 壞了。
-        // cjh52 的地址先換一枚一次性碼再打開（與「我的課程」網頁版同路）；
-        // 其餘域維持原樣：門戶自己也是丟給 WebView。
-        //
-        // 標題由呼叫方給：消息裡是「消息详情」，掃一掃裡是「扫到的网页」。
+        // Messages and scanner share the same safe intake as application tiles.
         fun openUrlWithTempCode(raw: String, title: String) {
-            HzcuEndpoints.portalOpenUrl(raw)?.let { url ->
-                if (AppOpenStrategy.needsTempCode(url)) {
-                    scope.launch {
-                        val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
-                        if (tempCode == null) {
-                            Toast.makeText(
-                                context,
-                                "没能取到一次性临时码，这条消息打不开，请稍后重试",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        } else {
-                            backStack.add(
-                                Route.Web(
-                                    0,
-                                    title,
-                                    AppOpenStrategy.buildTempCodeUrl(
-                                        appUrl = url,
-                                        appId = 0,
-                                        colorArgb = null,
-                                        tempCode = tempCode,
-                                        nowMillis = System.currentTimeMillis(),
-                                    ),
-                                ),
-                            )
-                        }
-                    }
-                } else {
-                    backStack.add(Route.Web(0, title, url))
-                }
-            }
+            val target = HzcuEndpoints.portalOpenUrl(raw)?.let {
+                val temp = com.muyao.wanzaihyperos.nav.WebTarget.fromTempCodeUrl(it)
+                if (temp.kind != com.muyao.wanzaihyperos.nav.WebTarget.Kind.BLOCKED) temp
+                else com.muyao.wanzaihyperos.nav.WebTarget.fromUrl(it)
+            } ?: com.muyao.wanzaihyperos.nav.WebTarget.blocked()
+            backStack.add(Route.Web(0, title, target))
         }
 
         // ── 容器背景风格：**根上读一次**，往下用 CompositionLocal 传 ─────────────
@@ -573,9 +475,13 @@ fun WanzaiApp(
             com.muyao.wanzaihyperos.data.UiPrefs.containerStyle,
         )
 
+        val searchMotion = remember { com.muyao.wanzaihyperos.ui.search.SearchMotionState() }
         androidx.compose.runtime.CompositionLocalProvider(
             com.muyao.wanzaihyperos.ui.design.LocalContainerStyle provides containerStyle,
+            com.muyao.wanzaihyperos.ui.search.LocalSearchMotion provides searchMotion,
         ) {
+            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+            com.muyao.wanzaihyperos.ui.search.SearchSourceContent(searchMotion) {
             NavDisplay(
                 backStack = backStack,
                 // 参考（变焦环）的推/退动效，见 `nav/RouteTransitions.kt` 的换算说明。
@@ -599,23 +505,33 @@ fun WanzaiApp(
                         // 返回 null = 成功；返回一句中文 = 给用户看的错。
                         try {
                             val result = app.casService.login(account, password)
+                            val lease = com.muyao.wanzaihyperos.ui.web.WebDisplayLease(app.accountEpoch)
+                            lease.completeLogin {
                             // 登录成功顺手拉一次未读（此时才有 token）。
-                            runCatching { app.unread.refresh(force = true) }
+                            com.muyao.wanzaihyperos.data.repo.catchingActive { app.unread.refresh(force = true) }
                             // ★ 学在城院的 identity token 对**必须在这一刻换**：
                             //   密码不持久化，登录页一过就再没有机会拿它换 token 了。
-                            //   失败**不影响门户登录**（用 runCatching 兜住）——
+                            //   普通失败**不影响门户登录**；取消和换号仍向上传递。
                             //   学在城院打不开只是降级到它自己的登录页，不该把门户也拖崩。
-                            runCatching {
+                            com.muyao.wanzaihyperos.data.repo.catchingActive {
+                                var credentialRevision = -1L
+                                if (!lease.publish { credentialRevision = app.tronclassSession.credentialRevision() })
+                                    throw kotlinx.coroutines.CancellationException("Account changed")
                                 val tokens = app.casService.loginForTronclassTokens(account, password)
-                                app.tronclassSession.saveTokens(
-                                    accessToken = tokens.accessToken,
-                                    refreshToken = tokens.refreshToken,
-                                )
-                                // 顺手把 SSO cookie 收下来备用（token 失效时走免登链重新拿码）。
-                                val sso = TronclassBoot.pickSsoCookies(app.client.cookieJar)
-                                if (sso.isNotEmpty()) {
-                                    app.tronclassSession.saveSsoCookies(TronclassBoot.ssoCookiesToJson(sso))
-                                }
+                                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                                var saved = false
+                                if (!lease.publish {
+                                        saved = app.tronclassSession.publishCredential(credentialRevision) {
+                                            val sso = TronclassBoot.pickSsoCookies(app.client.cookieJar)
+                                            app.tronclassSession.saveTokens(
+                                                accessToken = tokens.accessToken,
+                                                refreshToken = tokens.refreshToken,
+                                                ssoCookiesJson = sso.takeIf { it.isNotEmpty() }?.let(TronclassBoot::ssoCookiesToJson),
+                                            )
+                                        }
+                                    }
+                                ) throw kotlinx.coroutines.CancellationException("Account changed")
+                                if (!saved) return@catchingActive
                                 android.util.Log.i(
                                     "WanzaiLogin",
                                     "学在城院 token 对已换取（access 长度=${tokens.accessToken.length}，" +
@@ -639,6 +555,7 @@ fun WanzaiApp(
                                     "探针=${result.probeName} 跳数=${result.chain.size}",
                             )
                             null
+                            }
                         } catch (error: HzcuException) {
                             // details 已脱敏（只有 host/键名/状态码），可以进日志帮排查。
                             android.util.Log.w(
@@ -646,6 +563,8 @@ fun WanzaiApp(
                                 "登录失败：${error.javaClass.simpleName} ${error.details}",
                             )
                             error.message ?: error.shortErrorText()
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
                         } catch (error: Throwable) {
                             android.util.Log.w("WanzaiLogin", "登录异常：${error.javaClass.simpleName}")
                             error.shortErrorText()
@@ -664,7 +583,12 @@ fun WanzaiApp(
                     graph = app,
                     uiState = uiState,
                     onOpenApp = openApp,
-                    onOpenSearch = { backStack.add(Route.Search) },
+                    onOpenSearch = {
+                        val sourceTab = uiState.selectedTab
+                        if (!searchMotion.openCaptured { backStack.lastOrNull() == Route.Main && uiState.selectedTab == sourceTab }) {
+                            backStack.add(Route.Search)
+                        }
+                    },
                     onOpenSection = { /* 板塊切換由主殼內部處理 */ },
                     onOpenJw = { backStack.add(Route.Jw) },
                     // 課表頁頁尾「學在城院 · 本週 / 全部」：進原生 TronClass。
@@ -673,6 +597,7 @@ fun WanzaiApp(
                     onOpenMessages = { uiState.selectedTab = 2 },
                     onOpenTodos = { backStack.add(Route.TodoBoard) },
                     onOpenAbout = { backStack.add(Route.About) },
+                    onOpenPreferences = { backStack.add(Route.Preferences) },
                     onOpenCrop = { backStack.add(Route.WallpaperCrop) },
                     onOpenAccounts = { backStack.add(Route.AccountSources) },
                     // 返回栈深度：设置页账号聚合行按它重算（B4-06 第 1 处真缺陷）
@@ -700,38 +625,7 @@ fun WanzaiApp(
                     //   一幀內容都不渲染 —— 使用者看到一片灰，還以為 App 壞了。
                     //   cjh52 的地址先換一枚一次性碼再打開（與「我的課程」網頁版同路）；
                     //   其餘域維持原樣：門戶自己也是丟給 WebView。
-                    onOpenUrl = { raw ->
-                        HzcuEndpoints.portalOpenUrl(raw)?.let { url ->
-                            if (AppOpenStrategy.needsTempCode(url)) {
-                                scope.launch {
-                                    val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
-                                    if (tempCode == null) {
-                                        Toast.makeText(
-                                            context,
-                                            "没能取到一次性临时码，这条消息打不开，请稍后重试",
-                                            Toast.LENGTH_LONG,
-                                        ).show()
-                                    } else {
-                                        backStack.add(
-                                            Route.Web(
-                                                0,
-                                                "消息详情",
-                                                AppOpenStrategy.buildTempCodeUrl(
-                                                    appUrl = url,
-                                                    appId = 0,
-                                                    colorArgb = null,
-                                                    tempCode = tempCode,
-                                                    nowMillis = System.currentTimeMillis(),
-                                                ),
-                                            ),
-                                        )
-                                    }
-                                }
-                            } else {
-                                backStack.add(Route.Web(0, "消息详情", url))
-                            }
-                        }
-                    },
+                    onOpenUrl = { raw -> openUrlWithTempCode(raw, "消息详情") },
                     // 點開一條消息之後標已讀（docs/B7-WALKTHROUGH.md 第 2 節的順序）：
                     // ① 頁面已先把未讀點去掉、並發了 setmessageread；
                     // ② 這裡只負責「寫成功就重取未讀總數」，③ 寫失敗就說一句並重取。
@@ -789,6 +683,12 @@ fun WanzaiApp(
             }
 
             // B4-10：关于 + 开源许可（外链与依赖清单都是真的，见 `AboutLinks` / `Credits`）。
+            entry<Route.Preferences> {
+                com.muyao.wanzaihyperos.ui.main.pages.PreferencesPage(
+                    graph = app, uiState = uiState, onBack = { backStack.removeLastOrNull() },
+                )
+            }
+
             entry<Route.About> {
                 com.muyao.wanzaihyperos.ui.about.AboutPage(
                     onBack = { backStack.removeLastOrNull() },
@@ -873,18 +773,8 @@ fun WanzaiApp(
                 //   （get_user_by_token 與 get_class_info_by_uid 都 200），
                 //   所以**所有 cjh52 原生頁共用同一個閘門**即可。
                 Cjh52WarmUpGate(
-                    session = app.cjh52Session,
-                    issueUrl = {
-                        runCatching { app.api.issueTempCode() }.getOrNull()?.let { code ->
-                            AppOpenStrategy.buildTempCodeUrl(
-                                appUrl = HzcuEndpoints.CJH52_BASE_URL + "/course/student",
-                                appId = CJH52_COURSE_APP_ID,
-                                colorArgb = null,
-                                tempCode = code,
-                                nowMillis = System.currentTimeMillis(),
-                            )
-                        }
-                    },
+                    recovery = app.cjh52Recovery,
+                    lease = remember(app) { com.muyao.wanzaihyperos.ui.web.WebDisplayLease(app.accountEpoch) },
                 ) { ready ->
                     CoursesPage(
                         repository = app.courses,
@@ -896,25 +786,8 @@ fun WanzaiApp(
                         onOpenDirectory = { backStack.add(Route.CjhHome) },
                         // 原生拿不到資料時的出口：換回 WebView（那條是已驗證的路）。
                         onFallbackToWeb = {
-                            scope.launch {
-                                val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
-                                if (tempCode == null) {
-                                    Toast.makeText(
-                                        context,
-                                        "没能取到一次性临时码，请稍后重试",
-                                        Toast.LENGTH_LONG,
-                                    ).show()
-                                } else {
-                                    val url = AppOpenStrategy.buildTempCodeUrl(
-                                        appUrl = HzcuEndpoints.CJH52_BASE_URL + "/course/student",
-                                        appId = CJH52_COURSE_APP_ID,
-                                        colorArgb = null,
-                                        tempCode = tempCode,
-                                        nowMillis = System.currentTimeMillis(),
-                                    )
-                                    backStack.add(Route.Web(CJH52_COURSE_APP_ID, "我的课程", url))
-                                }
-                            }
+                            backStack.add(Route.Web(CJH52_COURSE_APP_ID, "我的课程",
+                                com.muyao.wanzaihyperos.nav.WebTarget.fromUrl(HzcuEndpoints.CJH52_BASE_URL + "/course/student")))
                         },
                     )
                 }
@@ -926,42 +799,15 @@ fun WanzaiApp(
             // （實測同一枚 token 對多個接口都有效），所以這裡不必各開一次。
             entry<Route.Cjh52Feature> { route ->
                 Cjh52WarmUpGate(
-                    session = app.cjh52Session,
-                    issueUrl = {
-                        runCatching { app.api.issueTempCode() }.getOrNull()?.let { code ->
-                            AppOpenStrategy.buildTempCodeUrl(
-                                appUrl = HzcuEndpoints.CJH52_BASE_URL,
-                                appId = 0,
-                                colorArgb = null,
-                                tempCode = code,
-                                nowMillis = System.currentTimeMillis(),
-                            )
-                        }
-                    },
+                    recovery = app.cjh52Recovery,
+                    lease = remember(app) { com.muyao.wanzaihyperos.ui.web.WebDisplayLease(app.accountEpoch) },
                 ) { ready ->
                     // 網頁版出口：各頁共用同一個「回退」動作，但**回退到各自的頁面**
                     //（之前統一退回 cjh52 根，使用者從「班級」退回網頁卻落在首頁，
                     // 還得自己再點一次 —— 回退要回到同一個功能才說得過去）。
                     val fallback: () -> Unit = {
-                        scope.launch {
-                            val tempCode = runCatching { app.api.issueTempCode() }.getOrNull()
-                            if (tempCode == null) {
-                                Toast.makeText(
-                                    context,
-                                    "没能取到一次性临时码，请稍后重试",
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            } else {
-                                val url = AppOpenStrategy.buildTempCodeUrl(
-                                    appUrl = HzcuEndpoints.CJH52_BASE_URL + cjh52FeaturePath(route.feature),
-                                    appId = 0,
-                                    colorArgb = null,
-                                    tempCode = tempCode,
-                                    nowMillis = System.currentTimeMillis(),
-                                )
-                                backStack.add(Route.Web(0, route.feature, url))
-                            }
-                        }
+                        backStack.add(Route.Web(0, route.feature,
+                            com.muyao.wanzaihyperos.nav.WebTarget.fromUrl(HzcuEndpoints.CJH52_BASE_URL + cjh52FeaturePath(route.feature))))
                     }
                     // 目錄頁出口：稿上每頁都有那枚「六项服务目录」，
                     // 從子頁一鍵回到 CJH52 的六項服務清單。
@@ -1073,8 +919,10 @@ fun WanzaiApp(
                     rollcallRepository = app.rollcall,
                     courseDetailRepository = app.courseDetail,
                     scheduleRepository = app.schedule,
+                    membersRepository = app.tronMembers,
+                    resourcesRepository = app.tronResources,
                     onExit = { backStack.removeLastOrNull() },
-                    onOpenWeb = { openTronWeb(route.tileUrl) },
+                    onOpenWeb = { openTronWeb() },
                 )
             }
 
@@ -1088,7 +936,7 @@ fun WanzaiApp(
                 com.muyao.wanzaihyperos.ui.tronclass.RollcallStationPage(
                     repository = app.rollcall,
                     onExit = { backStack.removeLastOrNull() },
-                    onOpenWeb = { openTronWeb(route.tileUrl) },
+                    onOpenWeb = { openTronWeb() },
                 )
             }
 
@@ -1124,7 +972,7 @@ fun WanzaiApp(
                     repository = app.homework,
                     courseName = route.courseName,
                     onExit = { backStack.removeLastOrNull() },
-                    onOpenWeb = { openTronWeb(route.tileUrl) },
+                    onOpenWeb = { openTronWeb() },
                     onOpenHomework = { courseId, homeworkId, courseName, title ->
                         backStack.add(Route.HomeworkDetail(courseId, homeworkId, courseName, title))
                     },
@@ -1149,7 +997,7 @@ fun WanzaiApp(
                     courseName = route.courseName,
                     title = route.title,
                     onExit = { backStack.removeLastOrNull() },
-                    onOpenWeb = { openTronWeb(route.tileUrl) },
+                    onOpenWeb = { openTronWeb() },
                 )
             }
 
@@ -1159,7 +1007,8 @@ fun WanzaiApp(
                 com.muyao.wanzaihyperos.ui.cjh52.LecturePage(
                     repository = app.lectures,
                     onBack = { backStack.removeLastOrNull() },
-                    onOpenWeb = { backStack.add(Route.Web(54, "爱讲座", route.tileUrl)) },
+                    onOpenWeb = { backStack.add(Route.Web(54, "爱讲座", com.muyao.wanzaihyperos.nav.WebTarget.fromUrl(
+                        route.tileUrl.ifBlank { HzcuEndpoints.CJH52_BASE_URL + "/lecture/lectureList" }))) },
                 )
             }
 
@@ -1223,9 +1072,9 @@ fun WanzaiApp(
                 )
             }
             entry<Route.Web> { route ->
-                WebShellPage(
-                    title = route.title,
-                    url = route.url,
+                com.muyao.wanzaihyperos.ui.web.WebTargetPage(
+                    app = app,
+                    route = route,
                     onExit = { backStack.removeLastOrNull() },
                     // ⚠️ 這裡曾經傳入 `cookieJar` 讓 WebView 注入 CAS 會話（B4），
                     //   B5 真機對照實驗證明它把圖書館弄壞了（注入後打開就是廠商
@@ -1234,6 +1083,24 @@ fun WanzaiApp(
                     //   WebShellPage 的對應註釋與 docs/B5-WALKTHROUGH.md。
                 )
             }
+            }
+            }
+            com.muyao.wanzaihyperos.ui.search.SearchMotionHost(searchMotion) { ready, close ->
+                SearchPage(
+                    graph = app,
+                    onBack = close,
+                    onOpenApp = { selected -> searchMotion.finish(restoreFocus = false); openApp(selected) },
+                    requestInputFocus = ready,
+                )
+            }
+            // ★ 动效 9：全局后台刷新胶囊 —— 只映射真实在途请求（AppGraph 的
+            //   fetch/runTracked 计数），完成即收回、可点掉；检查时间不伪装成内容更新。
+            //   放在根 Box 顶层，覆盖所有页面；顶部居中，避开状态栏。
+            com.muyao.wanzaihyperos.ui.design.GlobalRefreshCapsule(
+                inFlight = app.inFlight,
+                modifier = Modifier.align(Alignment.TopCenter)
+                    .statusBarsPadding().padding(top = 6.dp),
+            )
             }
         }
     }

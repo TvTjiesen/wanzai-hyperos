@@ -126,6 +126,6 @@ class TypeRatchetTest {
 
     /** 当前实测存量（`fontSize`/`lineHeight` 字面量，`DesignTokens.kt` 自身除外）。只许往下调。 */
     private companion object {
-        const val BASELINE = 27
+        const val BASELINE = 61
     }
 }

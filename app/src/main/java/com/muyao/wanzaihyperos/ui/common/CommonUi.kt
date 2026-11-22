@@ -185,6 +185,7 @@ fun StatePlaceholder(
             },
             diameter = AiBall.DIAMETER_PAGE,
             hitSlop = AiBall.INLINE_SLOP,
+            stateDescription = titleFor(state) + "\n" + (detail ?: detailFor(state)),
         )
 
         Text(
@@ -264,6 +265,25 @@ private fun detailFor(state: PageState): String {
     PageState.Stale -> ctx.getString(R.string.state_stale_detail)
     PageState.SessionExpired -> ctx.getString(R.string.state_session_expired_detail)
     PageState.Content -> ""
+    }
+}
+
+fun listStateDescription(subject: String, state: com.muyao.wanzaihyperos.data.ListState<*>): String = when (state) {
+    is com.muyao.wanzaihyperos.data.ListState.FirstLoad -> "$subject 结果未取得，不代表没有记录。"
+    is com.muyao.wanzaihyperos.data.ListState.SessionExpired -> "$subject 登录失效，需重新登录；不是空结果。"
+    is com.muyao.wanzaihyperos.data.ListState.Failed -> "$subject 读取失败，结果未知，请重试。"
+    is com.muyao.wanzaihyperos.data.ListState.Empty -> when {
+        state.meta.refreshing -> "$subject 上次为空，正在刷新；新结果未确认。"
+        state.meta.lastRefreshError != null -> "$subject 刷新失败，保留上次空结果。"
+        state.meta.stale -> "$subject 保留上次空结果，新鲜度未确认。"
+        else -> "$subject 已确认空结果，不是读取失败。"
+    }
+    is com.muyao.wanzaihyperos.data.ListState.Content -> when {
+        state.meta.refreshing -> "$subject 正在刷新，仍显示已有内容。"
+        state.meta.lastRefreshError != null -> "$subject 刷新失败，仍保留旧内容。"
+        state.meta.stale -> "$subject 显示旧内容，新鲜度未确认。"
+        state.meta.loadingMore -> "$subject 正在读取下一页，清单未完整。"
+        else -> "$subject 已有可显示内容。"
     }
 }
 

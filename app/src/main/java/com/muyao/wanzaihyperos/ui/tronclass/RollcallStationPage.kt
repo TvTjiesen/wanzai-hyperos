@@ -2,6 +2,34 @@ package com.muyao.wanzaihyperos.ui.tronclass
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.focusGroup
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import com.muyao.wanzaihyperos.ui.main.pages.motionSourceVisible
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -28,6 +56,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,6 +122,7 @@ fun RollcallStationPage(
 ) {
     val scope = rememberCoroutineScope()
     val state by repository.state.collectAsState()
+    var localBack by remember { mutableStateOf<(() -> Boolean)?>(null) }
     // 清單滾動狀態提到這裡：頂欄漸變紗靠它算進度。
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val veilProgress by com.muyao.wanzaihyperos.ui.design.rememberScrollProgress(listState)
@@ -100,7 +131,7 @@ fun RollcallStationPage(
     com.muyao.wanzaihyperos.ui.design.SecondaryScaffold(
         title = "签到",
         subtitle = rollcallSubtitle(state),
-        onBack = onExit,
+        onBack = { if (localBack?.invoke() != true) onExit() },
         modifier = modifier,
         scrollProgress = veilProgress,
         onRefresh = { scope.launch { runCatching { repository.refresh() } } },
@@ -108,6 +139,7 @@ fun RollcallStationPage(
         RollcallBody(
             repository = repository,
             onOpenWeb = onOpenWeb,
+            onLocalBackChanged = { localBack = it },
             listState = listState,
             modifier = Modifier
                 .fillMaxSize()
@@ -150,6 +182,7 @@ fun RollcallBody(
     listState: androidx.compose.foundation.lazy.LazyListState =
         androidx.compose.foundation.lazy.rememberLazyListState(),
     header: LazyListScope.() -> Unit = {},
+    onLocalBackChanged: (((() -> Boolean)?) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val colors = MiuixTheme.colorScheme
@@ -177,6 +210,73 @@ fun RollcallBody(
      * 顶部那颗 / 粘贴拿到的码则没有目标，由清单筛出候选。两种都只是"选中"，不写。
      */
     var pending by remember { mutableStateOf<ScanPending?>(null) }
+    var pendingClosing by remember { mutableStateOf(false) }
+    var scanOrigin by remember { mutableStateOf<ScanRevealSource?>(null) }
+    var albumOrigin by remember { mutableStateOf<ScanRevealSource?>(null) }
+    var restoreOrigin by remember { mutableStateOf<ScanRevealSource?>(null) }
+    var restoreTicket by remember { mutableStateOf(0) }
+    var rootViewport by remember { mutableStateOf<Rect?>(null) }
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val windowStamp = ScanWindowStamp(
+        LocalWindowInfo.current.containerSize, configuration.orientation,
+        density.density, configuration.fontScale, WindowInsets.ime.getBottom(density),
+    )
+    val focusManager = LocalFocusManager.current
+    val quickAnchor = remember { ScanActionAnchor() }
+    val albumAnchor = remember { ScanActionAnchor() }
+    val pasteAnchor = remember { ScanActionAnchor() }
+    val confirmationFocus = remember { FocusRequester() }
+    val pendingSource = pending?.source
+    val sourceReusable = scanSourceReusable(
+        pendingSource?.bounds, pendingSource?.anchor?.bounds,
+        rootViewport, pendingSource?.window ?: windowStamp, windowStamp,
+    )
+    var sourceInvalid by remember(pending) { mutableStateOf(false) }
+    SideEffect { if (pending != null && !sourceReusable) sourceInvalid = true }
+    fun restoreSource(source: ScanRevealSource?) {
+        restoreOrigin = source
+        restoreTicket++
+    }
+    LaunchedEffect(restoreTicket) {
+        val source = restoreOrigin ?: return@LaunchedEffect
+        withFrameNanos { }
+        if (motionSourceVisible(source.anchor.bounds, rootViewport ?: Rect.Zero)) {
+            runCatching { source.anchor.focusRequester.requestFocus() }
+        }
+        restoreOrigin = null
+    }
+    val confirmationProgress by rememberScanConfirmationProgress(
+        identity = pending, closing = pendingClosing,
+        sourceReusable = sourceReusable && !sourceInvalid,
+        onClosed = {
+            val source = pending?.source
+            pending = null
+            pendingClosing = false
+            restoreSource(source)
+        },
+    )
+    fun closePending() { if (pending != null && !pendingClosing) pendingClosing = true }
+    fun closeCamera() {
+        scanTarget = null
+        restoreSource(scanOrigin)
+        scanOrigin = null
+    }
+    fun handleLocalBack(): Boolean = when {
+        scanTarget != null -> { closeCamera(); true }
+        pending != null -> { closePending(); true }
+        else -> false
+    }
+    BackHandler(enabled = scanTarget != null || pending != null) { handleLocalBack() }
+    val latestLocalBack by rememberUpdatedState(::handleLocalBack)
+    val latestBackSink by rememberUpdatedState(onLocalBackChanged)
+    DisposableEffect(Unit) {
+        latestBackSink?.invoke { latestLocalBack() }
+        onDispose { latestBackSink?.invoke(null) }
+    }
+    LaunchedEffect(pending) {
+        if (pending != null) { withFrameNanos { }; runCatching { confirmationFocus.requestFocus() } }
+    }
 
     // ── 触觉：只挂在"有因果的那两刻"──────────────────────────────────────
     //
@@ -200,31 +300,7 @@ fun RollcallBody(
     }
     /** 某一行手输/粘贴的内容。按 id 存，免得两行共用一个字符串。 */
     var inputs by remember { mutableStateOf(mapOf<Int, String>()) }
-    /**
-     * 只给可调试构建：把他真正扫到的那一串原文留下来。
-     *
-     * 业主 2026-10-28 第⑤条：他用本 App 扫了真实签到码，要我自己去找那串值。
-     * 事后取： run-as com.muyao.wanzaihyperos cat files/tron_raw_scanned.txt
-     * 只记他真按下的那一次；release 构建恒为 null，不写任何东西。
-     */
-    val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
-    val rawScanSink: ((String) -> Unit)? = remember(appCtx) {
-        val ctx = appCtx
-        if ((ctx.applicationInfo.flags and
-                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-        ) {
-            { raw ->
-                runCatching {
-                    java.io.File(ctx.filesDir, "tron_raw_scanned.txt").appendText(
-                        System.currentTimeMillis().toString() + " " + raw + "\n",
-                    )
-                }
-                Unit
-            }
-        } else {
-            null
-        }
-    }
+    val rawScanSink: ((String) -> Unit)? = null
 
     LaunchedEffect(Unit) {
         if (state is ListState.FirstLoad) repository.refresh()
@@ -238,8 +314,13 @@ fun RollcallBody(
     //
     // ★ 這條管道**只挑候選、永不寫**：寫請求只存在於 `submitTo`，
     //   而它的調用點全在按鈕的 onClick 裡（簽到是寫操作，業主紅線）。
-    fun handleScanned(raw: String, target: ScanTarget?) {
+    fun handleScanned(raw: String, target: ScanTarget?, source: ScanRevealSource? = null) {
         rawScanSink?.invoke(raw)
+        fun showPending(payload: String, targetId: Int?) {
+            pendingClosing = false
+            pending = ScanPending(payload, targetId, RollcallQrCode.parse(raw), source)
+            focusManager.clearFocus()
+        }
         val payload = com.muyao.wanzaihyperos.data.tronclass.QrPayloadParser.extract(raw)
         when {
             payload == null -> notice = Notice(
@@ -250,7 +331,7 @@ fun RollcallBody(
             target is ScanTarget.Row -> {
                 // 行内扫码：目标是他自己点开的那一行。**但码照样不替他交出去** ——
                 // 挂到同一张选择卡上，提交那一键由他按（审计红线：签到是写操作）。
-                pending = ScanPending(payload, target.id, RollcallQrCode.parse(raw))
+                showPending(payload, target.id)
             }
 
             else -> {
@@ -269,7 +350,7 @@ fun RollcallBody(
                     },
                     onBusy = setBusy,
                     onNotice = showNotice,
-                    onNeedPick = { pending = ScanPending(it, null, RollcallQrCode.parse(raw)) },
+                    onNeedPick = { showPending(it, null) },
                 )
             }
         }
@@ -303,25 +384,13 @@ fun RollcallBody(
                 }
                 picking = false
                 if (text != null) {
-                    handleScanned(text, null)
+                    handleScanned(text, null, albumOrigin)
+                    albumOrigin = null
                 } else {
                     notice = Notice(false, "这张照片里没找到二维码。换一张把码拍正、拍清楚的。")
                 }
             }
         }
-    }
-
-    // ── 相机（全屏覆盖，扫完立即收起）──────────────────────────────
-    if (scanTarget != null) {
-        QrScannerPage(
-            onExit = { scanTarget = null },
-            onScanned = { raw: String ->
-                val target = scanTarget
-                scanTarget = null
-                handleScanned(raw, target)
-            },
-        )
-        return
     }
 
     // ── 下拉刷新：清单是**随时会变**的东西（老师这一秒发起）──────────────
@@ -334,7 +403,12 @@ fun RollcallBody(
     // 手指往下拉时不会闪成「正在取…」的空页。
     var refreshing by remember { mutableStateOf(false) }
     val pullState = rememberPullToRefreshState()
-    PullToRefresh(
+    BoxWithConstraints(modifier.fillMaxSize().onGloballyPositioned { rootViewport = it.boundsInWindow() }) {
+        val localCovered = scanTarget != null || pending != null
+        val coveredModifier = if (localCovered) Modifier.clearAndSetSemantics { }
+            .focusProperties { canFocus = false; onEnter = { cancelFocusChange() } }
+            .focusGroup().onPreviewKeyEvent { true } else Modifier
+        PullToRefresh(
         isRefreshing = refreshing,
         onRefresh = {
             refreshing = true
@@ -347,7 +421,7 @@ fun RollcallBody(
             }
         },
         pullToRefreshState = pullState,
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().then(coveredModifier),
         // 默认四句气泡是英文（Pull down to refresh / …），中文界面里会冒出英文。
         // 顺序是 下拉 / 松开 / 正在刷 / 刷完了。
         refreshTexts = listOf("下拉刷新", "松开手就刷", "正在刷新…", "刷完了"),
@@ -456,9 +530,13 @@ fun RollcallBody(
                                 )
                                 Spacer(Modifier.height(Dims.sectionGap))
                                 Button(
-                                    onClick = { scanTarget = ScanTarget.Quick },
+                                    onClick = {
+                                        scanOrigin = quickAnchor.capture(windowStamp)
+                                        focusManager.clearFocus()
+                                        scanTarget = ScanTarget.Quick
+                                    },
                                     enabled = busyId == null,
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().scanActionAnchor(quickAnchor),
                                 ) {
                                     Text(if (busyId != null) "提交中…" else "打开相机扫码")
                                 }
@@ -477,6 +555,7 @@ fun RollcallBody(
                                 Button(
                                     onClick = {
                                         notice = Notice()
+                                        albumOrigin = albumAnchor.capture(windowStamp)
                                         albumPicker.launch(
                                             PickVisualMediaRequest(
                                                 ActivityResultContracts.PickVisualMedia.ImageOnly,
@@ -484,7 +563,7 @@ fun RollcallBody(
                                         )
                                     },
                                     enabled = busyId == null && !picking,
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().scanActionAnchor(albumAnchor),
                                 ) {
                                     Text(if (picking) "正在认这张图…" else "从相册选一张")
                                 }
@@ -496,12 +575,13 @@ fun RollcallBody(
                                     value = inputs[PASTE_KEY].orEmpty(),
                                     onValueChange = { inputs = inputs + (PASTE_KEY to it) },
                                     enabled = busyId == null,
+                                    actionModifier = Modifier.scanActionAnchor(pasteAnchor),
                                     onSubmit = { text ->
                                         if (text.isBlank()) {
                                             notice = Notice(false, "先粘贴扫码得到的内容")
                                         } else {
                                             // 和相机、相册**完全同一个入口**：只挑、不写。
-                                            handleScanned(text, null)
+                                            handleScanned(text, null, pasteAnchor.capture(windowStamp))
                                         }
                                     },
                                 )
@@ -532,73 +612,6 @@ fun RollcallBody(
                 }
             }
 
-            // ── 扫到了、要确认（或挑）是哪门课 ───────────────────────────
-            pending?.let { p ->
-                item {
-                    val candidates = pendingCandidates(items, p.targetId, p.code)
-                    AppCard(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(Dims.cardPadding)) {
-                            Text(
-                                // 一条时是"确认"，多条时是"挑"—— 两种都不能由我们替他决定
-                                text = when {
-                                    candidates.isEmpty() -> "这条签到已经不在了（清单刚刷新过）。"
-                                    p.code?.rollcallId != null && p.targetId == null ->
-                                        "扫到了。码里自带签到编号（第 ${p.code.rollcallId} 号），" +
-                                            "不用等它出现在清单里；确认后由你按下面这一键。"
-                                    candidates.size == 1 -> "扫到了。是这一次吗？确认后由你按下面这一键。"
-                                    else -> "有几门课正在扫码签到，是哪一门？"
-                                },
-                                style = MiuixTheme.textStyles.body1,
-                                color = colors.onSurface,
-                            )
-                            Spacer(Modifier.height(Dims.loose))
-                            candidates.forEach { r ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(
-                                            text = r.title.ifBlank { "签到" },
-                                            style = MiuixTheme.textStyles.body2,
-                                            color = colors.onSurface,
-                                        )
-                                        // 学校给的原文（课/节次/时间），不加工、不补
-                                        val extra = listOf(r.rollcallTime, r.endTime)
-                                            .filter { it.isNotBlank() }
-                                            .joinToString(" · ")
-                                        if (extra.isNotBlank()) {
-                                            Text(
-                                                text = extra,
-                                                style = MiuixTheme.textStyles.footnote2,
-                                                color = colors.onSurfaceVariantSummary,
-                                            )
-                                        }
-                                    }
-                                    Button(
-                                        onClick = {
-                                            // ★ 全页唯一会发签到写请求的两个入口之一，
-                                            //   另一个是行内"签到/自助签到"按钮。都得他自己按。
-                                            pending = null
-                                            submitTo(
-                                                scope, repository, r, RollcallAnswerKind.QR, p.payload,
-                                                onBusy = setBusy, onNotice = showNotice,
-                                            )
-                                        },
-                                        enabled = busyId == null,
-                                    ) { Text(if (candidates.size == 1) "确认签到" else "就是这次") }
-                                }
-                                Spacer(Modifier.height(Dims.tight))
-                            }
-                            TextButton(
-                                text = "取消",
-                                onClick = { pending = null },
-                            )
-                        }
-                    }
-                }
-            }
-
             if (items.isEmpty()) {
                 item {
                     HintText(
@@ -621,12 +634,18 @@ fun RollcallBody(
             if (open.isNotEmpty()) {
                 item { TronSection(text = "进行中（${open.size}）", icon = MarkIcon.Run) }
                 infoItems(open, key = { it.id }) { r ->
+                    val rowAnchor = remember(r.id) { ScanActionAnchor() }
                     RollcallCard(
                         rollcall = r,
                         submitting = busyId == r.id,
                         inputValue = inputs[r.id].orEmpty(),
                         onInput = { inputs = inputs + (r.id to it) },
-                        onScan = { scanTarget = ScanTarget.Row(r.id) },
+                        scanModifier = Modifier.scanActionAnchor(rowAnchor),
+                        onScan = {
+                            scanOrigin = rowAnchor.capture(windowStamp)
+                            focusManager.clearFocus()
+                            scanTarget = ScanTarget.Row(r.id)
+                        },
                         onSubmit = { kind, code ->
                             submitTo(
                                 scope, repository, r, kind, code,
@@ -671,6 +690,78 @@ fun RollcallBody(
                     color = colors.onSurfaceVariantSummary,
                 )
             }
+        }
+        }
+        pending?.let { p ->
+            val blocker = remember { MutableInteractionSource() }
+            Box(Modifier.fillMaxSize().clickable(blocker, indication = null) { closePending() })
+            val candidates = pendingCandidates(items, p.targetId, p.code)
+            AppCard(
+                modifier = Modifier.align(Alignment.Center).padding(Dims.cardPadding)
+                    .fillMaxWidth().heightIn(max = (maxHeight - Dims.cardPadding * 2).coerceAtLeast(1.dp))
+                    .then(scanConfirmationReveal(p, p.source?.bounds, confirmationProgress) {
+                        !sourceInvalid && scanSourceReusable(
+                            p.source?.bounds, p.source?.anchor?.bounds, rootViewport,
+                            p.source?.window ?: windowStamp, windowStamp,
+                        )
+                    })
+                    .clickable(blocker, indication = null) { },
+            ) {
+                Column(Modifier.verticalScroll(rememberScrollState()).padding(Dims.cardPadding)) {
+                    Text(
+                        text = when {
+                            candidates.isEmpty() -> "这条签到已经不在了（清单刚刷新过）。"
+                            p.code?.rollcallId != null && p.targetId == null ->
+                                "扫到了。码里自带签到编号（第 ${p.code.rollcallId} 号），" +
+                                    "不用等它出现在清单里；确认后由你按下面这一键。"
+                            candidates.size == 1 -> "扫到了。是这一次吗？确认后由你按下面这一键。"
+                            else -> "有几门课正在扫码签到，是哪一门？"
+                        },
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        style = MiuixTheme.textStyles.body1,
+                        color = colors.onSurface,
+                    )
+                    Spacer(Modifier.height(Dims.loose))
+                    candidates.forEachIndexed { index, r ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(r.title.ifBlank { "签到" }, style = MiuixTheme.textStyles.body2, color = colors.onSurface)
+                                val extra = listOf(r.rollcallTime, r.endTime).filter { it.isNotBlank() }.joinToString(" · ")
+                                if (extra.isNotBlank()) Text(extra, style = MiuixTheme.textStyles.footnote2, color = colors.onSurfaceVariantSummary)
+                            }
+                            Button(
+                                modifier = if (index == 0) Modifier.focusRequester(confirmationFocus) else Modifier,
+                                onClick = {
+                                    if (pendingClosing || busyId != null) return@Button
+                                    closePending()
+                                    submitTo(
+                                        scope, repository, r, RollcallAnswerKind.QR, p.payload,
+                                        onBusy = setBusy, onNotice = showNotice,
+                                    )
+                                },
+                                enabled = busyId == null && !pendingClosing,
+                            ) { Text(if (candidates.size == 1) "确认签到" else "就是这次") }
+                        }
+                        Spacer(Modifier.height(Dims.tight))
+                    }
+                    TextButton(
+                        text = "取消", onClick = { closePending() },
+                        modifier = if (candidates.isEmpty()) Modifier.focusRequester(confirmationFocus) else Modifier,
+                    )
+                }
+            }
+        }
+        if (scanTarget != null) {
+            QrScannerPage(
+                onExit = { closeCamera() },
+                onScanned = { raw ->
+                    val target = scanTarget
+                    val source = scanOrigin
+                    scanTarget = null
+                    scanOrigin = null
+                    handleScanned(raw, target, source)
+                },
+            )
         }
     }
 }
@@ -720,6 +811,28 @@ internal fun pendingCandidates(
     return items.filter { it.needsCamera && it.unanswered }
 }
 
+private class ScanActionAnchor {
+    var coordinates by mutableStateOf<LayoutCoordinates?>(null)
+    var placedBounds by mutableStateOf<Rect?>(null)
+    val focusRequester = FocusRequester()
+    val bounds: Rect? get() = placedBounds.takeIf { coordinates?.isAttached == true }
+    fun capture(window: ScanWindowStamp): ScanRevealSource? =
+        bounds?.let { ScanRevealSource(it, window, this) }
+}
+
+private data class ScanRevealSource(val bounds: Rect, val window: ScanWindowStamp, val anchor: ScanActionAnchor)
+
+@Composable
+private fun Modifier.scanActionAnchor(anchor: ScanActionAnchor): Modifier {
+    DisposableEffect(anchor) {
+        onDispose { anchor.coordinates = null; anchor.placedBounds = null }
+    }
+    return focusRequester(anchor.focusRequester).onGloballyPositioned {
+        anchor.coordinates = it
+        anchor.placedBounds = it.boundsInWindow()
+    }
+}
+
 private data class ScanPending(
     /** 要交出去的原文（客户端会再解一次，取出码里的 data）。 */
     val payload: String,
@@ -727,6 +840,7 @@ private data class ScanPending(
     val targetId: Int?,
     /** 码解码出来的东西（rollcallId / courseId / data）。解不出是 null。 */
     val code: RollcallQrCode.Payload? = null,
+    val source: ScanRevealSource? = null,
 )
 
 /** 一次簽到後的提示（默認是「沒有提示」）。 */
@@ -919,6 +1033,7 @@ private fun RollcallCard(
     onInput: (String) -> Unit,
     onScan: () -> Unit,
     onSubmit: (RollcallAnswerKind, String?) -> Unit,
+    scanModifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
     AppCard(modifier = Modifier.fillMaxWidth()) {
@@ -989,7 +1104,7 @@ private fun RollcallCard(
                             RollcallAnswerKind.QR -> Button(
                                 onClick = onScan,
                                 enabled = !submitting,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().then(scanModifier),
                             ) { Text(if (submitting) "提交中…" else "打开相机扫码") }
 
                             // `null`（雷达/点名/自动）上面 actionBlockReason 已经说过；
@@ -1012,6 +1127,7 @@ private fun PasteRow(
     onValueChange: (String) -> Unit,
     enabled: Boolean,
     onSubmit: (String) -> Unit,
+    actionModifier: Modifier = Modifier,
 ) {
     TextField(
         value = value,
@@ -1024,7 +1140,7 @@ private fun PasteRow(
     Button(
         onClick = { onSubmit(value) },
         enabled = enabled && value.isNotBlank(),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(actionModifier),
     ) { Text("用粘贴的内容签到") }
 }
 

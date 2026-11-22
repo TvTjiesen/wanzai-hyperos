@@ -62,6 +62,54 @@ class ScanWiringTest {
     }
 
     @Test
+    fun `相机和确认卡先吃局部返回且保留来源页面`() {
+        val page = src("ui/tronclass/RollcallStationPage.kt")
+        assertTrue(page.contains("BackHandler(enabled = scanTarget != null || pending != null)"))
+        assertTrue(page.contains("scanTarget != null -> { closeCamera(); true }"))
+        assertTrue(page.contains("pending != null -> { closePending(); true }"))
+        assertTrue(page.contains("onBack = { if (localBack?.invoke() != true) onExit() }"))
+        assertTrue(page.indexOf("AppList(modifier") < page.indexOf("if (scanTarget != null)"))
+        assertTrue(page.contains("confirmationFocus.requestFocus()"))
+        assertTrue(page.contains("source.anchor.focusRequester.requestFocus()"))
+        val scanner = src("ui/tronclass/QrScannerPage.kt")
+        assertTrue(scanner.contains("BackHandler { latestExit() }"))
+        assertTrue(scanner.contains("text != null && !reported"))
+    }
+
+    @Test
+    fun `每个扫码入口捕获真实按钮且失效来源不能飞回`() {
+        val page = src("ui/tronclass/RollcallStationPage.kt")
+        listOf("quickAnchor", "rowAnchor", "albumAnchor", "pasteAnchor").forEach { anchor ->
+            assertTrue(page.contains("$anchor.capture(windowStamp)"))
+        }
+        assertTrue(page.contains("it.boundsInWindow()"))
+        assertTrue(page.contains("coordinates?.isAttached == true"))
+        assertTrue(page.contains("onDispose { anchor.coordinates = null; anchor.placedBounds = null }"))
+        assertTrue(page.contains("!sourceInvalid && scanSourceReusable("))
+        assertFalse(page.contains("scanPanelBounds"))
+        assertTrue(page.contains("handleScanned(handed, null)"))
+    }
+
+    @Test
+    fun `确认卡仅退场结束移除且文字不缩放不自动提交`() {
+        val page = src("ui/tronclass/RollcallStationPage.kt")
+        val close = page.substringAfter("fun closePending()").substringBefore("fun closeCamera()")
+        assertTrue(close.contains("pendingClosing = true"))
+        assertFalse(close.contains("pending = null"))
+        val onClosed = page.substringAfter("onClosed = {").substringBefore("fun closePending()")
+        assertTrue(onClosed.contains("pending = null"))
+        assertTrue(page.contains("if (pendingClosing || busyId != null) return@Button"))
+        val reveal = src("ui/tronclass/TronScanReveal.kt")
+        assertTrue(reveal.contains("if (closing) latestClosed()"))
+        assertTrue(reveal.contains("sourceIsValid: () -> Boolean,"))
+        assertFalse(reveal.contains("{ true }"))
+        assertFalse(reveal.contains("scaleX"))
+        assertFalse(reveal.contains("scaleY"))
+        assertFalse(reveal.contains("submitTo("))
+        assertFalse(reveal.contains("repository.answer("))
+    }
+
+    @Test
     fun `扫码页的标题不许写死成签到`() {
         val scanner = src("ui/tronclass/QrScannerPage.kt")
         assertTrue(

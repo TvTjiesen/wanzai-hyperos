@@ -303,6 +303,13 @@ object HzcuEndpoints {
      */
     const val PORTAL_MESSAGE_LIST_PATH = "/api/app/ummessage/listmessage"
 
+    const val PORTAL_BROADCAST_LIST_PATH = "/api/app/exclude/listMessageBroadcast"
+    const val PORTAL_BROADCAST_DETAIL_PATH = "/api/app/exclude/listMessageBroadcastDetail"
+
+    fun portalBroadcastDetailPath(id: String): String? =
+        id.takeIf { Regex("[A-Za-z0-9_-]{1,128}").matches(it) }
+            ?.let { "$PORTAL_BROADCAST_DETAIL_PATH/$it" }
+
     /**
      * 单条标已读：**路径带 id 的 POST、无请求体**。
      *

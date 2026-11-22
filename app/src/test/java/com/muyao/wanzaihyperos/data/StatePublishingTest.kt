@@ -28,7 +28,7 @@ class StatePublishingTest {
         val dataRoot = File("src/main/java/com/muyao/wanzaihyperos/data")
         assertTrue("找不到数据层目录：$dataRoot.absolutePath", dataRoot.isDirectory)
 
-        val assignInside = Regex("""_state\.value\s*=|flow\.value\s=""")
+        val assignInside = Regex("""(?:_state|_counts|_stale|flow)\.value\s*=""")
         val offenders = mutableListOf<String>()
         dataRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { file ->
             val lines = file.readLines()

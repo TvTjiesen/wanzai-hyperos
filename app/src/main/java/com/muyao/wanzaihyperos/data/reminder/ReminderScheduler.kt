@@ -42,8 +42,7 @@ internal object ReminderScheduler {
     }
 
     fun clear(context: Context) {
-        cancelAll(context)
-        ReminderStore.clear(context)
+        try { cancelAll(context) } finally { ReminderStore.clear(context) }
     }
 
     private fun arm(context: Context, reminders: List<ClassReminder>) {

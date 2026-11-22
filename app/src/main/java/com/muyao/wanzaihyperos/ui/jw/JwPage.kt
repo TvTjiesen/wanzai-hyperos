@@ -112,6 +112,15 @@ fun JwPage(
 
     // 憑據：沒設過就先請使用者輸入（教務系統沒有免登，也沒有 refresh）。
     var hasCredential by remember { mutableStateOf(session.hasCredentialPair) }
+    var credentialRevision by remember { mutableStateOf(session.credentialRevision()) }
+    DisposableEffect(session) {
+        val listener = {
+            hasCredential = session.hasCredentialPair
+            credentialRevision = session.credentialRevision()
+        }
+        session.addListener(listener)
+        onDispose { session.removeListener(listener) }
+    }
     var account by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var inputError by remember { mutableStateOf<String?>(null) }
@@ -119,8 +128,8 @@ fun JwPage(
 
     val state by repository.state(feature).collectAsState()
 
-    LaunchedEffect(feature, hasCredential) {
-        if (hasCredential && state is ListState.FirstLoad) runCatching { repository.load(feature) }
+    LaunchedEffect(feature, hasCredential, credentialRevision) {
+        if (hasCredential && state is ListState.FirstLoad) com.muyao.wanzaihyperos.data.repo.catchingActive { repository.load(feature) }
     }
 
     val page = (state as? ListState.Content)?.items?.firstOrNull()
@@ -158,7 +167,7 @@ fun JwPage(
         onBack = onExit,
         scrollProgress = veilProgress,
         onRefresh = if (hasCredential) {
-            { scope.launch { runCatching { repository.load(feature, force = true) } } }
+            { scope.launch { com.muyao.wanzaihyperos.data.repo.catchingActive { repository.load(feature, force = true) } } }
         } else null,
         modifier = modifier,
     ) { innerPadding ->
@@ -397,7 +406,7 @@ fun JwPage(
                     SecChipRow(
                         chips = listOf(
                             "刷新" to {
-                                scope.launch { runCatching { repository.load(feature, force = true) } }
+                                scope.launch { com.muyao.wanzaihyperos.data.repo.catchingActive { repository.load(feature, force = true) } }
                             },
                             "重新输入账号密码" to {
                                 session.clear()
@@ -438,10 +447,8 @@ fun JwPage(
                         engine.attach(this)
                     }
                 },
+                onRelease = { engine.release(it) },
             )
-            DisposableEffect(Unit) {
-                onDispose { engine.detach() }
-            }
         }
     }
 }

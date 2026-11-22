@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -205,6 +206,13 @@ fun AboutPage(
             // 这两行原来各挂一句副标题（「使用本应用前请先读这一份」/
             // 「说清楚本机存了什么、什么不会离开手机」），现在只留标题——
             // 标题本身已经把事说清楚了，再补一句等于替读者做决定。
+            FlushCard(modifier = Modifier.padding(top = 16.dp)) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("资料来源", fontSize = 16.sp, color = colors.onSurface)
+                    Text("浙大城市学院门户、教务系统、学在城院及各业务系统。", fontSize = 13.sp, color = colors.onSurfaceVariantSummary)
+                    Text("学校内容归原提供方所有。本应用在本机聚合展示，不对外转发。", fontSize = 12.sp, color = colors.onSurfaceVariantSummary)
+                }
+            }
             FlushCard(modifier = Modifier.padding(top = 16.dp, bottom = 32.dp)) {
                 AboutRow(
                     mark = MarkIcon.File,

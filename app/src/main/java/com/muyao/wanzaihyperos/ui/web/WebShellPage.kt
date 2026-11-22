@@ -25,6 +25,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -71,6 +76,11 @@ private sealed interface WebLoadState {
     data class Failed(val message: String, val code: Int) : WebLoadState
 }
 
+private data class PendingWebCapture(
+    val request: PermissionRequest,
+    val ticket: WebPermissionGate.Ticket,
+)
+
 /**
  * WebView 外壳：进度、页内返回、退出、失败重试。
  *
@@ -110,32 +120,87 @@ fun WebShellPage(
      */
     subtitle: String? = null,
     modifier: Modifier = Modifier,
+    loadInitialUrl: (WebView, String) -> Boolean = { view, address -> view.loadUrl(address); true },
+    publishWebAction: (() -> Unit) -> Boolean = { action -> action(); true },
+    onReload: (() -> Unit)? = null,
 ) {
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
 
-    // 網頁要相機/麥克風（getUserMedia）時，先問系統、拿到系統權限再放行網頁。
-    //
-    // 為什麼必須接：WebChromeClient 不覆寫 onPermissionRequest 時默認一路拒絕，
-    // 於是校園網裡凡是要拍照上傳 / 語音的頁面都靜默失敗 —— 用戶看到的是
-    // 「按了沒反應」，而不是「缺權限」。真機 2026-10-30 復現（grep onPermissionRequest = 0）。
-    var pendingWebPermission by remember { mutableStateOf<PermissionRequest?>(null) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var pageStarted by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
+    var cleanupRegistration by remember { mutableStateOf<AutoCloseable?>(null) }
+    var boundaryStopped by remember { mutableStateOf(false) }
+    var currentUrl by remember { mutableStateOf(url) }
+    val permissionGate = remember { WebPermissionGate() }
+    var pendingWebPermission by remember { mutableStateOf<PendingWebCapture?>(null) }
+    var permissionConfirmation by remember { mutableStateOf<PendingWebCapture?>(null) }
+    // Keep the launched ticket until its result arrives, even after navigation cancels it.
+    var launchedWebPermission by remember { mutableStateOf<PendingWebCapture?>(null) }
 
-    // 回調裡重新查一次系統權限而不是只看返回的 map：
-    // 用戶可能本來就給過相機、只缺麥克風，那樣 map 裡不會有已經給過的那一項。
+    fun denyPendingCapture() {
+        val pending = pendingWebPermission
+        pendingWebPermission = null
+        permissionConfirmation = null
+        permissionGate.invalidate()
+        pending?.request?.deny()
+    }
+
+    fun completeCapture(launched: PendingWebCapture) {
+        if (boundaryStopped) { denyPendingCapture(); launched.request.deny(); return }
+        // Navigation may have cancelled this capture while the system dialog was open.
+        // The old request must still be answered: denying it here is the only safe end.
+        if (pendingWebPermission !== launched) { launched.request.deny(); return }
+        val granted = launched.ticket.resources.filter { resource ->
+            ContextCompat.checkSelfPermission(context, androidPermissionOf(resource)) ==
+                PackageManager.PERMISSION_GRANTED
+        }.toSet()
+        val allowed = permissionGate.finish(
+            launched.ticket.id, webView?.url.orEmpty(), pageStarted, granted,
+        )
+        pendingWebPermission = null
+        permissionConfirmation = null
+        if (allowed.isEmpty()) launched.request.deny()
+        else launched.request.grant(allowed.map(::webResourceOf).toTypedArray())
+    }
+
     val webPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { _ ->
-        val request = pendingWebPermission
-        pendingWebPermission = null
-        if (request == null) return@rememberLauncherForActivityResult
-        val allowed = request.resources.filter { resource ->
-            val permission = androidPermissionOf(resource)
-            permission != null &&
-                ContextCompat.checkSelfPermission(context, permission) ==
-                PackageManager.PERMISSION_GRANTED
+        val launched = launchedWebPermission
+        launchedWebPermission = null
+        if (launched != null) {
+            if (permissionGate.endSystemRequest(launched.ticket.id)) completeCapture(launched)
+            else launched.request.deny()
         }
-        if (allowed.isEmpty()) request.deny() else request.grant(allowed.toTypedArray())
+    }
+
+    fun confirmCapture(confirmation: PendingWebCapture) {
+        if (boundaryStopped) { denyPendingCapture(); return }
+        if (pendingWebPermission !== confirmation || launchedWebPermission != null) return
+        permissionConfirmation = null
+        if (!permissionGate.confirm(confirmation.ticket.id, webView?.url.orEmpty(), pageStarted)) {
+            denyPendingCapture()
+            return
+        }
+        val missing = confirmation.ticket.resources.map(::androidPermissionOf).filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            completeCapture(confirmation)
+        } else {
+            if (!permissionGate.startSystemRequest(confirmation.ticket.id)) {
+                denyPendingCapture()
+                return
+            }
+            launchedWebPermission = confirmation
+            runCatching { webPermissionLauncher.launch(missing.toTypedArray()) }.onFailure {
+                launchedWebPermission = null
+                permissionGate.endSystemRequest(confirmation.ticket.id)
+                denyPendingCapture()
+            }
+        }
     }
 
     // 網頁要「選檔案上傳」（請假附件、報修照片、作業提交）時走的通道。
@@ -152,7 +217,7 @@ fun WebShellPage(
         pendingFileCallback = null
         // parseResult 負責「單選 / 多選 / 取消 / 沒有 data」四種情況；取消時給 null。
         // **必須回調一次**：不調的話那個 file input 會永遠卡住，之後再點也沒有反應。
-        callback?.onReceiveValue(
+        callback?.onReceiveValue(if (boundaryStopped) null else
             android.webkit.WebChromeClient.FileChooserParams.parseResult(
                 result.resultCode,
                 result.data,
@@ -163,10 +228,30 @@ fun WebShellPage(
     var progress by remember { mutableFloatStateOf(0f) }
     var loadState by remember { mutableStateOf<WebLoadState>(WebLoadState.Loading) }
     var canGoBack by remember { mutableStateOf(false) }
-    // 当前真实地址（页内跳转后用于「重新加载」与展示主机名）。
-    var currentUrl by remember { mutableStateOf(url) }
 
-    var webView by remember { mutableStateOf<WebView?>(null) }
+    fun stopAtBoundary(view: WebView) {
+        boundaryStopped = true
+        pageStarted = false
+        canGoBack = false
+        loadState = WebLoadState.Failed("账号已切换，请关闭此页面", -1)
+        val actions: List<() -> Unit> = listOf(
+            { denyPendingCapture() },
+            { permissionGate.dispose() },
+            {
+                val callback = pendingFileCallback
+                pendingFileCallback = null
+                callback?.onReceiveValue(null)
+            },
+            { WebViewCleanup.stop(view) },
+        )
+        val errors = actions.mapNotNull { action ->
+            try { action(); null } catch (error: Throwable) { error }
+        }
+        errors.firstOrNull()?.let { first ->
+            errors.drop(1).filter { it !== first }.forEach(first::addSuppressed)
+            throw first
+        }
+    }
 
     /**
      * 「这个学校网页**还没在本机登录过**」—— B4-05（业主 2026-10-23 选的口径：**一句实话**）。
@@ -185,6 +270,7 @@ fun WebShellPage(
     BackHandler(enabled = canGoBack) {
         webView?.let { view ->
             if (view.canGoBack()) {
+                denyPendingCapture()
                 view.goBack()
             } else {
                 onExit()
@@ -192,16 +278,32 @@ fun WebShellPage(
         }
     }
 
+    DisposableEffect(lifecycle, webView) {
+        val view = webView
+        fun syncLifecycle() {
+            pageStarted = !boundaryStopped && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            if (pageStarted) view?.onResume() else {
+                denyPendingCapture()
+                view?.onPause()
+            }
+        }
+        val observer = LifecycleEventObserver { _, _ -> syncLifecycle() }
+        lifecycle.addObserver(observer)
+        syncLifecycle()
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
-            // 退出本页时释放 WebView，避免它继续在后台跑 JS / 持有会话。
-            webView?.apply {
-                stopLoading()
-                loadUrl("about:blank")
-                clearHistory()
-                destroy()
+            cleanupRegistration?.close()
+            cleanupRegistration = null
+            val view = webView
+            try {
+                if (view != null) stopAtBoundary(view)
+            } finally {
+                webView = null
+                view?.destroy()
             }
-            webView = null
         }
     }
 
@@ -214,7 +316,7 @@ fun WebShellPage(
 color = Color.Transparent,
                     subtitle = subtitle ?: hostOf(currentUrl),
                     navigationIcon = {
-                        IconButton(onClick = onExit) {
+                        IconButton(onClick = { denyPendingCapture(); onExit() }) {
                             Icon(
                                 imageVector = MiuixIcons.ChevronBackward,
                                 contentDescription = "返回",
@@ -224,7 +326,12 @@ color = Color.Transparent,
                         }
                     },
                     actions = {
-                        IconButton(onClick = { webView?.reload() }) {
+                        IconButton(onClick = {
+                            denyPendingCapture()
+                            if (!boundaryStopped && !publishWebAction {
+                                    if (onReload == null) webView?.reload() else onReload()
+                                }) webView?.let { stopAtBoundary(it) }
+                        }) {
                             Icon(
                                 imageVector = MiuixIcons.Refresh,
                                 contentDescription = "重新加载",
@@ -237,7 +344,7 @@ color = Color.Transparent,
                         //   想換帳號或不想再留著時只能重裝 App（實際踩過）。
                         //   所以把它做成頂欄上一個明確的按鈕，而不是藏起來。
                         if (onClearCredential != null) {
-                            IconButton(onClick = onClearCredential) {
+                            IconButton(onClick = { denyPendingCapture(); onClearCredential() }) {
                                 Icon(
                                     imageVector = MiuixIcons.Delete,
                                     contentDescription = "清除已保存的登录信息",
@@ -246,7 +353,7 @@ color = Color.Transparent,
                                 )
                             }
                         }
-                        IconButton(onClick = onExit) {
+                        IconButton(onClick = { denyPendingCapture(); onExit() }) {
                             Icon(
                                 imageVector = MiuixIcons.Close,
                                 contentDescription = "关闭",
@@ -327,12 +434,22 @@ color = Color.Transparent,
                         // 已證實其中一個被弄壞）。所以撤銷。
                         // 完整記錄見 docs/B5-WALKTHROUGH.md。
                         webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                if (boundaryStopped) return true
+                                if (request?.isForMainFrame == true) denyPendingCapture()
+                                return false
+                            }
+
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                if (boundaryStopped) { view?.stopLoading(); return }
                                 super.onPageStarted(view, url, favicon)
+                                denyPendingCapture()
+                                if (url != null) currentUrl = url
                                 loadState = WebLoadState.Loading
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
+                                if (boundaryStopped) return
                                 super.onPageFinished(view, url)
                                 // B4-05：只在**学校 CAS 那几个域**上提示，别的网页（通知/公告/办事）
                                 // 不需要登录，提示只会变噪音。判定看的是**真实落地**的那一页 ——
@@ -354,7 +471,9 @@ color = Color.Transparent,
                             }
 
                             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                                if (boundaryStopped) return
                                 super.doUpdateVisitedHistory(view, url, isReload)
+                                if (isReload || (url != null && url != currentUrl)) denyPendingCapture()
                                 canGoBack = view?.canGoBack() == true
                                 if (url != null) currentUrl = url
                             }
@@ -364,9 +483,11 @@ color = Color.Transparent,
                                 request: WebResourceRequest?,
                                 error: WebResourceError?,
                             ) {
+                                if (boundaryStopped) return
                                 super.onReceivedError(view, request, error)
                                 // 只把**主框架**失败当作整页失败；图片/CSS 等子资源失败不误报。
                                 if (request?.isForMainFrame != true) return
+                                denyPendingCapture()
                                 val code = error?.errorCode ?: -1
                                 loadState = WebLoadState.Failed(describeError(code), code)
                                 progress = 100f
@@ -375,26 +496,28 @@ color = Color.Transparent,
                         webChromeClient = object : android.webkit.WebChromeClient() {
                             override fun onPermissionRequest(request: PermissionRequest?) {
                                 if (request == null) return
-                                // 只放行相機 / 麥克風這兩樣；MIDI、受保護媒體標識一律拒。
-                                val wanted = request.resources.filter {
-                                    it == PermissionRequest.RESOURCE_VIDEO_CAPTURE ||
-                                        it == PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                                if (boundaryStopped) { request.deny(); return }
+                                // Never replace a live request or reuse an outstanding Android result.
+                                if (pendingWebPermission != null || launchedWebPermission != null) {
+                                    if (pendingWebPermission?.request !== request) request.deny()
+                                    return
                                 }
-                                if (wanted.isEmpty()) {
+                                val wanted = request.resources.mapNotNull(::captureResourceOf).toSet()
+                                val ticket = permissionGate.begin(
+                                    request.origin.toString(), webView?.url.orEmpty(), wanted,
+                                    pageStarted,
+                                )
+                                if (ticket == null) {
                                     request.deny()
                                     return
                                 }
-                                val missing = wanted.mapNotNull { androidPermissionOf(it) }
-                                    .filter {
-                                        ContextCompat.checkSelfPermission(context, it) !=
-                                            PackageManager.PERMISSION_GRANTED
-                                    }
-                                if (missing.isEmpty()) {
-                                    request.grant(wanted.toTypedArray())
-                                } else {
-                                    pendingWebPermission = request
-                                    webPermissionLauncher.launch(missing.toTypedArray())
-                                }
+                                val pending = PendingWebCapture(request, ticket)
+                                pendingWebPermission = pending
+                                permissionConfirmation = pending
+                            }
+
+                            override fun onPermissionRequestCanceled(request: PermissionRequest?) {
+                                if (pendingWebPermission?.request === request) denyPendingCapture()
                             }
 
                             override fun onShowFileChooser(
@@ -402,6 +525,7 @@ color = Color.Transparent,
                                 filePathCallback: ValueCallback<Array<Uri>>?,
                                 fileChooserParams: android.webkit.WebChromeClient.FileChooserParams?,
                             ): Boolean {
+                                if (boundaryStopped) { filePathCallback?.onReceiveValue(null); return true }
                                 if (filePathCallback == null || fileChooserParams == null) return false
                                 // 上一次的選擇還沒回話就又點了一次：先把舊回調餵 null 收掉，
                                 // 否則舊的那個 input 永遠等不到結果（Chromium 只認最後一次）。
@@ -418,6 +542,7 @@ color = Color.Transparent,
                             }
 
                             override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                if (boundaryStopped) return
                                 super.onProgressChanged(view, newProgress)
                                 // ⚠️ 只在**值真的變了**才寫 state。
                                 //   這個回呼在載入期間會高頻觸發，每次都寫 state 等於
@@ -426,8 +551,11 @@ color = Color.Transparent,
                                 if (progress != next) progress = next
                             }
                         }
-                        loadUrl(url)
-                    }.also { webView = it }
+                    }.also { view ->
+                        webView = view
+                        cleanupRegistration = WebViewCleanup.register(view) { stopAtBoundary(view) }
+                        if (!boundaryStopped && !loadInitialUrl(view, url)) stopAtBoundary(view)
+                    }
                 },
                 // 不用在此处切 WebView 的 visibility：可见性交给下面那层"状态遮罩"处理
                 // （见覆盖层注释）。切 visibility 在「重试」路径上会漏出 Chromium 自己的
@@ -488,11 +616,16 @@ color = Color.Transparent,
                                     detail = "打不开这个页面：${s.message}（错误码 ${s.code}）。\n" +
                                         "地址：${hostOf(currentUrl)}",
                                     onRetry = {
-                                        // 先回到 Loading（不透明遮罩会盖住 WebView），
-                                        // 再 reload；这样重试期间不会闪出 Chromium 自己的错误页。
-                                        loadState = WebLoadState.Loading
-                                        progress = 0f
-                                        webView?.reload()
+                                        if (!boundaryStopped) {
+                                            // 先回到 Loading（不透明遮罩会盖住 WebView），
+                                            // 再 reload；这样重试期间不会闪出 Chromium 自己的错误页。
+                                            loadState = WebLoadState.Loading
+                                            progress = 0f
+                                            denyPendingCapture()
+                                            if (!publishWebAction {
+                                                    if (onReload == null) webView?.reload() else onReload()
+                                                }) webView?.let { stopAtBoundary(it) }
+                                        }
                                     },
                                 )
                                 // 若是「仅校园网可达」的入口，这里给出可操作的解释而不是空话。
@@ -536,13 +669,50 @@ color = Color.Transparent,
             }
         }
     }
+
+    permissionConfirmation?.let { confirmation ->
+        val resources = confirmation.ticket.resources.joinToString("、") {
+            when (it) {
+                WebCaptureResource.Camera -> "相机"
+                WebCaptureResource.Microphone -> "麦克风"
+            }
+        }
+        WanzaiOverlayDialog(
+            show = true,
+            onDismissRequest = { if (pendingWebPermission === confirmation) denyPendingCapture() },
+            title = "允许网页使用$resources？",
+            summary = "实际请求网站：${confirmation.ticket.origin.display}\n" +
+                "仅允许这一次请求。App 已有的权限不代表网页获得授权；" +
+                "允许后仍需检查系统权限。取消、离开网页或切换地址即拒绝。",
+        ) {
+            TextButton(
+                text = "取消",
+                onClick = { if (pendingWebPermission === confirmation) denyPendingCapture() },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            )
+            TextButton(
+                text = "允许这一次",
+                onClick = { confirmCapture(confirmation) },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            )
+        }
+    }
 }
 
-/** 網頁資源 → 系統權限。不認識的資源返回 null（調用方據此拒絕）。 */
-private fun androidPermissionOf(resource: String): String? = when (resource) {
-    PermissionRequest.RESOURCE_VIDEO_CAPTURE -> android.Manifest.permission.CAMERA
-    PermissionRequest.RESOURCE_AUDIO_CAPTURE -> android.Manifest.permission.RECORD_AUDIO
+private fun captureResourceOf(resource: String): WebCaptureResource? = when (resource) {
+    PermissionRequest.RESOURCE_VIDEO_CAPTURE -> WebCaptureResource.Camera
+    PermissionRequest.RESOURCE_AUDIO_CAPTURE -> WebCaptureResource.Microphone
     else -> null
+}
+
+private fun webResourceOf(resource: WebCaptureResource): String = when (resource) {
+    WebCaptureResource.Camera -> PermissionRequest.RESOURCE_VIDEO_CAPTURE
+    WebCaptureResource.Microphone -> PermissionRequest.RESOURCE_AUDIO_CAPTURE
+}
+
+private fun androidPermissionOf(resource: WebCaptureResource): String = when (resource) {
+    WebCaptureResource.Camera -> android.Manifest.permission.CAMERA
+    WebCaptureResource.Microphone -> android.Manifest.permission.RECORD_AUDIO
 }
 
 /** 从 URL 里取主机名用于顶栏副标题。取不到就显示原串（不假装解析成功）。 */

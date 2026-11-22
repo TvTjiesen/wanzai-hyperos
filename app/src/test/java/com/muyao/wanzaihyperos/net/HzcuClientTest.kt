@@ -44,6 +44,11 @@ class HzcuClientTest {
             savedToken = accessToken
         }
 
+        override fun savePortalSession(accessToken: String, userCode: String?, portalCookiesJson: String) {
+            savedToken = accessToken
+            savedCookies = portalCookiesJson
+        }
+
         override fun clear() {
             cleared = true
         }
@@ -143,7 +148,7 @@ class HzcuClientTest {
         c.renewLog = { }
         c.renewSession = { renewCalls++; true }
 
-        val response = c.portalPost("/api/x")
+        val response = c.portalPost(HzcuEndpoints.PORTAL_NEWS_LIST_PATH)
 
         assertTrue("续期后应该拿到数据", response.success)
         assertEquals("只续一次", 1, renewCalls)
@@ -159,7 +164,7 @@ class HzcuClientTest {
         c.renewLog = { }
         c.renewSession = { renewCalls++; false }   // 重放落空 = cookie 死了
 
-        val error = runCatching { c.portalPost("/api/x") }.exceptionOrNull()
+        val error = runCatching { c.portalPost(HzcuEndpoints.PORTAL_NEWS_LIST_PATH) }.exceptionOrNull()
 
         assertTrue("实际是 $error", error is HzcuException.LoginExpired)
         assertEquals(1, renewCalls)
@@ -185,7 +190,7 @@ class HzcuClientTest {
         c.renewLog = { }
         c.renewSession = { renewCalls++; true }
 
-        runCatching { c.portalPost("/api/x", attachToken = false) }
+        runCatching { c.portalPost(HzcuEndpoints.PORTAL_NEWS_LIST_PATH, attachToken = false) }
 
         assertEquals("不带凭据的调用失败与登录态无关，不该去重放会话", 0, renewCalls)
     }
@@ -214,7 +219,7 @@ class HzcuClientTest {
     fun `HTML 登录页被识别为登录失效`() = runTest {
         server.enqueue(
             200,
-            "<html><body>统一身份认证 请先登录</body></html>",
+            """<html><form action="/cas/login"><input type="password" name="password"/></form></html>""",
             contentType = "text/html;charset=UTF-8",
         )
 
@@ -244,20 +249,43 @@ class HzcuClientTest {
     // ---------------------------------------------------------------------------
 
     @Test
-    fun `5xx 会重试到上限`() = runTest {
+    fun `只读接口 5xx 会重试到上限`() = runTest {
         repeat(3) { server.enqueue(500, """{"error":"boom"}""") }
 
-        val error = runCatching { client().portalPost("/api/x") }.exceptionOrNull()
+        val error = runCatching { client().portalPost(HzcuEndpoints.PORTAL_NEWS_LIST_PATH) }.exceptionOrNull()
 
         assertTrue("实际是 $error", error is HzcuException.HttpStatus)
         assertEquals(3, server.requestCount)
     }
 
     @Test
+    fun `未列入只读白名单的写操作 5xx 不重试`() = runTest {
+        repeat(3) { server.enqueue(500, """{"error":"boom"}""") }
+        val error = runCatching { client().portalPost("/api/x") }.exceptionOrNull()
+        assertTrue(error is HzcuException.HttpStatus)
+        assertEquals("写请求失败不得重放", 1, server.requestCount)
+    }
+
+    @Test
+    fun `未列入只读白名单的写操作 401 不续期也不重放`() = runTest {
+        server.enqueue(401, """{"code":401,"success":false}""")
+        server.enqueue(200, """{"code":200,"success":true}""")
+        val c = client()
+        var renewCalls = 0
+        c.renewContext = kotlinx.coroutines.Dispatchers.Unconfined
+        c.renewLog = { }
+        c.renewSession = { renewCalls++; true }
+        val error = runCatching { c.portalPost("/api/x") }.exceptionOrNull()
+        assertTrue(error is HzcuException.LoginExpired)
+        assertEquals(0, renewCalls)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
     fun `maxAttempts 为 1 时只发一次`() = runTest {
         server.enqueue(500, "")
 
-        val error = runCatching { client(maxAttempts = 1).portalPost("/api/x") }.exceptionOrNull()
+        val error = runCatching { client(maxAttempts = 1).portalPost(HzcuEndpoints.PORTAL_NEWS_LIST_PATH) }.exceptionOrNull()
 
         assertTrue("实际是 $error", error is HzcuException.HttpStatus)
         assertEquals(1, server.requestCount)

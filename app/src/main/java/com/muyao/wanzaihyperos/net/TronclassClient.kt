@@ -81,7 +81,21 @@ class TronclassClient(
      * （加密存儲裡永久保留同一個值）。給不出值時退回 [fallbackDeviceId]。
      */
     private val deviceIdProvider: () -> String? = { null },
+    /** Null disables persistent response caching. Supply a non-secret owner key. */
+    private val identityProvider: () -> RequestIdentity? = { null },
+    private val onSessionIdForOwner: ((String, RequestIdentity?) -> Unit)? = null,
+    private val refreshAccessTokenForOwner: (suspend (RequestIdentity?) -> String?)? = null,
 ) {
+    private val reads = RequestSingleFlight<RequestKey, kotlinx.serialization.json.JsonElement>()
+    private val sessions = RequestSingleFlight<RequestIdentity?, String>()
+    private val sessionLock = Any()
+    private var knownSession: Pair<RequestIdentity?, String>? = null
+
+    private fun currentIdentity(): RequestIdentity? = identityProvider()
+
+    private fun requireCurrent(identity: RequestIdentity?) {
+        if (currentIdentity() != identity) throw HzcuException.Parse("会话已切换，请重新加载")
+    }
 
     /** `deviceIdProvider` 給不出值時的兜底：同一支 client 內穩定，換進程會變。 */
     private val fallbackDeviceId: String = java.util.UUID.randomUUID().toString()
@@ -92,41 +106,58 @@ class TronclassClient(
      * 換取需要 Keycloak accessToken —— 它由登入/續期流程負責保持新鮮
      * （見 `WanzaiRoot` 的 TronclassFreeLogin 分支）。
      */
-    suspend fun sessionId(): String {
-        cachedSessionId()?.takeIf { it.isNotBlank() }?.let { return it }
-        return exchangeSessionId()
+    suspend fun sessionId(forceRefresh: Boolean = false): String =
+        obtainSession(currentIdentity(), forceRefresh)
+
+    private fun availableSession(identity: RequestIdentity?): String? {
+        requireCurrent(identity)
+        synchronized(sessionLock) {
+            knownSession?.takeIf { it.first == identity }?.second?.let { return it }
+        }
+        return cachedSessionId()?.takeIf { it.isNotBlank() }.also { requireCurrent(identity) }
     }
 
-    private suspend fun exchangeSessionId(): String {
+    private suspend fun obtainSession(
+        identity: RequestIdentity?,
+        forceRefresh: Boolean = false,
+        rejected: String? = null,
+    ): String {
+        if (!forceRefresh) availableSession(identity)?.let { return it }
+        if (rejected != null) availableSession(identity)?.takeIf { it != rejected }?.let { return it }
+        return sessions.run(identity) {
+            requireCurrent(identity)
+            if (!forceRefresh) availableSession(identity)?.let { return@run it }
+            if (rejected != null) availableSession(identity)?.takeIf { it != rejected }?.let { return@run it }
+            exchangeSessionId(identity).also { sid ->
+                requireCurrent(identity)
+                synchronized(sessionLock) { knownSession = identity to sid }
+            }
+        }.also { requireCurrent(identity) }
+    }
+
+    private suspend fun exchangeSessionId(identity: RequestIdentity?): String {
+        requireCurrent(identity)
         val account = accountProvider()?.takeIf { it.isNotBlank() }
             ?: throw HzcuException.LoginExpired("需要先登录才能取学在城院数据")
-
-        // 第一次：用現成的 accessToken。
-        val first = runCatching { exchangeWith(account, requireAccessToken()) }
-        first.getOrNull()?.let { return it }
-
-        // ★ 失敗再續期一次。這是**待辦看板那條入口**能用的關鍵：
-        //   它不經過「打開學在城院磁貼」那條會續期的路，
-        //   token 過期時必須在這裡自己補救。
-        val stale = first.exceptionOrNull()
-        android.util.Log.i(
-            "WanzaiTron",
-            "换 sessionID 失败（${stale?.javaClass?.simpleName}），尝试续期 accessToken",
-        )
-        val fresh = refreshAccessToken()
-        if (fresh.isNullOrBlank()) {
-            // 續不了（沒 refresh_token、或 refresh 也被拒）→ 明確要求重新登入。
-            throw HzcuException.LoginExpired("学在城院登录状态已失效，请重新登录")
+        val access = requireAccessToken()
+        return try {
+            exchangeWith(account, access, identity)
+        } catch (error: HzcuException.LoginExpired) {
+            requireCurrent(identity)
+            val ownedRefresh = refreshAccessTokenForOwner
+            val fresh = (if (ownedRefresh != null) ownedRefresh(identity) else refreshAccessToken())
+                ?.takeIf { it.isNotBlank() }
+                ?: throw HzcuException.LoginExpired("学在城院登录状态已失效，请重新登录")
+            requireCurrent(identity)
+            exchangeWith(account, fresh, identity)
         }
-        // 續期成功：**再換一次**。這次失敗就照實上拋。
-        return exchangeWith(account, fresh)
     }
 
     private fun requireAccessToken(): String =
         accessTokenProvider()?.takeIf { it.isNotBlank() }
             ?: throw HzcuException.LoginExpired("学在城院登录状态已失效，请重新登录")
 
-    private suspend fun exchangeWith(account: String, access: String): String {
+    private suspend fun exchangeWith(account: String, access: String, identity: RequestIdentity?): String {
         val body = """{"user_name":${jsonString(account)},"access_token":${jsonString(access)}}"""
             .toRequestBody(JSON_TYPE)
 
@@ -141,23 +172,34 @@ class TronclassClient(
                     .header("Accept", "application/json")
                     .post(body)
                     .build()
+                requireCurrent(identity)
                 http.newCall(request).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    requireCurrent(identity)
+                    if (TronRequestPolicy.authenticationFailure(resp.code, text, resp.header("Location"))) {
+                        throw HzcuException.LoginExpired("学在城院登录状态已失效")
+                    }
                     when {
                         resp.code == 200 -> {
                             val sid = resp.header("X-SESSION-ID")
                             if (sid.isNullOrBlank()) {
                                 throw HzcuException.Parse("登录响应里没有 X-SESSION-ID 头")
                             }
-                            onSessionId(sid)
+                            val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+                            if (root?.get("user_id").asIntOrNull() == null ||
+                                root?.get("success").asBoolOrNull() == false ||
+                                !root?.get("error_code").asStringOrNull().isNullOrBlank()) {
+                                throw HzcuException.Parse("登录响应结构异常")
+                            }
+                            requireCurrent(identity)
+                            val ownedPublish = onSessionIdForOwner
+                            if (ownedPublish != null) ownedPublish(sid, identity) else onSessionId(sid)
+                            requireCurrent(identity)
                             sid
                         }
-                        // 401/403：token 對過期 —— 讓上層去重新登入，不要在這裡重試。
-                        resp.code == 401 || resp.code == 403 ->
-                            throw HzcuException.LoginExpired("学在城院登录状态已失效")
                         else -> {
                             // ⚠️ 不把回應正文塞進異常：它可能含 token 片段。
                             //   只記狀態碼與長度。
-                            val text = runCatching { resp.body?.string() }.getOrNull().orEmpty()
                             throw HzcuException.HttpStatus(
                                 statusCode = resp.code,
                                 requestUri = TRON_BASE + "/api/login",
@@ -171,8 +213,8 @@ class TronclassClient(
     }
 
     /** 待辦（作業）列表。 */
-    suspend fun todos(): List<TronTodo> =
-        parseListOf("/api/todos", "待办") { TronTodoParser.parse(it) }
+    suspend fun todos(forceRefresh: Boolean = false): List<TronTodo> =
+        parseListOf("/api/todos", "待办", forceRefresh) { TronTodoParser.parse(it) }
 
     /**
      * 「我的課」：本學期與歷來的**全部**課程。
@@ -193,9 +235,9 @@ class TronclassClient(
      * 這種「安靜截斷」比報錯更糟（報錯至少知道出事了）。
      * 所以放大到 [PAGE_SIZE] 並在界面顯示實際門數，兩邊對得上。
      */
-    suspend fun myCourses(pageSize: Int = PAGE_SIZE):
+    suspend fun myCourses(pageSize: Int = PAGE_SIZE, forceRefresh: Boolean = false):
         List<com.muyao.wanzaihyperos.data.tronclass.TronCourse> =
-        parseListOf("/api/my-courses?conditions=%7B%7D&page=1&page_size=$pageSize", "我的课") {
+        parseListOf("/api/my-courses?conditions=%7B%7D&page=1&page_size=$pageSize", "我的课", forceRefresh) {
             com.muyao.wanzaihyperos.data.tronclass.TronCourseParser.parse(it)
         }
 
@@ -205,11 +247,36 @@ class TronclassClient(
      * 取不到（解析不出必要欄位）回 null，由呼叫方決定顯示什麼 ——
      * **不丟一個空殼物件**（那會讓界面顯示一排空白鍵值）。
      */
-    suspend fun courseDetail(courseId: Int):
+    suspend fun courseDetail(courseId: Int, forceRefresh: Boolean = false):
         com.muyao.wanzaihyperos.data.tronclass.TronCourseDetail? =
         com.muyao.wanzaihyperos.data.tronclass.TronCourseDetailParser.parse(
-            requestJson("/api/courses/$courseId", "课程详情", method = "GET"),
+            requestJson("/api/courses/$courseId", "课程详情", method = "GET", forceRefresh = forceRefresh),
         )
+
+    /** Official mobile CourseEnrollments baseline; only a real course id is accepted. */
+    suspend fun courseMembers(courseId: Int, forceRefresh: Boolean = false):
+        List<com.muyao.wanzaihyperos.data.tronclass.TronMember> {
+        require(courseId > 0)
+        val fields = "id,roles,aliases,total_score,published,instructor_score_time,user(id,name,user_no,avatar_small_url,comment,department,grade,klass)"
+        val encoded = java.net.URLEncoder.encode(fields, "UTF-8")
+        return com.muyao.wanzaihyperos.data.tronclass.TronMembersParser.parse(
+            requestJson("/api/course/$courseId/enrollments?fields=$encoded", "课程成员", forceRefresh = forceRefresh),
+        )
+    }
+
+    /** Official personal uploads service; folder and file requests share this read contract. */
+    suspend fun userResources(
+        query: com.muyao.wanzaihyperos.data.tronclass.TronResourcesQuery,
+        folders: Boolean,
+        page: Int = 1,
+        forceRefresh: Boolean = false,
+    ): com.muyao.wanzaihyperos.data.tronclass.TronResourcesPageData {
+        require(page in 1..1000)
+        val conditions = java.net.URLEncoder.encode(query.conditions(folders).toString(), "UTF-8")
+        return com.muyao.wanzaihyperos.data.tronclass.TronResourcesParser.parse(
+            requestJson("/api/user/resources?conditions=$conditions&page_size=10&page=$page", "我的资源", forceRefresh = forceRefresh),
+        )
+    }
 
     /**
      * 我在某門課的成績。
@@ -217,13 +284,13 @@ class TronclassClient(
      * 兩支端點（自評分 + 佔比）**各自 runCatching**：佔比那支掛了不該讓成績也不顯示。
      * 兩支都失敗才回 null。
      */
-    suspend fun courseScore(courseId: Int):
+    suspend fun courseScore(courseId: Int, forceRefresh: Boolean = false):
         com.muyao.wanzaihyperos.data.tronclass.TronScore? {
-        val self = runCatching {
-            requestJson("/api/course/$courseId/student-self-score", "成绩", method = "GET")
+        val self = com.muyao.wanzaihyperos.data.repo.catchingActive {
+            requestJson("/api/course/$courseId/student-self-score", "成绩", method = "GET", forceRefresh = forceRefresh)
         }
-        val percent = runCatching {
-            requestJson("/api/course/$courseId/score-percentages", "成绩占比", method = "GET")
+        val percent = com.muyao.wanzaihyperos.data.repo.catchingActive {
+            requestJson("/api/course/$courseId/score-percentages", "成绩占比", method = "GET", forceRefresh = forceRefresh)
         }
         return com.muyao.wanzaihyperos.data.tronclass.TronScoreParser.parse(
             self.getOrNull(),
@@ -232,10 +299,10 @@ class TronclassClient(
     }
 
     /** 某門課的出勤彙總（老師點名幾次、我參與幾次）。 */
-    suspend fun courseRollcallScore(courseId: Int):
+    suspend fun courseRollcallScore(courseId: Int, forceRefresh: Boolean = false):
         com.muyao.wanzaihyperos.data.tronclass.TronRollcallScore? =
         com.muyao.wanzaihyperos.data.tronclass.TronRollcallScoreParser.parse(
-            requestJson("/api/course/$courseId/rollcall-score", "出勤", method = "GET"),
+            requestJson("/api/course/$courseId/rollcall-score", "出勤", method = "GET", forceRefresh = forceRefresh),
         )
 
     /**
@@ -245,9 +312,9 @@ class TronclassClient(
      * 同站的 `/api/courses/{id}/rollcalls` 是老師端的（實測 403）。
      * 學號不能省 —— 這支問的就是「**我**出席狀況」。
      */
-    suspend fun courseAttendance(courseId: Int, studentId: Int):
+    suspend fun courseAttendance(courseId: Int, studentId: Int, forceRefresh: Boolean = false):
         List<com.muyao.wanzaihyperos.data.tronclass.TronAttendance> =
-        parseElementOf("/api/course/$courseId/student/$studentId/rollcalls", "出勤记录") {
+        parseElementOf("/api/course/$courseId/student/$studentId/rollcalls", "出勤记录", forceRefresh) {
             com.muyao.wanzaihyperos.data.tronclass.TronAttendanceParser.parseList(it)
         }
 
@@ -266,8 +333,8 @@ class TronclassClient(
      * `answer?api_version=1.76`、`stop_radar?api_version=1.1.0` 都是這樣），
      * 少了參數就可能拿到一個**結構不同、我解析成空**的回應。
      */
-    suspend fun ongoingRollcalls(myStudentId: Int?): List<com.muyao.wanzaihyperos.data.tronclass.TronRollcall> =
-        requestJson("/api/radar/rollcalls?api_version=1.1.0", "签到", method = "GET").let { root ->
+    suspend fun ongoingRollcalls(myStudentId: Int?, forceRefresh: Boolean = false): List<com.muyao.wanzaihyperos.data.tronclass.TronRollcall> =
+        requestJson("/api/radar/rollcalls?api_version=1.1.0", "签到", method = "GET", forceRefresh = forceRefresh).let { root ->
             debugDump?.invoke("rollcalls", root.toString())
             com.muyao.wanzaihyperos.data.tronclass.TronRollcallParser.parseList(root, myStudentId)
         }
@@ -307,8 +374,8 @@ class TronclassClient(
      *
      * 取不到時回 null 由呼叫方決定怎麼顯示（**不猜一個 id**）。
      */
-    suspend fun profileUserId(): Int? =
-        requestJson("/api/profile", "个人资料", method = "GET")["id"].asIntOrNull()
+    suspend fun profileUserId(forceRefresh: Boolean = false): Int? =
+        requestJson("/api/profile", "个人资料", method = "GET", forceRefresh = forceRefresh)["id"].asIntOrNull()
 
     /**
      * 某門課的**我的提交狀態**（每項作業交了沒）。**只讀**。
@@ -317,9 +384,9 @@ class TronclassClient(
      * 這一支補上那個缺口。能取不到時回空映射 —— 界面就退回「只顯示截止時間」，
      * **不假裝全部未交**。
      */
-    suspend fun homeworkStatus(courseId: Int): Map<Int, com.muyao.wanzaihyperos.data.tronclass.TronHomeworkStatus> =
+    suspend fun homeworkStatus(courseId: Int, forceRefresh: Boolean = false): Map<Int, com.muyao.wanzaihyperos.data.tronclass.TronHomeworkStatus> =
         com.muyao.wanzaihyperos.data.tronclass.TronHomeworkStatusParser.parse(
-            requestJson("/api/course/$courseId/homework/submission-status", "作业状态", method = "GET"),
+            requestJson("/api/course/$courseId/homework/submission-status", "作业状态", method = "GET", forceRefresh = forceRefresh),
         )
 
     /**
@@ -330,10 +397,10 @@ class TronclassClient(
      *
      * 取不到回空清單（呼叫方把「第幾週」顯示成「—」，**不猜**）。
      */
-    suspend fun teachingWeeks(orgId: Int = 1):
+    suspend fun teachingWeeks(orgId: Int = 1, forceRefresh: Boolean = false):
         List<com.muyao.wanzaihyperos.data.tronclass.TronTeachingWeek> =
         com.muyao.wanzaihyperos.data.tronclass.TronTeachingWeekParser.parse(
-            requestJson("/api/org/$orgId/teaching-weeks", "教学周", method = "GET"),
+            requestJson("/api/org/$orgId/teaching-weeks", "教学周", method = "GET", forceRefresh = forceRefresh),
         )
 
     /**
@@ -343,9 +410,9 @@ class TronclassClient(
      * 先前猜成 `/api/course/{id}/homeworks` 全 404 —— 這個站單複數混用，
      * 只能逐字照抄源碼，不能按慣例推。
      */
-    suspend fun homeworks(courseId: Int, page: Int = 1, pageSize: Int = 20):
+    suspend fun homeworks(courseId: Int, page: Int = 1, pageSize: Int = 20, forceRefresh: Boolean = false):
         List<com.muyao.wanzaihyperos.data.tronclass.TronHomework> =
-        parseListOf("/api/courses/$courseId/homework-activities?page=$page&page_size=$pageSize", "作业") {
+        parseListOf("/api/courses/$courseId/homework-activities?page=$page&page_size=$pageSize", "作业", forceRefresh) {
             com.muyao.wanzaihyperos.data.tronclass.TronHomeworkParser.parseList(it)
         }
 
@@ -360,11 +427,12 @@ class TronclassClient(
      *
      * id 取不到時**呼叫方不該調用本方法**（它會把 null 拼成字串 "null" 打到服務端）。
      */
-    suspend fun submissions(homeworkId: Int, userId: Int):
+    suspend fun submissions(homeworkId: Int, userId: Int, forceRefresh: Boolean = false):
         List<com.muyao.wanzaihyperos.data.tronclass.TronSubmission> =
         parseElementOf(
             "/api/activities/$homeworkId/students/$userId/submission_list",
             "我的提交",
+            forceRefresh,
         ) { com.muyao.wanzaihyperos.data.tronclass.TronSubmissionParser.parseList(it) }
 
     /**
@@ -409,21 +477,23 @@ class TronclassClient(
      * 全校／機構**公告**（首頁「課程動態」的來源之一）。
      *
      * 回應外層是 `{bulletins:[...]}` 或 `{data:[...]}`，
-     * 所以用 [requestJsonElement] 取原始 JSON 再交給解析器（它三種外層都接）。
+     * 所以用 [requestElement] 取原始 JSON 再交給解析器（它三種外層都接）。
      */
-    suspend fun orgBulletins(page: Int = 1, pageSize: Int = 20):
+    suspend fun orgBulletins(page: Int = 1, pageSize: Int = 20, forceRefresh: Boolean = false):
         List<com.muyao.wanzaihyperos.data.tronclass.TronBulletin> =
         parseElementOf(
             "/api/org-bulletin/bulletins?conditions=%7B%7D&page=$page&page_size=$pageSize",
             "公告",
+            forceRefresh,
         ) { com.muyao.wanzaihyperos.data.tronclass.TronBulletinParser.parseList(it) }
 
     /** 某門課的公告。 */
-    suspend fun courseBulletins(courseId: Int, page: Int = 1, pageSize: Int = 20):
+    suspend fun courseBulletins(courseId: Int, page: Int = 1, pageSize: Int = 20, forceRefresh: Boolean = false):
         List<com.muyao.wanzaihyperos.data.tronclass.TronBulletin> =
         parseElementOf(
             "/api/courses/$courseId/bulletins?page=$page&page_size=$pageSize",
             "课程公告",
+            forceRefresh,
         ) { com.muyao.wanzaihyperos.data.tronclass.TronBulletinParser.parseList(it) }
 
     /**
@@ -432,9 +502,9 @@ class TronclassClient(
      * ⚠️ 先前（B12）以為它對所有課都空 —— 那是只掃 8 門課的結論。
      * B14 掃全部 37 門後**6 門有考試**，見 [com.muyao.wanzaihyperos.data.tronclass.TronExam]。
      */
-    suspend fun courseExams(courseId: Int):
+    suspend fun courseExams(courseId: Int, forceRefresh: Boolean = false):
         List<com.muyao.wanzaihyperos.data.tronclass.TronExam> =
-        parseElementOf("/api/courses/$courseId/exams", "考试") {
+        parseElementOf("/api/courses/$courseId/exams", "考试", forceRefresh) {
             com.muyao.wanzaihyperos.data.tronclass.TronExamParser.parseList(it)
         }
 
@@ -445,16 +515,16 @@ class TronclassClient(
      * 要讀內容得逐條打 `/api/topics/{id}`。所以這一層只做「有哪些討論」，
      * 見 [com.muyao.wanzaihyperos.data.tronclass.TronTopicCategory] 的類註釋。
      */
-    suspend fun courseTopicCategories(courseId: Int):
+    suspend fun courseTopicCategories(courseId: Int, forceRefresh: Boolean = false):
         List<com.muyao.wanzaihyperos.data.tronclass.TronTopicCategory> =
-        parseElementOf("/api/courses/$courseId/topic-categories", "讨论区") {
+        parseElementOf("/api/courses/$courseId/topic-categories", "讨论区", forceRefresh) {
             com.muyao.wanzaihyperos.data.tronclass.TronTopicCategoryParser.parseList(it)
         }
 
     /** 個人信息（「我的」頁）。 */
-    suspend fun profile(): com.muyao.wanzaihyperos.data.tronclass.TronProfile? =
+    suspend fun profile(forceRefresh: Boolean = false): com.muyao.wanzaihyperos.data.tronclass.TronProfile? =
         com.muyao.wanzaihyperos.data.tronclass.TronProfileParser.parse(
-            requestJson("/api/profile", "个人资料", method = "GET"),
+            requestJson("/api/profile", "个人资料", method = "GET", forceRefresh = forceRefresh),
         )
 
     /**
@@ -666,7 +736,7 @@ class TronclassClient(
             else -> attendanceStateText(state)?.let { "服务端记成了「$it」，不是已到" }
                 ?: "服务端收到了，但没确认签到"
         }
-        return listOf(raw?.take(120)?.takeIf { it.isNotBlank() }, human)
+        return listOf(raw?.let { safeRequestText(it, 120) }?.takeIf { it.isNotBlank() }, human)
             .filterNotNull()
             .joinToString(" · ")
             .ifBlank { fallback }
@@ -730,15 +800,9 @@ class TronclassClient(
     private suspend fun <T> parseListOf(
         path: String,
         label: String,
+        forceRefresh: Boolean = false,
         parse: (JsonObject) -> List<T>,
-    ): List<T> {
-        val first = runCatching { requestJson(path, label, method = "GET") }
-        val err = first.exceptionOrNull()
-        if (err == null) return first.getOrThrow().let { parse(it) }
-        if (err !is HzcuException.LoginExpired && !isUnauthorized(err)) throw err
-        android.util.Log.i("WanzaiTron", "$label 首次失败（${err.javaClass.simpleName}），重换 sessionID 后重试")
-        return parse(requestJson(path, label, method = "GET", forceNewSession = true))
-    }
+    ): List<T> = parse(requestJson(path, label, forceRefresh = forceRefresh))
 
     /**
      * 與 [parseListOf] 相同，但解析器吃的是**原始 JSON 元素**。
@@ -751,68 +815,74 @@ class TronclassClient(
     private suspend fun <T> parseElementOf(
         path: String,
         label: String,
+        forceRefresh: Boolean = false,
         parse: (kotlinx.serialization.json.JsonElement?) -> List<T>,
-    ): List<T> {
-        val first = runCatching { requestElement(path, label) }
-        val err = first.exceptionOrNull()
-        if (err == null) return parse(first.getOrThrow())
-        if (err !is HzcuException.LoginExpired && !isUnauthorized(err)) throw err
-        android.util.Log.i("WanzaiTron", "$label 首次失败（${err.javaClass.simpleName}），重换 sessionID 后重试")
-        return parse(requestElement(path, label, forceNewSession = true))
-    }
+    ): List<T> = parse(requestElement(path, label, forceRefresh))
 
-    /** 取原始 JSON 元素（不要求是物件）。錯誤判據與 [requestJson] 一致。 */
     private suspend fun requestElement(
         path: String,
         label: String,
-        forceNewSession: Boolean = false,
-    ): kotlinx.serialization.json.JsonElement? {
-        val sid = if (forceNewSession) exchangeSessionId() else sessionId()
-        val (status, text) = rawRequest(path, "GET", null, sid)
-        when {
-            status == 401 || status == 403 -> throw HzcuException.LoginExpired("学在城院会话已失效")
-            status != 200 -> throw HzcuException.HttpStatus(
-                statusCode = status,
-                requestUri = TRON_BASE + path,
-                summary = "$label 失败",
-            )
-        }
-        if (text.trimStart().startsWith("<")) {
-            throw HzcuException.LoginExpired("学在城院会话已失效（返回了页面而非数据）")
-        }
-        return runCatching { Json.parseToJsonElement(text) }.getOrNull()
-            ?: throw HzcuException.Parse("$label 响应不是 JSON")
+        forceRefresh: Boolean = false,
+    ): kotlinx.serialization.json.JsonElement {
+        val identity = currentIdentity()
+        return reads.run(RequestKey(identity, "GET", path, forceRefresh)) {
+            requireCurrent(identity)
+            val ttl = TronRequestPolicy.ttlMs(path)
+            val store = cache?.takeIf { identity != null && ttl > 0 && it.cacheable(path, "GET") }
+            val cacheGeneration = store?.writeGeneration()
+            if (!forceRefresh && store != null && identity != null) {
+                store.get("tronclass", identity, path, ttl)?.let { body ->
+                    val parsed = runCatching { decodeResponse(path, label, 200, body) }.getOrNull()
+                    if (parsed != null) {
+                        requireCurrent(identity)
+                        return@run parsed
+                    }
+                    store.invalidate("tronclass", identity, path)
+                }
+            }
+            var sid = obtainSession(identity)
+            val element = try {
+                val (status, body) = netRequest(path, "GET", null, sid, identity)
+                decodeResponse(path, label, status, body)
+            } catch (error: HzcuException.LoginExpired) {
+                requireCurrent(identity)
+                sid = obtainSession(identity, forceRefresh = true, rejected = sid)
+                val (status, body) = netRequest(path, "GET", null, sid, identity)
+                decodeResponse(path, label, status, body)
+            }
+            requireCurrent(identity)
+            if (store != null && identity != null && cacheGeneration != null) {
+                store.putIfCurrent("tronclass", identity, path, element.toString(), cacheGeneration) {
+                    currentIdentity() == identity
+                }
+            }
+            requireCurrent(identity)
+            element
+        }.also { requireCurrent(identity) }
     }
 
-    /**
-     * 發請求並回已解析的 JSON（物件）。
-     *
-     * 錯誤判據**集中在此**：
-     * - 401/403 → 會話失效；
-     * - 非 200 → HttpStatus；
-     * - 回 HTML → 會話失效（被踢時 SPA 會兜底成頁面）—— 這條很重要，
-     *   若當成「空資料」會讓界面顯示「0 條」，那是謊報。
-     */
+    private fun decodeResponse(
+        path: String, label: String, status: Int, body: String,
+    ): kotlinx.serialization.json.JsonElement {
+        if (TronRequestPolicy.authenticationFailure(status, body)) {
+            throw HzcuException.LoginExpired("学在城院会话已失效")
+        }
+        if (status != 200) throw HzcuException.HttpStatus(status, TRON_BASE + path, "$label 失败")
+        if (body.trimStart().startsWith("<")) throw HzcuException.Parse("$label 返回了页面而非数据")
+        val parsed = runCatching { Json.parseToJsonElement(body) }.getOrNull()
+            ?: throw HzcuException.Parse("$label 响应不是 JSON")
+        if (!TronRequestPolicy.validContract(path, parsed)) throw HzcuException.Parse("$label 响应结构异常")
+        return parsed
+    }
+
     private suspend fun requestJson(
         path: String,
         label: String,
-        method: String,
-        forceNewSession: Boolean = false,
+        method: String = "GET",
+        forceRefresh: Boolean = false,
     ): JsonObject {
-        val sid = if (forceNewSession) exchangeSessionId() else sessionId()
-        val (status, text) = rawRequest(path, method, null, sid)
-        when {
-            status == 401 || status == 403 -> throw HzcuException.LoginExpired("学在城院会话已失效")
-            status != 200 -> throw HzcuException.HttpStatus(
-                statusCode = status,
-                requestUri = TRON_BASE + path,
-                summary = "$label 失败",
-            )
-        }
-        if (text.trimStart().startsWith("<")) {
-            throw HzcuException.LoginExpired("学在城院会话已失效（返回了页面而非数据）")
-        }
-        return runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+        check(method == "GET")
+        return requestElement(path, label, forceRefresh) as? JsonObject
             ?: throw HzcuException.Parse("$label 响应不是 JSON 对象")
     }
 
@@ -828,19 +898,13 @@ class TronclassClient(
         jsonBody: String?,
         sid: String? = null,
     ): Pair<Int, String> {
-        // ── 本地缓存（业主 2026-10-20：「每次点进应用数据都要重新加载」）──────
-        // 判據全在 [ResponseCache] 裡：只有 GET、只有非會話類端點、只有 JSON 正文會進這裡。
-        val c = cache
-        val usable = if (c != null && c.cacheable(path, method) && !takeBypass()) c else null
-        usable?.get(path, TTL_MS)?.let { hit -> return 200 to hit }
-
-        val out = netRequest(path, method, jsonBody, sid ?: sessionId())
-        // 只存 200 且真是 JSON 的回應（被踢回登入頁時回的是 HTML，
-        // 存下來等於把「會話已失效」這個狀態凍進緩存裡，下次直接假装有数据）。
-        if (usable != null && out.first == 200 && !out.second.trimStart().startsWith("<")) {
-            usable.put(path, out.second)
+        val identity = currentIdentity()
+        // Mutations are deliberately outside single-flight/cache and never retried.
+        val result = netRequest(path, method, jsonBody, sid ?: obtainSession(identity), identity)
+        if (TronRequestPolicy.authenticationFailure(result.first, result.second)) {
+            throw HzcuException.LoginExpired("学在城院会话已失效")
         }
-        return out
+        return result
     }
 
     /** 真正發網絡請求的那一層（緩存與後臺再取都複用它，**自己不看緩存**）。 */
@@ -849,8 +913,10 @@ class TronclassClient(
         method: String,
         jsonBody: String?,
         sid: String,
-    ): Pair<Int, String> = limiter.gate(path) {
+        identity: RequestIdentity?,
+    ): Pair<Int, String> = limiter.gate(path.substringBefore('?')) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            requireCurrent(identity)
             val builder = Request.Builder()
                 .url(TRON_BASE + path)
                 .header("X-SESSION-ID", sid)
@@ -862,28 +928,18 @@ class TronclassClient(
                 else -> builder.post((jsonBody ?: "{}").toRequestBody(JSON_TYPE))
             }
             http.newCall(builder.build()).execute().use { resp ->
-                resp.code to resp.body?.string().orEmpty()
+                val body = resp.body?.string().orEmpty()
+                requireCurrent(identity)
+                if (TronRequestPolicy.authenticationFailure(resp.code, body, resp.header("Location"))) {
+                    throw HzcuException.LoginExpired("学在城院会话已失效")
+                }
+                resp.code to body
             }
         }
     }
 
-    /**
-     * 只給**下拉刷新/重試**用：讓下一次讀一定走網絡。
-     *
-     * ★ 為什麼要有這個開關：緩存要是不給出口，他點刷新會拿到一份舊數據，
-     *   然後得出「刷新是假的」—— 那比沒有緩存更糟。
-     *   用「一次性」而不是布爾量：用完自動复位，不會因為某個調用點忘了關而長期失效。
-     */
-    fun bypassCacheOnce() { bypassOnce = true }
-
-    @Volatile
-    private var bypassOnce = false
-
-    private fun takeBypass(): Boolean {
-        val v = bypassOnce
-        bypassOnce = false
-        return v
-    }
+    @Deprecated("Pass forceRefresh = true to the intended read instead")
+    fun bypassCacheOnce() = Unit
 
     /** 只讀接口的本地緩存（由 `AppGraph` 裝上；null = 不緩存，單測與 preview 就是這個）。 */
     var cache: ResponseCache? = null
@@ -901,11 +957,8 @@ class TronclassClient(
         val msg = obj["message"].asStringOrNull()
             ?: obj["msg"].asStringOrNull()
             ?: obj["error"].asStringOrNull()
-        return msg?.take(120)?.takeIf { it.isNotBlank() } ?: fallback
+        return msg?.let { safeRequestText(it, 120) }?.takeIf { it.isNotBlank() } ?: fallback
     }
-
-    private fun isUnauthorized(t: Throwable): Boolean =
-        t is HzcuException.HttpStatus && t.statusCode.let { it == 401 || it == 403 }
 
     /** 最小 JSON 字串轉義（值可能含引號/反斜線）。**實作在 [jsonQuote]，這裡只是本類的別名。** */
     private fun jsonString(v: String): String = jsonQuote(v)
@@ -922,18 +975,6 @@ class TronclassClient(
          * 寧可多要一點也不要有課看不到（見 [myCourses] 的註釋）。
          */
         private const val PAGE_SIZE = 60
-
-        /**
-         * 緩存多久。**5 分鐘是刻意的短，而且這版不做「先頂舊數據、背後再刷」**：
-         *
-         * · 他抱怨的是「每次點進去都要重新載入」—— 在幾個板塊之間來回切就發生在幾分鐘內，
-         *   5 分鐘剛好把這些重複請求省掉；
-         * · 主殼目前沒有下拉刷新可以校正（查過：五個板塊都沒有刷新手勢），
-         *   緩存放長就會變成「他看到舊數據而屏幕上沒有一個字告訴他舊」——
-         *   那是這個工程最不能接受的失敗（假綠燈的同族）。
-         *   要做更長的緩存，必須同時給每一屏加「X 分鐘前更新 + 下拉刷新」，那是另一輪的活。
-         */
-        private const val TTL_MS = 5 * 60 * 1000L
 
         /**
          * 服務端把這次點名記成「人到了」的那些狀態。

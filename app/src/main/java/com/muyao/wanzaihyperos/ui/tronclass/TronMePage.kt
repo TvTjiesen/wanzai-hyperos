@@ -9,10 +9,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import com.muyao.wanzaihyperos.data.ListMeta
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.ui.design.AppCard
 import com.muyao.wanzaihyperos.data.tronclass.TronMeRepository
@@ -55,15 +55,25 @@ fun TronMePage(
     onOpenRollcall: (() -> Unit)? = null,
     onFallbackToWeb: (() -> Unit)? = null,
 ) {
-    val scope = rememberCoroutineScope()
     val state by repository.state.collectAsState()
     val pageState = state.toPageState()
-    val me = (state as? ListState.Content)?.items?.firstOrNull()
+    val content = state as? ListState.Content
+    val me = content?.items?.firstOrNull()
+    val failures = me?.statsErrors.orEmpty().map { TronSourceFailure("概览统计", it) }
+    val meta = content?.meta ?: (state as? ListState.Empty)?.meta ?: ListMeta()
+    val hasProblem = tronHasPartialProblem(meta, failures)
 
     LaunchedEffect(Unit) {
         if (state is ListState.FirstLoad) repository.refresh()
     }
 
+    if (me == null && hasProblem) {
+        AppList(modifier = modifier) {
+            item { TronPartialNotice(meta, failures, repository::refresh) }
+            item { HintText("个人资料与概览尚未确认，不能据此判断没有数据。") }
+        }
+        return
+    }
     if (me == null) {
         StatePlaceholder(
             state = pageState,
@@ -76,6 +86,9 @@ fun TronMePage(
 
     val colors = MiuixTheme.colorScheme
     AppList(modifier = modifier) {
+        if (hasProblem) {
+            item { TronPartialNotice(meta, failures, repository::refresh) }
+        }
         // ---- 身分卡 --------------------------------------------------------
         item {
             AppCard(modifier = Modifier.fillMaxWidth()) {
@@ -85,6 +98,8 @@ fun TronMePage(
                         .padding(Dims.cardPadding),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    TronAvatar(me.ownerGeneration, me.profile.userNo, me.profile.name, me.profile.avatarUrl)
+                    Spacer(Modifier.height(Dims.loose))
                     Text(
                         text = me.profile.name,
                         style = MiuixTheme.textStyles.title2,
@@ -109,9 +124,9 @@ fun TronMePage(
             AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(Dims.cardPadding)) {
                     Text(
-                        text = "待交作业 ${countText(me.stats.todoCount)}　" +
-                            "我的课 ${countText(me.stats.courseCount)}　" +
-                            "进行中签到 ${countText(me.stats.openRollcallCount)}",
+                        text = "待交作业 ${tronStatsCountText(me.stats.todoCount)}　" +
+                            "我的课 ${tronStatsCountText(me.stats.courseCount)}　" +
+                            "进行中签到 ${tronStatsCountText(me.stats.openRollcallCount)}",
                         style = MiuixTheme.textStyles.body1,
                         color = colors.onSurface,
                     )
@@ -177,4 +192,4 @@ fun TronMePage(
 }
 
 /** 數量文字：null → 「—」（**不是 0**）。 */
-private fun countText(v: Int?): String = v?.toString() ?: "—"
+internal fun tronStatsCountText(v: Int?): String = v?.toString() ?: "—"

@@ -52,3 +52,7 @@ keystore.properties
 # ---- 交付包（dist/）：67 MB 的产物，只在本机给外部工具看，永不入库 ----
 dist/**/*.apk
 dist/*.apk
+
+# ---- 2026-11-22：deliverables/ 下的 APK 是可重建产物，不入库（35 个，约 400MB）----
+# 交付记录（md/json/log）照常入库；APK 用 assembleOptimized 重建，或从手机备份取。
+deliverables/**/*.apk

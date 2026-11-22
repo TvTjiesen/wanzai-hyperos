@@ -39,6 +39,7 @@ class PortalTodoContractProbeTest {
     }
 
     private fun readCredentials(): Pair<String, String>? {
+        LiveNetworkGate.requireOptIn()
         val fromEnv = System.getenv("WANZAI_LIVE_CREDENTIALS")
         val raw = when {
             !fromEnv.isNullOrBlank() -> fromEnv

@@ -1,59 +1,32 @@
 package com.muyao.wanzaihyperos.ui.main.pages
 
-import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberUpdatedState
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -62,1799 +35,626 @@ import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.vectorResource
-import com.muyao.wanzaihyperos.R
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
-import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.data.UiPrefs
-import com.muyao.wanzaihyperos.ui.design.AppCard
-import com.muyao.wanzaihyperos.ui.design.AppColors
-import com.muyao.wanzaihyperos.ui.design.BackgroundPreset
-import com.muyao.wanzaihyperos.ui.design.ContainerStyle
-import com.muyao.wanzaihyperos.ui.design.Dims
-import com.muyao.wanzaihyperos.ui.design.PillSwitch
-import com.muyao.wanzaihyperos.ui.design.Tone
-import com.muyao.wanzaihyperos.ui.design.Type
-import com.muyao.wanzaihyperos.ui.design.MotionPrefs
-import com.muyao.wanzaihyperos.ui.design.glass.GlassSurfaceId
-import com.muyao.wanzaihyperos.ui.design.glass.GlassSurfaceKind
-import com.muyao.wanzaihyperos.ui.design.rememberMotion
-import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
-import com.muyao.wanzaihyperos.ui.home.SkyPreset
-import com.muyao.wanzaihyperos.ui.home.coverSlackPx
-import com.muyao.wanzaihyperos.ui.home.drawCoverBitmap
-import com.muyao.wanzaihyperos.data.schedule.PeriodClock
-import com.muyao.wanzaihyperos.data.schedule.jwVerdictOf
-import com.muyao.wanzaihyperos.data.schedule.pickSlots
-import com.muyao.wanzaihyperos.ui.home.SkyPreview
-import com.muyao.wanzaihyperos.ui.home.decodeWallpaper
-import com.muyao.wanzaihyperos.ui.home.deleteWallpaper
-import com.muyao.wanzaihyperos.ui.home.loadWallpaperFrom
-import com.muyao.wanzaihyperos.ui.home.skyLookOf
-import com.muyao.wanzaihyperos.ui.home.wallpaperFile
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
+import com.muyao.wanzaihyperos.ui.AppThemeMode
+import com.muyao.wanzaihyperos.ui.design.*
+import com.muyao.wanzaihyperos.ui.home.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
+import com.muyao.wanzaihyperos.ui.design.rememberMotion
 import kotlin.math.roundToInt
-import com.muyao.wanzaihyperos.ui.design.ai.AiBall
-import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
+import androidx.compose.ui.graphics.toArgb
 
-/**
- * 「外觀」子頁（v2）：壁紙 / **相冊取景（v3 #10）** / 柔化 / 暗度 / 液態玻璃 / 首頁密度與模組。
- *
- * ⚠️ 這行註釋以前還寫著「應用整理」，但這一頁**從來沒有**過那個區塊
- * （`apps-label` 那一節下面只有一顆「網頁服務收成一行」的開關）。
- * 常用那一排的钉/撤在**应用页自己的「整理」模式**里（`AppsSectionPage`），不在这里 ——
- * 顶栏那颗「整理」目前仍然跳到这一页，这一处不一致留着，记在 `docs/V3-CHECKLIST.md` #7 那行。
- * （写注释时别在这页里照抄那套 `key = ` 的写法：`LazyColumnKeyUniquenessTest` 是按**文本**扫的，
- * 注释里出现同样的字面量会被它算成一条真的 key，然后报"重复 key"。）
- *
- * ## 為什麼是殼內覆蓋層，不是新路由
- *
- * 它只改「這一台手機怎麼顯示」，不屬於任何一個板塊；進出時底欄應該被蓋住
- * （否則他會以為還在板塊裡、卻點不動）。所以由 `WanzaiMainShell` 用一層
- * 全屏覆蓋渲染，關掉就回到原來那一頁 —— 不新增 Route、不動根導航。
- *
- * ## 為什麼所有東西都只落在 UiPrefs
- *
- * 這裡每一項都必須**冷啟動還在**。憑據不進來（`UiPrefs` 的紅線）；
- * 壁紙檔案也只存在應用私有目錄，不上傳。
- */
+import com.muyao.wanzaihyperos.data.AppearanceSettings
+import com.muyao.wanzaihyperos.ui.WanzaiTheme
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+
+private class LiveAppearanceState(private val onThemeMode: (AppThemeMode) -> Unit) :
+    kotlin.properties.ReadWriteProperty<Any?, AppearanceSettings> {
+    override fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>) = UiPrefs.appearanceSnapshot()
+    override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: AppearanceSettings) {
+        val next = value.validated()
+        val previous = UiPrefs.appearanceSnapshot()
+        if (next == previous) return
+        UiPrefs.applyAppearance(next)
+        if (next.theme != previous.theme) onThemeMode(appearanceTheme(next.theme))
+    }
+}
+
+private fun appearanceTheme(name: String) = when (name) {
+    "Light" -> AppThemeMode.Light
+    "Dark" -> AppThemeMode.Dark
+    else -> AppThemeMode.System
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun AppearancePage(
     onClose: () -> Unit,
-    graph: com.muyao.wanzaihyperos.app.AppGraph,
-    /** B4-14：主题也收进这一页（跟随系统 / 浅色 / 深色），改完立即生效。 */
-    themeMode: com.muyao.wanzaihyperos.ui.AppThemeMode = com.muyao.wanzaihyperos.ui.AppThemeMode.System,
-    onThemeMode: (com.muyao.wanzaihyperos.ui.AppThemeMode) -> Unit = {},
-    /**
-     * 「减少动态与高对比」那一行的出口（稿 `appearance` 的 `row(reduceMotion)` 带 ›）。
-     * 这里**不重复实现**那张表：`AccessibilityPage` 是唯一一处，外观页只负责开它。
-     */
-    onOpenAccessibility: () -> Unit = {},
-    /** A10：相册取景的出口（拖动只改草稿，点应用才落盘）。 */
+    graph: AppGraph,
+    themeMode: AppThemeMode = AppThemeMode.System,
+    onThemeMode: (AppThemeMode) -> Unit = {},
     onOpenCrop: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    BackHandler(onBack = onClose)
-    val colors = MiuixTheme.colorScheme
+    var layoutEditing by rememberSaveable { mutableStateOf(false) }
+    if (layoutEditing) {
+        HomeLayoutPage(onClose = { layoutEditing = false })
+        return
+    }
     val context = LocalContext.current
-    // 订阅 MotionPrefs.version：`reduceTransparency` 是 @Volatile 普通字段，
-    // 直接读不会让这一页重组 —— 开关会「动了但不变」，正好踩中 Motion.kt 档头警告。
+    val colors = MiuixTheme.colorScheme
     val motion = rememberMotion()
-    val isDark = com.muyao.wanzaihyperos.ui.design.liquid.isInDarkTheme()
-    AppearanceStatusIcons(isDark = isDark)
-
-    // ── 预览卡要吃真课表 ─────────────────────────────────────────
-    //
-    // 復評的判据是「预览里那行字是死的，和首页此刻卡说的不是同一件事」。
-    // 这里**不新开一条数据路**：读的是首页同一份 schedule/jw 状态、
-    // 走的是同一个 `TodayPlan.of`（时段表也共用 `UiPrefs.periodTimes`），
-    // 所以预览和首页那一刻必然一致。取不到就照实写「还在取课表…」/「今天没有课」，
-    // **绝不编一节演示课**（工程红线：不伪造学校给不出的数据）。
-    val scheduleState by graph.schedule.state.collectAsState()
-    val jwTimetableState by graph.jwTimetable.state.collectAsState()
-    val previewNow = java.time.LocalDateTime.now()
-    // 记住的不只是"今天那几节"，还有**这一屏画的究竟是哪一份** —— 独立审计 v3 #4 第 2 轮
-    // 抓到预览把 WAIT / 真没课 / 两份都没取到三种态压成同一句「还没有课表数据 / 在课表页登录一次」，
-    // 那是拿一个一元布尔冒充三种状态（与 A-4 同一处病根）。
-    val previewPlanAndSource = remember(
-        scheduleState, jwTimetableState, previewNow.toLocalDate(), previewNow.hour,
-    ) {
-        // ★ v3 #4 第 1 轮审计（A-3）：这里以前也手抄了一遍"教务优先"，
-        //   没有 WAIT 这一支 ⇒ 预览在教务还在爬时把学在城院那份当成"今天的课"画出来。
-        //   现在与首页、课表页同一个 `pickSlots`，`SlotSourceTest` 有源码扫描钉住。
-        val jw = (jwTimetableState as? ListState.Content)
-            ?.items?.firstOrNull()?.slots.orEmpty()
-        val tron = (scheduleState as? ListState.Content)
-            ?.items?.firstOrNull()
-        val slotPick = pickSlots(
-            jwSlots = jw,
-            jwVerdict = jwVerdictOf(
-                state = jwTimetableState,
-                crawling = graph.jwTimetable.isCrawling.value,
-                hasSlots = jw.isNotEmpty(),
-            ),
-            tronSlots = tron?.slots.orEmpty(),
-        )
-        val slots = slotPick.slots
-        val week = UiPrefs.noteWeek(
-            (tron?.currentWeek as? com.muyao.wanzaihyperos.data.CountValue.Known)?.value,
-            previewNow.toLocalDate().toEpochDay(),
-        )
-        val plan = if (slots.isEmpty()) {
-            null
-        } else {
-            com.muyao.wanzaihyperos.data.schedule.TodayPlan.of(
-                slots = slots,
-                week = week,
-                now = previewNow,
-                times = UiPrefs.periodTimes,
-            )
-        }
-        plan to slotPick.jwVerdict
-    }
-    val previewPlan = previewPlanAndSource.first
-    val previewVerdict = previewPlanAndSource.second
-
+    val scope = rememberCoroutineScope()
+    val library = remember(context) { WallpaperLibrary(context) }
+    var current by LiveAppearanceState(onThemeMode)
+    var entries by remember { mutableStateOf<List<WallpaperEntry>>(emptyList()) }
+    val wallpaperSaver = Saver<WallpaperEntry, String>(
+        save = { Json.encodeToString(it) }, restore = { runCatching { Json.decodeFromString<WallpaperEntry>(it) }.getOrNull() })
+    val selectedSaver = Saver<WallpaperEntry?, String>(
+        save = { it?.let { entry -> Json.encodeToString(entry) } ?: "" },
+        restore = { runCatching { Json.decodeFromString<WallpaperEntry>(it) }.getOrNull() })
+    var selected by rememberSaveable(stateSaver = selectedSaver) { mutableStateOf<WallpaperEntry?>(null) }
+    var crop by rememberSaveable(stateSaver = wallpaperSaver) { mutableStateOf(WallpaperEntry("preview", current.panX, current.panY, current.zoom)) }
+    val album = current.container != "bare" && current.sky == "album"
+    val wallpaperRevision = UiPrefs.wallpaperRev
+    var loaded by remember(album, selected?.id, wallpaperRevision) { mutableStateOf<LoadedWallpaper?>(null) }
+    var imageLoading by remember(album, selected?.id, wallpaperRevision) { mutableStateOf(album) }
+    var busy by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
-    val rev = UiPrefs.wallpaperRev
-    val preset = SkyPreset.of(UiPrefs.wallpaperPreset)
-    // ★ 相册图**与当前选中哪一档无关**：网格里那格要一直画着「已存的那张长什么样」，
-    //   否则存过图的人看到的是一格「+」，与从没存过完全看不出区别。
-    //   原来这里带 `if (preset == SkyPreset.ALBUM)`，只有选中相册时才解码 —— 当时那格
-    //   只在选中时才有内容，看不出毛病；改成长驻缩略图之后它就变成「明明存过却显示 +」。
-    //   现在只有 rev 变（存/删/换图）才重解，选中态只影响描边。
-    val wallpaper = remember(rev) { decodeWallpaper(wallpaperFile(context)) }
-    // 選了相冊但檔案不在：畫面要照實說，不能拿一片自動天空冒充「你的圖」。
-    val albumMissing = preset == SkyPreset.ALBUM && wallpaper == null
-    val effectivePreset = if (albumMissing) SkyPreset.AUTO else preset
-
-    // 当前选中的全局底色。直接读 AppColors（它内部现取 UiPrefs.backgroundPreset），
-    // **不另存一份本地状态** —— 两份状态就会有"点了但没生效"的那种假开关。
-    val backgroundChoice = AppColors.background
-
-    // 选完图之后那一段（拷字节 + 解码）必须在 IO 上跑，见下面回调里的注释。
-    val cropScope = androidx.compose.runtime.rememberCoroutineScope()
-
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        // ★ 独立审计（v3 #10 第 1 轮，与 OOM 同优先级）：这一行以前是**同步**解码
-        //   （`openInputStream` + 整文件 `copyTo` + **两趟** `BitmapFactory.decodeFile`）
-        //   跑在主线程的 Activity 结果回调里 ⇒ 挑一张原图那段时间界面是纯冻的，
-        //   而且冻完之后没有任何一句解释。现在：先上屏一句"正在读这张图"，
-        //   真正的 IO/解码用 `withContext(Dispatchers.IO)` 挪走，回来再落状态。
-        note = "正在读这张图…"
-        cropScope.launch {
-            val img = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                loadWallpaperFrom(context, uri)
-            }
-            if (img != null) {
-                UiPrefs.saveWallpaperPreset(SkyPreset.ALBUM.id)
-                // v3 #10：换了一张图就把取景清回「居中裁满」—— 上一张的位移/倍数
-                // 对新那张毫无意义，留着会出现"新图一上来就是切歪的、还找不到原因"。
-                UiPrefs.resetWallpaperCrop()
-                UiPrefs.bumpWallpaperRev()
-                note = "已换成这张图，只保存在本机。"
-            } else {
-                // 讀不回來就**不動舊圖**：換圖失敗時最糟的是連原本那張也沒了。
-                // ⚠️ 这条 else 也是那个 `runCatching` 唯一会把 OOM 吞掉的地方 ⇒ 必须有字上屏。
-                note = "这张图读不出来，换一张试试。原来的壁纸没有动。"
+    var editing by rememberSaveable { mutableStateOf(false) }
+    var editorEntry by rememberSaveable(stateSaver = selectedSaver) { mutableStateOf<WallpaperEntry?>(null) }
+    var editorImage by remember { mutableStateOf<LoadedWallpaper?>(null) }
+    val wallpaperSources = remember { mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>() }
+    var editorOrigin by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    var confirmReset by remember { mutableStateOf(false) }
+    val closePage by rememberUpdatedState(onClose)
+    fun close() { if (!busy) closePage() }
+    var backProgress by remember { mutableFloatStateOf(0f) }
+    ThemeBackGesture(current.customization.predictiveBack, onBack = ::close, onProgress = { backProgress = it })
+    var expandedSections by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    val list = rememberLazyListState()
+    val scrollProgress by rememberScrollProgress(list)
+    fun toggleSection(id: String) {
+        expandedSections = ArrayList(if (id in expandedSections) expandedSections - id else expandedSections + id)
+    }
+    suspend fun stageWallpaper(entry: WallpaperEntry) {
+        val decoded = loadWallpaper(library.file(entry), 720, 1600, WallpaperBudget(1_200_000, 4_800_000))
+            ?: error("Image cannot be decoded")
+        currentCoroutineContext().ensureActive()
+        editorOrigin = wallpaperSources[entry.id]
+        editorEntry = entry
+        editorImage = decoded
+        editing = true
+    }
+    fun chooseWallpaper(entry: WallpaperEntry) {
+        if (busy) return
+        busy = true
+        scope.launch {
+            try {
+                stageWallpaper(entry)
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { note = "图片未切换成功，原壁纸保留" }
+            finally { busy = false }
+        }
+    }
+    LaunchedEffect(library) {
+        try { entries = library.entries() }
+        catch (cancel: CancellationException) { throw cancel }
+        catch (_: Exception) { note = "壁纸库暂时无法读取，当前外观未改动" }
+    }
+    LaunchedEffect(album, selected?.id, wallpaperRevision) {
+        if (!album) return@LaunchedEffect
+        val entry = selected
+        try {
+            val decoded = loadWallpaper(
+                if (entry == null) wallpaperFile(context) else library.file(entry),
+                720, 1600, WallpaperBudget(1_200_000, 4_800_000),
+            )
+            currentCoroutineContext().ensureActive()
+            if (UiPrefs.wallpaperRev != wallpaperRevision || selected?.id != entry?.id ||
+                current.container == "bare" || current.sky != "album") return@LaunchedEffect
+            loaded = decoded
+            crop = WallpaperEntry(entry?.id ?: "preview", current.panX, current.panY, current.zoom)
+            if (decoded == null) note = "图片暂时无法读取，请重新选择；当前壁纸未改动"
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (_: Exception) { loaded = null; note = "图片暂时无法读取，当前壁纸未改动" }
+        finally { imageLoading = false }
+    }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(WallpaperLibrary.MAX_ENTRIES)) { uris ->
+        if (uris.isEmpty() || busy) return@rememberLauncherForActivityResult
+        busy = true
+        scope.launch {
+            try {
+                val previous = entries.map { it.id }.toSet()
+                val (next, rejected) = library.addImages(uris)
+                entries = next
+                next.firstOrNull { it.id !in previous }?.let {
+                    stageWallpaper(it)
+                }
+                note = if (rejected == 0) "已导入，请在编辑器中确认应用" else "已导入可用图片，未导入 $rejected 张（最多24张，每张32MB）"
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { note = "导入失败，当前壁纸保留" }
+            finally { busy = false }
+        }
+    }
+    LaunchedEffect(editing, editorEntry?.id) {
+        val entry = editorEntry
+        if (editing && entry != null && editorImage == null) {
+            try { stageWallpaper(entry) }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { editing = false; note = "图片暂时无法读取，原壁纸保留" }
+        }
+    }
+    fun openEditor() {
+        if (!busy) { editorOrigin = wallpaperSources["current-preview"]; editorEntry = null; editorImage = loaded; editing = true }
+    }
+    @Composable fun Preview() {
+        WanzaiTheme(AppThemeMode.Light, appearance = current.copy(theme = "Light")) {
+            Box(Modifier.fillMaxSize()) {
+                ThemeOverviewPreview(current.copy(theme = "Light"), loaded)
+                if (imageLoading) Text("正在读取本机照片…", color = MiuixTheme.colorScheme.onSurface,
+                    fontSize = Type.caption, modifier = Modifier.align(Alignment.BottomCenter)
+                        .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(Dims.chipCorner)).padding(8.dp))
             }
         }
     }
-
-    fun pickPhoto() {
-        picker.launch(
-            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-        )
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(AppColors.pageBrush(isDark)),
-    ) {
-        LazyColumn(
-            contentPadding = PaddingValues(
-                start = Dims.screenH,
-                end = Dims.screenH,
-                // 這一頁是殼內全屏覆蓋層，Activity 是 edge-to-edge：
-                // 不補狀態欄 inset 的話，返回鍵與「外觀」會壓在時鐘/劉海底下。
-                top = statusBarTopPadding() + 10.dp,
-                // 這一頁蓋住了底欄；底部只要留系統手勢區的呼吸。
-                bottom = 36.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
-        ) {
-            item(key = "header") {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // 板 `.subbar .back{width:30px;height:30px;border-radius:50%;
-                        //      border:1px solid var(--line);color:var(--sub)}` ⇒ **27dp 描边圆**，
-                        // 里面 15px⇒13dp 的箭头。原来用 IconButton 的默认实心底，比板重一整档。
-                        Box(
-                            modifier = Modifier
-                                .size(27.dp)
-                                .clip(CircleShape)
-                                .border(1.dp, colors.dividerLine, CircleShape)
-                                .clickable(onClickLabel = "返回") { onClose() },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = MiuixIcons.ChevronBackward,
-                                contentDescription = "返回",
-                                tint = colors.onSurfaceVariantSummary,
-                                modifier = Modifier.size(13.dp),
-                            )
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            text = "外观与壁纸",
-                            // 板 `.subbar h2{font-size:22px;letter-spacing:-.02em}` × 0.886 ⇒ **20sp**。
-                            // 子页标题比首页大日期（31sp）还大一档，层级就倒了
-                            //（实测墨高 98px ≈ 30sp，是板的 1.5 倍）。
-                            fontSize = 20.sp,
-                            letterSpacing = (-0.02).em,
-                            fontWeight = Type.weightTitle,
-                            color = colors.onBackground,
-                            modifier = Modifier.weight(1f),
-                        )
-                        // v2.1 稿顶栏只有 返回 + 标题 + 搜索（appearance.png / appearance-dark.png
-                        // 与 prototype 的 div.top-side 两颗 icon-button 一致）。旧板那颗「实时预览」
-                        // 胶囊在 v2.1 里挪进了预览卡自己的标题行（见 preview-heading），
-                        // 这里不再重复画一颗 —— 同一句话出现两次会读成「这页还没加载完」。
-                    }
-                }
-            }
-
-            // 原型是 `div.preview-card > div.preview-heading`（首页预览 / 与当前设置同步）+ 小样，
-            // 再把「预览与当前材质同步；并非 Android 衍射效果的像素级复刻。」放在卡外。
-            // 这三样在旧版都没有：卡直接是 152dp 的天空小样，读者不知道它是「预览」，
-            // 也不知道它跟当前设置是同一份状态（会以为是静态图）。
-            item(key = "preview-heading") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 11.5.dp, bottom = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // 返工总单 B6：首个区块标题左边挂球。脸色走 ofTimetable —— 这张
-                    // 预览卡吃的就是同一份课表状态，所以预览说「还在取课表」时球在 Loading、
-                    // 两份都取到了才是 Idle。不写死。
-                    AiBall(
-                        state = AiBallStates.ofTimetable(scheduleState, jwTimetableState),
-                        diameter = AiBall.DIAMETER_PAGE,
-                        hitSlop = AiBall.INLINE_SLOP,
-                    )
-                    Spacer(Modifier.width(9.dp))
-                    Text(
-                        text = "首页预览",
-                        fontSize = Type.summary,
-                        fontWeight = Type.weightTitle,
-                        letterSpacing = (-0.01).em,
-                        color = MiuixTheme.colorScheme.onBackground,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = "与当前设置同步",
-                        fontSize = Type.micro,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                }
-            }
-
+    SecondaryScaffold(title = "主题设置", onBack = ::close, scrollProgress = scrollProgress, modifier = modifier.themeSwipeDismiss(current.customization.swipeDismiss, ::close).graphicsLayer { translationX = size.width * backProgress * .12f; scaleX = 1f - backProgress * .04f; scaleY = scaleX }) { padding ->
+        LazyColumn(state = list, modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(Dims.screenH, 12.dp, Dims.screenH,
+                com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp(com.muyao.wanzaihyperos.ui.design.liquid.LocalNavBarVisible.current)),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item(key = "preview") {
-                PreviewCard(
-                    preset = effectivePreset,
-                    wallpaper = wallpaper,
-                    dim = UiPrefs.wallpaperDim,
-                    soft = UiPrefs.wallpaperSoft,
-                    plan = previewPlan,
-                    slotVerdict = previewVerdict,
-                    // v3 #10：预览卡读的是**同一份**取景状态 ⇒ 下面那块裁切框一动，
-                    // 这张卡同一帧就跟着变（不另存一份"预览用的参数"，那是第二真相来源）。
-                    panX = UiPrefs.wallpaperPanX,
-                    panY = UiPrefs.wallpaperPanY,
-                    zoom = UiPrefs.wallpaperZoom,
-                )
-            }
-
-            // 这句是原型的 `p.caption.muted`（卡下一行小字）。它说的是**边界**：预览跟材质
-            // 同源，但不是 Android 那层衍射效果逐像素复刻 —— 不写这句，读者会把预览当成
-            // 「真机上就该长这样」的承诺。
-            item(key = "preview-note") {
-                Text(
-                    text = "预览与当前材质同步；并非 Android 衍射效果的像素级复刻。",
-                    fontSize = Type.micro,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    // 行高不写死：Type.micro 配全局 1.55 倍小字行距（写死 15sp 会多一处改不动的字号）。
-                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
-                )
-            }
-
-
-            // ---- 背景 ----------------------------------------------------
-            // 业主 2026-10-29：「全局背景的颜色也改改，做个自定义界面把，让用户自己选择
-            // 背景颜色，并且推荐几个主流的好看的颜色」。落点选在预览卡正下方 —— 换底色
-            // 时上面那张卡同帧变色，不用滚到别处去看效果。
-            item(key = "background-label") { SubSection("背景色") }
-            item(key = "background-presets") {
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    BackgroundPreset.entries.chunked(3).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                            row.forEach { preset ->
-                                BackgroundSwatch(
-                                    preset = preset,
-                                    selected = backgroundChoice == preset,
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    UiPrefs.saveBackgroundPreset(preset.id)
-                                    note = null
-                                }
-                            }
-                            // 末行只有两张时不铺满：权重留白，色卡宽度与上一行对齐。
-                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                        }
-                    }
+                AppearanceSection("概览") {
+                    Box(Modifier.align(Alignment.CenterHorizontally).fillMaxWidth().height(220.dp).wallpaperMotionBounds { wallpaperSources["current-preview"] = it }
+                        .clip(RoundedCornerShape(Dims.cardCorner))) { Preview() }
+                    AppearanceChoice("编辑壁纸", false, !busy && !imageLoading) { openEditor() }
+                    Text("浅色界面预览 · 选项自动保存；壁纸在编辑器完成后应用，取消保留原设置", fontSize = 12.sp, color = colors.onSurfaceVariantSummary)
+                    note?.let { Text(it, color = if (motion.highContrast) colors.onSurface else colors.onSurfaceVariantSummary,
+                        fontSize = 13.sp, lineHeight = 19.sp) }
                 }
             }
+            item(key = "section-home") {
+                ThemeExpandableSection("首页壁纸", "顶部壁纸、裁切与显示", SettingIcon.House, "home" in expandedSections, !busy, { toggleSection("home") }) {
+                    AppearanceSection("系统自带壁纸", last = false) {
+                        VisualChoice("晴海 · 原画", "海湾、帆船与雏菊", selected?.id == "builtin-sea", !busy, Modifier.fillMaxWidth().wallpaperMotionBounds { wallpaperSources["builtin-sea"] = it }, {
+                            Image(androidx.compose.ui.res.painterResource(com.muyao.wanzaihyperos.R.drawable.wallpaper_sea),
+                                "原绘海湾壁纸", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        }) {
+                            busy = true
+                            scope.launch {
+                                try {
+                                    val entry = library.bundledSea()
+                                    entries = library.entries()
+                                    stageWallpaper(entry)
+                                } catch (cancel: CancellationException) { throw cancel }
+                                catch (_: Exception) { note = "原画暂时无法载入，原壁纸保留" }
+                                finally { busy = false }
+                            }
+                        }
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(SkyPreset.entries.filter { it != SkyPreset.ALBUM }, key = { it.id }) { sky ->
+                                VisualChoice(sky.label, sky.hint, current.sky == sky.id, !busy, Modifier.width(112.dp), {
+                                    SkyPreview(sky, null, 0, 0, Modifier.fillMaxSize())
+                                }) { selected = null; current = current.copy(sky = sky.id, container = "designed", customization = current.customization.copy(cardImage = null)) }
+                            }
+                        }
+                        AppearanceChoice("选择首页壁纸", album, !busy) {
+                            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }
+                        AppearanceChoice("编辑壁纸", false, !busy && !imageLoading) { openEditor() }
+                        if (entries.any { it.id != "builtin-sea" }) LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(entries.filter { it.id != "builtin-sea" }, key = { it.id }) { entry -> WallpaperThumbnail(library, entry, selected?.id == entry.id, !busy,
+                                modifier = Modifier.wallpaperMotionBounds { wallpaperSources[entry.id] = it }) { chooseWallpaper(entry) } }
+                        }
+                        Text("图片保留在本机。取景、旋转、模糊、明暗和柔化统一在壁纸编辑器中调整。", fontSize = 13.sp, lineHeight = 19.sp)
+                        AppearanceToggle("显示首页壁纸", "只影响首页顶部，容器背景单独选择", current.container != "bare", !busy) {
+                            current = current.copy(container = if (current.container == "bare") "designed" else "bare")
+                        }
+                    }
 
-            // 原型在色板下面还有一句 help（`.help`）：它讲的是「只换背景、不拿低对比灰字
-            // 换所谓高级感」这条纪律 —— 正是这套色板的设计前提，不写就只是五张色纸。
-            item(key = "background-help") {
-                Text(
-                    text = "五种背景各有浅、深版本。仅改变背景，不以低对比灰字换取“高级”。",
-                    fontSize = Type.micro,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    // 行高不写死：Type.micro 配全局 1.55 倍小字行距（写死 15sp 会多一处改不动的字号）。
-                    modifier = Modifier.padding(top = 6.dp),
-                )
+                }
             }
-
-            // ---- 三行控件（板 `.ctl` 一组，**不加「光感 / 材质」这种板上没有的分组头**）----
-            //
-            // 板上的顺序就是 柔化 → 暗度 → 玻璃（`wz-v2.html` 里那三条 `.ctl`），
-            // 而且玻璃那行是**三段**：液态 / 磨砂 / 关闭。
-            // 原来这里被拆成「光感」「材质」两个 `.subsec` 头 + 一枚开关：
-            // 头是板上没有的层级，开关又少了中间那一档（复评 2026-10-21）。
-            item(key = "controls") {
-                Column {
-                    // B4-14（业主 2026-10-23「深浅色与 everything 收进外观与壁纸」）：
-                    // 主题放在这一组的第一行 —— 它和下面三行一样是「一眼看到就改」的东西。
-                    // 「跟随」走 `ColorSchemeMode.System`（Miuix 自己读系统深浅色），
-                    // 三档都只改 `uiState.themeMode` + `UiPrefs.saveThemeMode`，`WanzaiTheme` 以它为 key 重建控制器
-                    // ⇒ **立即生效，而且记住**（杀进程重进不回落；B4-14 工单第 13 轮补的落盘）。
-                    CtlRow(label = "主题", first = true) {
-                        Segmented(
-                            options = listOf(
-                                "跟随" to com.muyao.wanzaihyperos.ui.AppThemeMode.System,
-                                "浅色" to com.muyao.wanzaihyperos.ui.AppThemeMode.Light,
-                                "深色" to com.muyao.wanzaihyperos.ui.AppThemeMode.Dark,
-                            ),
-                            selectedValue = themeMode,
-                            onSelect = onThemeMode,
-                        )
-                    }
-                    // 稿顺序：主题 → 玻璃材质 → 通透度 → 壁纸柔化 → 壁纸暗度。
-                    // 玻璃三档落到**两件真实发生的事**上，不是画三个样子骗眼睛：
-                    //  · 关闭 = 减弱透明度（所有玻璃走近实底，连采样都不做）
-                    //  · 磨砂 = 仍然透光 + 糊，但**不折射**（折射量归 0）
-                    //  · 液态 = 透光 + 糊 + 折射
-                    CtlRow(label = "玻璃材质") {
-                        Segmented(
-                            options = listOf("液态" to "liquid", "磨砂" to "frost", "关闭" to "off"),
-                            // 读的是**当前真实材质状态**，不是单独一个字符串：
-                            // 设置页那个「减弱透明度」开关也会关掉玻璃，两处各读各的就会
-                            // 出现「界面说液态、屏幕上全是实底」。
-                            selectedValue = if (motion.reduceTransparency) "off" else UiPrefs.glassMode,
-                            onSelect = { mode ->
-                                UiPrefs.saveGlassMode(mode)
-                                MotionPrefs.setReduceTransparency(mode == "off")
-                                MotionPrefs.setRefractsGlass(mode == "liquid")
-                            },
-                        )
-                    }
-
-                    // 50% 保持 Glasmio 原生配方；仅调材质强度与焦点卡垫色，不调正文透明度。
-                    CtlRow(label = "通透度") {
-                        Column {
-                            ValueSlider(
-                                value = UiPrefs.glassOpacity,
-                                max = 100,
-                                percent = true,
-                                onChange = { UiPrefs.saveGlassOpacity(it) },
-                            )
-                            Row(Modifier.padding(top = 3.dp)) {
-                                Text(
-                                    text = "更厚实",
-                                    fontSize = Type.micro,
-                                    color = colors.onSurfaceVariantSummary,
-                                )
-                                Spacer(Modifier.weight(1f))
-                                Text(
-                                    text = "更通透",
-                                    fontSize = Type.micro,
-                                    color = colors.onSurfaceVariantSummary,
-                                )
+            item(key = "home-layout") {
+                AppearanceSection("首页布局") {
+                    Text("独立调整贴纸、首页模块、标题和密度，隐藏模块后自动补位。", fontSize = 13.sp)
+                    AppearanceChoice("打开首页布局", false, !busy) { layoutEditing = true }
+                }
+            }
+            item(key = "section-colors") {
+                ThemeExpandableSection("背景与颜色", "整页容器背景、主题色与明暗模式", SettingIcon.Contrast, "colors" in expandedSections, !busy, { toggleSection("colors") }) {
+                    ThemeSettingSegment {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("System" to "跟随系统", "Light" to "浅色", "Dark" to "深色").forEach { (id, label) ->
+                                AppearanceChoice(label, current.theme == id, !busy, Modifier.weight(1f)) { current = current.copy(theme = id) }
                             }
                         }
                     }
-                    CtlRow(label = "柔化") {
-                        val soft = UiPrefs.wallpaperSoft
-                        Segmented(
-                            options = listOf("关闭" to 0, "轻柔" to 26, "柔和" to 60),
-                            selectedValue = if (soft == 0) 0 else if (soft <= 45) 26 else 60,
-                            onSelect = { UiPrefs.saveWallpaperSoft(it) },
-                        )
+                    ThemeSettingSegment {
+                        AppearanceChoice("从首页壁纸取色", false, !busy && loaded != null) {
+                            loaded?.let { image ->
+                                val hex = "#" + (image.stats.overall.toArgb() and 0xFFFFFF).toString(16).padStart(6, '0')
+                                current = current.copy(customization = current.customization.copy(accentHex = hex, dynamicColor = false))
+                            }
+                        }
                     }
-                    CtlRow(label = "暗度") {
-                        ValueSlider(
-                            value = UiPrefs.wallpaperDim,
-                            max = 80,
-                            percent = true,
-                            onChange = { UiPrefs.saveWallpaperDim(it) },
-                        )
+                    var hexInput by rememberSaveable(current.customization.accentHex) { mutableStateOf(current.customization.accentHex) }
+                    ThemeSettingSegment {
+                        androidx.compose.material3.OutlinedTextField(value = hexInput, onValueChange = { value ->
+                            hexInput = value.take(7)
+                            if (value.matches(Regex("#[0-9a-fA-F]{6}"))) current = current.copy(customization = current.customization.copy(accentHex = value, dynamicColor = false))
+                        }, label = { androidx.compose.material3.Text("自定义颜色 #RRGGBB") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
                     }
-                    // ★ 业主 2026-10-22 13:2x 签字：三档只管**浮动面**，开关与返回键明确不做。
-                    //   这句范围说明必须从 `GlassSurfaceId` 那份名单**拼**出来，不许在这里手写清单 ——
-                    //   手写的那一句就是"覆盖全应用"这种兑现不了的承诺（第 2 轮踩过的假说法）。
-                    //   只拼 `GLASS` 那几面：预览卡现在不是玻璃面（`GlassSurfaceKind.NOT_GLASS`），
-                    //   把它写进"作用于"就是替它撒谎 —— 后面单独一句把它说清楚。
-                    Text(
-                        text = "正文保持清楚。本版本实际作用于" +
-                            GlassSurfaceId.entries
-                                .filter { it.kind == GlassSurfaceKind.GLASS }
-                                .joinToString("、") { it.label } +
-                            "这些承载层。开关保留明确的开关状态，返回按钮和正文卡片不采样页面；顶栏使用渐变遮罩。" +
-                            "上面那张预览卡是同一套天空的直绘（本来就是平的，不随这三档变化）。",
-                        fontSize = Type.caption,
-                        color = colors.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-
-            // ---- 壁紙 ----------------------------------------------------
-            //
-            // 业主 2026-11-01「外观与壁纸界面壁纸的选项移到最下面」：壁纸是「看」的东西，
-            // 排在外观页的最后。上面那些（主题 / 背景 / 柔化 / 暗度 / 玻璃 / 密度 / 模块）都是「调」。
-            item(key = "wallpaper-label") { SubSection("壁纸", "内置与相册") }
-            item(key = "wallpaper-presets") {
-                // 板 `.wps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 18px}`
-                // + `.wp{border-radius:13px;aspect-ratio:1/.92;border:1.5px solid transparent}`
-                //   `.wp.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}`
-                //   `.wp span{position:absolute;left:0;right:0;bottom:0;padding:10px 5px 4px;
-                //    font-size:7px;font-weight:650;color:#fff;text-align:center;
-                //    background:linear-gradient(transparent,rgba(0,0,0,.38))}`
-                // ⇒ × 0.886：格间距 7dp、圆角 11.5dp、宽:高 = 1:0.92、
-                //   选中是 1.3dp accent 边框 + 外面 2.7dp 的 accent-soft 圈，
-                //   **名字写在格子里**（底边一条压暗渐变上），不是格子下面一行字。
-                // 外面不再套 AppCard：板上这一排是直接铺在纸面上的。
-                //
-                // ★ 列数从板上那 4 列改成 3 列（业主 2026-11-01「夜档天空两个都留」之后）：
-                //   板上这一排是 4 张内置天空；加完青灰是 **5 张 + 相册 1 格 = 6 格**，
-                //   4 列会排成「4 + 2」，第二行右边空一半，看着像没加载完。
-                //   6 ÷ 3 正好两行铺满，每格还更宽 —— 名字压在压暗条上，不靠字号取胜。
-                val skyTiles: List<Pair<String, SkyPreset?>> = listOf(
-                    "跟随时刻" to SkyPreset.AUTO,
-                    "晨雾" to SkyPreset.MORNING,
-                    "暮色" to SkyPreset.DUSK,
-                    "夜航" to SkyPreset.NIGHT,
-                    "青灰" to SkyPreset.SLATE,
-                )
-                // 相册那格排在最后一行末位：它不是第 6 套天空，只是并排摆着的一格，
-                // 语义不同 —— 视线扫完五套天空再看它。
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    (skyTiles + ("相册" to null)).chunked(3).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                            row.forEach { (name, value) ->
-                                if (value == null) {
-                                    AlbumTile(
-                                        on = preset == SkyPreset.ALBUM,
-                                        wallpaper = wallpaper,
-                                        isDark = isDark,
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        // 已经在用相册图 ⇒ 再点就是「换一张」，直接开系统选择器；
-                                        // 有图但当前用的是预设 ⇒ 这一点先把那张图切回来，不打断他重选。
-                                        if (preset == SkyPreset.ALBUM || wallpaper == null) {
-                                            pickPhoto()
-                                        } else {
-                                            UiPrefs.saveWallpaperPreset(SkyPreset.ALBUM.id)
-                                        }
-                                    }
-                                } else {
-                                    WallpaperTile(
-                                        name = name,
-                                        preset = value,
-                                        wallpaper = null,
-                                        dim = UiPrefs.wallpaperDim,
-                                        soft = UiPrefs.wallpaperSoft,
-                                        on = effectivePreset == value,
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        UiPrefs.saveWallpaperPreset(value.id)
-                                        note = null
-                                    }
+                    ThemeSettingSegment {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("tonal" to "柔和", "vivid" to "鲜明", "neutral" to "中性").forEach { (id, label) ->
+                                AppearanceChoice(label, current.customization.colorStyle == id, !busy, Modifier.weight(1f)) {
+                                    current = current.copy(customization = current.customization.copy(colorStyle = id))
                                 }
                             }
                         }
                     }
-                }
-                // 已经存过一张图时，才给「换一张 / 移除」这两件真能做的事。
-                if (wallpaper != null) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = if (preset == SkyPreset.ALBUM) "正在用相册那张 · 点一下换一张"
-                            else "已存一张相册图 · 点一下切回去",
-                            fontSize = Type.micro,
-                            color = colors.onSurfaceVariantSummary,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(Dims.chipCorner))
-                                .clickable(onClickLabel = "从相册选择壁纸") { pickPhoto() }
-                                .padding(vertical = 4.dp),
-                        )
-                        Text(
-                            text = "移除",
-                            fontSize = Type.micro,
-                            color = colors.error,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(Dims.chipCorner))
-                                .clickable(onClickLabel = "移除自定义壁纸") {
-                                    deleteWallpaper(context)
-                                    UiPrefs.bumpWallpaperRev()
-                                    UiPrefs.saveWallpaperPreset(SkyPreset.AUTO.id)
-                                    note = "已移除自定义壁纸。"
-                                }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                        )
+                    ThemeSettingSegment {
+                        Text("柔和：浅色调的选中区域；鲜明：增强选中区域的颜色；中性：灰阶强调，减少彩色。下方预览展示实际主色与选中色块。", fontSize = 12.sp, lineHeight = 18.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.weight(1f).height(32.dp).background(colors.primary, RoundedCornerShape(Dims.chipCorner)))
+                            Box(Modifier.weight(1f).height(32.dp).background(colors.primaryContainer, RoundedCornerShape(Dims.chipCorner)))
+                        }
                     }
-                }
-            }
-
-            // ---- 另外两组颜色灵感（稿 `appearance` 的 `details`：默认收起）----
-            //
-            // 为什么收起：这两档是**强色**，业主原话「不作为默认工作界面；强色只在壁纸层」。
-            // 摊平会把六格壁纸变成八格，视线分不出「常用五档」与「灵感两档」。
-            item(key = "wallpaper-inspiration") {
-                var open by remember { mutableStateOf(false) }
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(Dims.chipCorner))
-                            .clickable(onClickLabel = if (open) "收起颜色灵感" else "展开颜色灵感") {
-                                open = !open
+                    ThemeSettingSegment {
+                        AppearanceToggle("系统 Monet 配色", "使用系统动态颜色", current.customization.dynamicColor, !busy) {
+                            current = current.copy(customization = current.customization.copy(dynamicColor = !current.customization.dynamicColor))
+                        }
+                    }
+                    listOf("indigo" to "靛蓝", "blue" to "蓝色", "teal" to "青绿", "purple" to "紫色", "rose" to "玫红", "orange" to "橙色").chunked(3).forEach { row ->
+                        ThemeSettingSegment {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                row.forEach { (id, label) -> AppearanceChoice(label, current.customization.accent == id && !current.customization.dynamicColor, !busy, Modifier.weight(1f)) {
+                                    current = current.copy(customization = current.customization.copy(accent = id, dynamicColor = false, accentHex = ""))
+                                } }
                             }
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "另外两组颜色灵感",
-                            fontSize = Type.body,
-                            fontWeight = Type.weightTitle,
-                            color = colors.onSurface,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = if (open) "收起 ▴" else "新增可选 ▾",
-                            fontSize = Type.micro,
-                            color = colors.primary,
-                        )
+                        }
                     }
-                    if (open) {
-                        Text(
-                            text = "来自你提供的色值，不作为默认工作界面；强色只在壁纸层。",
-                            fontSize = Type.micro,
-                            color = colors.onSurfaceVariantSummary,
-                            lineHeight = 12.sp,
-                            modifier = Modifier.padding(bottom = 7.dp),
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                            listOf(
-                                "黄紫流光" to SkyPreset.AURORA,
-                                "粉色云雾" to SkyPreset.BLOSSOM,
-                            ).forEach { (name, value) ->
-                                WallpaperTile(
-                                    name = name,
-                                    preset = value,
-                                    wallpaper = null,
-                                    dim = UiPrefs.wallpaperDim,
-                                    soft = UiPrefs.wallpaperSoft,
-                                    on = effectivePreset == value,
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    UiPrefs.saveWallpaperPreset(value.id)
-                                    note = null
+                    ThemeSettingSegment(last = true) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                items(BackgroundPreset.entries, key = { it.id }) { background ->
+                                    VisualChoice(background.label, "容器底色", current.background == background.id, !busy, Modifier.width(100.dp), {
+                                        Box(Modifier.fillMaxSize().background(AppColors.pageBrush(false, background)))
+                                    }) { current = current.copy(background = background.id) }
                                 }
                             }
                         }
                     }
                 }
             }
-
-            item(key = "wallpaper-hint") {
-                // 板 `.wphint{padding:7px 18px 0;font-size:8.5px;line-height:1.55;
-                // color:var(--faint)}` ⇒ 网格下面一整行，7.5sp（取 floor 8sp）。
-                Text(
-                    text = "天空会跟着时间换 · 相册那张只存在本机，重启后还在。",
-                    fontSize = Type.micro,
-                    color = colors.onSurfaceVariantSummary,
-                    lineHeight = 12.sp,
-                )
-            }
-
-            // ---- v3 #10：相册那张的取景（裁切）--------------------------------
-            //
-            // 只有真的选了相册图、并且当前就在用相册档时才出现 —— 内置天空没有可裁的东西，
-            // 摆一个拖了不动的框就是假开关（本工程栽过好几次）。
-            // A10：取景搬去独立页（拖动只改草稿，点应用才落盘，点取消原样退出）。
-            // 这里只留入口 —— 摆一个「拖一下就保存」的框，等于没有取消。
-            if (wallpaper != null && effectivePreset == SkyPreset.ALBUM) {
-                item(key = "wallpaper-crop") {
-                    BorderedRow(
-                        title = "调整照片取景",
-                        subtitle = "拖动平移、双指缩放；点应用才生效",
-                        onClick = onOpenCrop,
-                    ) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronForward,
-                            contentDescription = null,
-                            tint = colors.onSurfaceVariantSummary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
-                }
-            }
-            // ---- 首頁 ----------------------------------------------------
-            item(key = "home-label") { SubSection("首页", "立即生效") }
-            item(key = "home-density") {
-                CtlRow(label = "界面密度", first = true) {
-                    Segmented(
-                        options = listOf("舒适" to "comfortable", "紧凑" to "compact"),
-                        selectedValue = if (UiPrefs.homeDensity == "compact") "compact" else "comfortable",
-                        onSelect = { UiPrefs.saveHomeDensity(it) },
-                    )
-                }
-            }
-            item(key = "home-modules") {
-                // 板 `.mods{display:flex;flex-wrap:wrap;gap:6px;padding:0 18px}` +
-                //   `span{font-size:9.5px;font-weight:600;border:1px solid var(--line-strong);
-                //    border-radius:999px;padding:5px 9px}` +
-                //   `.on{color:var(--accent);border-color:transparent;background:var(--accent-soft)}`
-                // ⇒ 模块开关是一排**胶囊**，点一下就切；不是四行 switch。
-                Column {
-                    Text(
-                        text = "至少保留一项。隐藏模块仅是个人显示偏好，不删除其功能入口。",
-                        fontSize = Type.micro,
-                        color = colors.onSurfaceVariantSummary,
-                        lineHeight = 12.sp,
-                        modifier = Modifier.padding(bottom = 7.dp),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(5.3.dp)) {
-                        ModuleChip("课程", "courses")
-                        ModuleChip("签到", "rollcall")
-                        ModuleChip("待办", "todos")
-                        ModuleChip("校园跑", "szty")
-                    }
-                }
-            }
-
-            // ---- 應用 ----------------------------------------------------
-            // ---- 卡片：默认折叠网页服务 + 减少动态与高对比 ------------------
-            //
-            // 稿 `appearance` 的 12 段里，这一段是**一张卡两行**：第一行是开关，
-            // 第二行是 ›（`row("减少动态与高对比", "系统动画关闭优先级最高", "", "reduceMotion")`）。
-            // 第二行**不是开关**：真正能改的是系统设置（本应用只读），画成开关就是假按钮。
-            item(key = "apps") {
-                BorderedCard {
-                    PlainRow(
-                        title = "默认折叠网页服务",
-                        subtitle = "展开后仍可访问全部目录",
-                    ) {
-                        PillSwitch(
-                            checked = UiPrefs.appsWebCollapsed,
-                            label = "默认折叠网页服务",
-                        ) { UiPrefs.saveAppsWebCollapsed(!UiPrefs.appsWebCollapsed) }
-                    }
-                    RowDivider()
-                    PlainRow(
-                        title = "减少动态与高对比",
-                        subtitle = "系统动画关闭优先级最高",
-                        onClick = onOpenAccessibility,
-                    ) {
-                        Icon(
-                            imageVector = MiuixIcons.ChevronForward,
-                            contentDescription = null,
-                            tint = colors.onSurfaceVariantSummary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
-                }
-            }
-            note?.let { msg ->
-                item(key = "note") {
-                    Text(
-                        text = msg,
-                        fontSize = Type.caption,
-                        color = colors.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(horizontal = 4.dp),
-                    )
-                }
-            }
-
-            // ---- 实验 ----------------------------------------------------
-            //
-            // 「容器背景」是业主 2026-11-07 口头加的两版，评审稿 v2.1 的 12 段里没有它。
-            // 返工总单 A2 要求「12 段顺序可逐条对照」，D4 又要求保留这项设置 ——
-            // 所以它不占 12 段里的位置，收在页尾「实验」里，功能一个不少。
-            item(key = "experiment-label") { SubSection("实验", "未在评审稿里") }
-            // ---- 容器背景（业主 2026-11-07：「整个 app 的容器背景做两版」）----
-            //
-            // 两版**不是同一个色的深浅**，是两条渲染路径：
-            //  · 保留 = 页内这一层自己铺纸色渐变 + 首页天光（`AppColors.pageBrush` 那层）
-            //  · 只留最外层 = 页内这一层让开，露出的仍是根节点画的那一整块
-            // 见 `ui/design/ContainerStyle.kt` 里的说明。这里只负责把它写进偏好。
-            item(key = "container-style") {
-                CtlRow(label = "容器背景", first = true) {
-                    Segmented(
-                        options = ContainerStyle.entries.map { it.label to it.id },
-                        selectedValue = UiPrefs.containerStyle,
-                        onSelect = { UiPrefs.saveContainerStyle(it) },
-                    )
-                }
-            }
-
-            item(key = "footnote") {
-                // 板 `.footnote{text-align:center;font-size:8.5px;color:var(--faint);
-                // padding:2px 18px 18px;line-height:1.6}` ⇒ 7.5sp（取 floor 8sp）。
-                // 原来那句「只改这一台手机的显示…」挂在标题下面当副标题 ——
-                // 板上 `.subbar` 只有 返回 + 标题 + 实时预览，没有第二行。
-                Text(
-                    text = "只改这一台手机的显示 · 壁纸存在本机，不上传、不涉及账号信息。",
-                    fontSize = Type.micro,
-                    color = colors.onSurfaceVariantSummary,
-                    lineHeight = 12.sp,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            item(key = "privacy") {
-                Text(
-                    text = "壁纸只保存在这台手机的应用私有目录（files/home_wallpaper.img），" +
-                        "不会上传到任何服务器；外观偏好与账号凭据分开存放。",
-                    fontSize = Type.micro,
-                    color = colors.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                )
-            }
-
-            item(key = "reset") {
-                Text(
-                    text = "恢复默认",
-                    fontSize = Type.body,
-                    fontWeight = Type.weightTitle,
-                    color = colors.onSurfaceVariantSummary,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(Dims.containerCorner))
-                        .background(colors.onBackground.copy(alpha = 0.05f))
-                        .clickable(onClickLabel = "恢复默认外观") {
-                            UiPrefs.resetAppearance()
-                            // 盘改了就把**运行期那一份**一起推（不然要等下次冷启动才生效，
-                            // 中间这段时间就是"界面说液态、画面还是关闭"那类脱钩）。
-                            MotionPrefs.setReduceTransparency(UiPrefs.reduceTransparency)
-                            MotionPrefs.setRefractsGlass(UiPrefs.glassMode == "liquid")
-                            // ⚠️ 这里以前紧跟了两发**写死的** `setReduceTransparency(false)` /
-                            //   `setRefractsGlass(true)`：今天与 `resetAppearance()` 的默认值碰巧一致，
-                            //   但那是"恢复默认"的**第二份定义** —— 哪天默认值改了，上面那两发读盘的就
-                            //   被这里盖掉，界面与画面又脱钩（同一类 bug 第 2 轮已经为 `KEY_GLASS_MODE` 修过一次）。
-                            note = "已恢复默认外观。"
+            item(key = "section-interaction") {
+                ThemeExpandableSection("动画与显示", "模糊、底栏、角标、手势与辅助显示", SettingIcon.Sun, "interaction" in expandedSections, !busy, { toggleSection("interaction") }) {
+                    ThemeSettingSegment {
+                        AppearanceToggle("启用模糊", "顶栏与底栏采用背景模糊", current.customization.topBlur > 0 || current.customization.navigationBlur, !busy) {
+                            val on = current.customization.topBlur > 0 || current.customization.navigationBlur
+                            current = current.copy(customization = current.customization.copy(topBlur = if (on) 0 else 14, navigationBlur = !on))
                         }
-                        .padding(vertical = 12.dp),
-                )
-            }
+                    }
+                    ThemeSettingSegment {
+                        AppearanceToggle("悬浮底栏", "底栏与屏幕边缘保留间距", current.customization.floatingNavigation, !busy) {
+                            current = current.copy(customization = current.customization.copy(floatingNavigation = !current.customization.floatingNavigation))
+                        }
+                    }
+                    ThemeSettingSegment {
+                        AppearanceToggle("液态玻璃", "开启折射；关闭后使用磨砂材质", current.glass == "liquid", !busy) {
+                            current = current.copy(glass = if (current.glass == "liquid") "frost" else "liquid")
+                        }
+                    }
+                    ThemeSettingSegment {
+                        AppearanceToggle("底栏使用玻璃材质", "开启时跟随液态／磨砂；关闭时仅底栏改为实色", current.customization.bottomBarGlass, !busy) {
+                            current = current.copy(customization = current.customization.copy(bottomBarGlass = !current.customization.bottomBarGlass))
+                        }
+                    }
+                    ThemeSettingSegment {
+                        AppearanceToggle("显示导航未读角标", "消息入口显示实际未读数", current.customization.showNavigationBadges, !busy) {
+                            current = current.copy(customization = current.customization.copy(showNavigationBadges = !current.customization.showNavigationBadges))
+                        }
+                    }
+                    ThemeSettingSegment {
+                        AppearanceSlider("顶栏模糊半径", current.customization.topBlur, 32,
+                            { current = current.copy(customization = current.customization.copy(topBlur = it)) },
+                            { current = current.copy(customization = current.customization.copy(topBlur = it)) })
+                    }
+                    ThemeSettingSegment {
+                        AppearanceSlider("玻璃厚度", current.opacity, 100, { current = current.copy(opacity = it) }, { current = current.copy(opacity = it) })
+                    }
+                    ThemeSettingSegment {
+                        val pagerModes = com.muyao.wanzaihyperos.data.PagerGestureMode.entries
+                        val pagerLabels = listOf("标准跟手", "防误触横滑", "轻快跟手")
+                        ThemePagerMenu(pagerLabels.getOrNull(current.customization.pagerGestureMode.ordinal)
+                            ?.takeIf { current.customization.swipePages } ?: "关闭", !busy, pagerLabels + "关闭") { index ->
+                            val mode = pagerModes.getOrNull(index)
+                            current = current.copy(customization = current.customization.copy(
+                                swipePages = mode != null, pagerGestureMode = mode ?: current.customization.pagerGestureMode,
+                            ))
+                        }
+                    }
+                    ThemeSettingSegment {
+                        Text("页面横滑切换首页、课表、消息等主页面。标准跟手随拖动移动；防误触横滑避让边缘与纵向滚动，松手后切换；轻快跟手用较短拖动距离切换、回弹更快。关闭后仍可点底栏。", fontSize = 12.sp, lineHeight = 18.sp)
+                    }
+                    ThemeSettingSegment {
+                        AppearanceToggle("预测性返回", "系统返回手势随手指预览主题页退出", current.customization.predictiveBack, !busy) {
+                            current = current.copy(customization = current.customization.copy(predictiveBack = !current.customization.predictiveBack))
+                        }
+                    }
+                    ThemeSettingSegment {
+                        AppearanceToggle("滑动关闭", "从页面左侧边缘向右滑动返回", current.customization.swipeDismiss, !busy) {
+                            current = current.copy(customization = current.customization.copy(swipeDismiss = !current.customization.swipeDismiss))
+                        }
+                    }
+                    ThemeSettingSegment {
+                        AppearanceToggle("减少动态", "保留状态变化，关闭位移和弹性", current.reduceMotion, !busy) { current = current.copy(reduceMotion = !current.reduceMotion) }
+                    }
+                    ThemeSettingSegment {
+                        AppearanceToggle("高对比显示", "增强文字对比，不关闭液态玻璃", current.highContrast, !busy) { current = current.copy(highContrast = !current.highContrast) }
+                    }
+                    ThemeSettingSegment {
+                        AppearanceToggle("减弱透明度", "使用实色承载层，保留所选材质", current.reduceTransparency, !busy) { current = current.copy(reduceTransparency = !current.reduceTransparency) }
+                    }
+                    ThemeSettingSegment(last = true) {
+                        AppearanceChoice("系统动画与无障碍设置", false, !busy) {
+                            runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                                .onFailure { note = "系统设置暂时无法打开" }
+                        }
+                    }
 
+                }
+            }
+            item(key = "restore-default") {
+                AppearanceChoice("恢复默认主题", false, !busy) { confirmReset = true }
+            }
         }
-
-        // 滚上去的正文会钻到状态栏底下（edge-to-edge 的正常行为）。
-        // 这一页没有顶栏纱，所以在状态栏那一条盖上与纸面同色的窄纱 ——
-        // 否则「柔化」会压在 02:01 上，两行字互相打架。
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(statusBarTopPadding() + 6.dp)
-                .background(AppColors.pageBrush(isDark)),
-        )
     }
+    if (editing) {
+        val pending = editorEntry
+        val initial = if (pending == null) current else current.copy(sky = "album", container = "designed",
+            panX = pending.panX, panY = pending.panY, zoom = pending.zoom,
+            customization = current.customization.copy(cardImage = null, wallpaperRotation = 0))
+        val preview = if (pending == null) editorImage ?: loaded else editorImage
+        if (pending == null || preview != null) WallpaperEditor(initial, preview, originBounds = editorOrigin,
+            onCancel = { editing = false; editorEntry = null; editorImage = null },
+            onDone = { edited ->
+                editing = false
+                editorEntry = null
+                editorImage = null
+                if (pending == null) {
+                    current = edited
+                    crop = crop.copy(panX = edited.panX, panY = edited.panY, zoom = edited.zoom)
+                } else {
+                    busy = true
+                    scope.launch {
+                        try {
+                            val applied = pending.copy(panX = edited.panX, panY = edited.panY, zoom = edited.zoom)
+                            library.apply(applied)
+                            selected = applied; crop = applied
+                            current = edited
+                            entries = library.entries()
+                            note = "已应用首页壁纸"
+                        } catch (cancel: CancellationException) { throw cancel }
+                        catch (_: Exception) { note = "应用失败，原壁纸与设置保留" }
+                        finally { busy = false }
+                    }
+                }
+            })
+    }
+    if (confirmReset) androidx.compose.material3.AlertDialog(onDismissRequest = { confirmReset = false },
+        title = { androidx.compose.material3.Text("恢复默认外观？") },
+        text = { androidx.compose.material3.Text("立即恢复默认外观。图库、账号和学习数据保留。") },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = {
+            current = AppearanceSettings(); selected = null; crop = WallpaperEntry("preview", 0f, 0f, 1f)
+            confirmReset = false
+        }) { androidx.compose.material3.Text("恢复默认") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmReset = false }) { androidx.compose.material3.Text("取消") } })
 }
 
-
-/**
- * 預覽卡：**和首頁同一套天空畫法**，上面按板放日期、一塊玻璃卡與一條底欄示意。
- *
- * 板的幾何（`wz-v2.html`，全部 × 0.886）：
- *  · `.previewwrap{margin:4px 16px 0;height:172px;border-radius:22px;
- *    border:1px solid rgba(255,255,255,.35)}` ⇒ **152dp 高、19.5dp 圓角**
- *  · `.pv-date{left:16px;top:14px;font-size:21px;font-weight:780;letter-spacing:-.04em}`
- *    ＋ `.pv-date small{font-size:8px;letter-spacing:.14em;font-weight:700;opacity:.55}`
- *    ⇒ 18.6sp 的「今天」，上面一行 7sp 拉開字距的日期
- *  · `.pv-card{left:14px;right:14px;bottom:32px;border-radius:15px;padding:9px 11px;
- *    background:linear-gradient(152deg,rgba(255,255,255,.46),rgba(255,255,255,.22));
- *    border:1px solid rgba(255,255,255,.55);backdrop-filter:blur(18px) saturate(1.5)}`
- *    ⇒ 12.4dp 圓角、8×10dp 內距的一塊真玻璃，內容是 `.k`(6.6sp 拉字距)/`.n`(11.5sp/730)/
- *    `.s`(7sp)/`.pill`(7sp 薄荷底)
- *  · `.pv-bar{left:10px;right:10px;bottom:6px;height:22px;border-radius:8px;
- *    background:rgba(255,255,255,.30);border:1px solid rgba(255,255,255,.34)}`
- *    ＋ `i{width:12px;height:3px;border-radius:99px;background:rgba(26,25,23,.28)}`、`i.on{accent}`
- *    ⇒ 19.5dp 高、7dp 圓角的一條迷你底欄，裡面五根小槓，選中那根是薄荷色
- *
- * 卡上那節課**用的是首页同一份 TodayPlan**（真資料），
- * 沒有就照實寫，不編課。
- */
 @Composable
-private fun PreviewCard(
-    preset: SkyPreset,
-    wallpaper: androidx.compose.ui.graphics.ImageBitmap?,
-    dim: Int,
-    soft: Int,
-    plan: com.muyao.wanzaihyperos.data.schedule.TodayPlan?,
-    /** 教务那份走到哪一步了；`plan == null` 时那句实话只能由它决定（第 3 轮必修 1）。 */
-    slotVerdict: com.muyao.wanzaihyperos.data.schedule.JwVerdict =
-        com.muyao.wanzaihyperos.data.schedule.JwVerdict.NOT_STARTED,
-    panX: Float = 0f,
-    panY: Float = 0f,
-    zoom: Float = 1f,
-) {
+private fun VisualChoice(label: String, detail: String, selected: Boolean, enabled: Boolean, modifier: Modifier,
+    sample: @Composable BoxScope.() -> Unit, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    val look = skyLookOf(preset, LocalTime.now().hour)
-    // 预览必须跟首页使用**同一条材质分支**：减弱透明时首页的「此刻」卡退成近实底、
-    // 字改主题色。这里若永远画半透明 + 天空墨色，深色主题 + 白天天空会读不出来，
-    // 而且预览与实际行为不一致（审查 2026-10-21）。
-    val cardOnGlass = rememberMotion().glassIsTranslucent
-    val isDark = com.muyao.wanzaihyperos.ui.design.liquid.isInDarkTheme()
-    val cardBg = if (cardOnGlass) {
-        if (isDark) Tone.deep.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.42f)
-    } else {
-        colors.surface.copy(alpha = 0.97f)
+    Column(modifier.clip(RoundedCornerShape(Dims.cardCorner)).background(if (selected) colors.primary.copy(alpha = .10f) else colors.background)
+        .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick).semantics { this.selected = selected }
+        .padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(Dims.wallpaperTileCorner)), content = sample)
+        Text(label + if (selected) " ✓" else "", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
+        Text(detail, fontSize = Type.caption, lineHeight = 15.sp, color = colors.onSurfaceVariantSummary)
     }
-    val cardBorder = if (cardOnGlass) {
-        Color.White.copy(alpha = if (isDark) 0.14f else 0.55f)
-    } else {
-        colors.onSurfaceVariantSummary.copy(alpha = 0.28f)
-    }
-    // ★ 卡上的字色必须跟**卡面本身**的明暗走，不能跟天空走：
-    //   浅色那档卡面是 `White @ .42` 的一层磨砂，压在**黄昏**天空上时，
-    //   卡面实际亮度 ≈ 天空底色×(1−α) + 白×α ≈ 0.75 —— 这时候 `look.ink`（夜/昏是白）
-    //   就变成白压白，真机上「今天的课上完了」整行读不出来（2026-10-21 17:04 截图）。
-    val cardAlpha = if (cardOnGlass) (if (isDark) 0.55f else 0.42f) else 0.97f
-    val cardLum = if (cardOnGlass) {
-        look.bottom.luminance() * (1f - cardAlpha) + (if (isDark) 0.16f else 1f) * cardAlpha
-    } else {
-        colors.surface.luminance()
-    }
-    val cardInk = if (cardLum > 0.62f) Tone.ink else Tone.inkDark
-    val today = LocalDate.now()
-    val next = plan?.remaining?.firstOrNull()
-    val headline = when {
-        plan == null && slotVerdict == com.muyao.wanzaihyperos.data.schedule.JwVerdict.IN_FLIGHT ->
-            "正在取教务课表…"
-        plan == null && slotVerdict != com.muyao.wanzaihyperos.data.schedule.JwVerdict.HAS_SLOTS ->
-            "按学在城院那份预览"
-        plan == null -> "还没有课表数据"
-        next != null -> next.courseName.ifBlank { "（未命名课程）" }
-        else -> plan.headline
-    }
-    // ★ 第 3 轮审计必修 1：以前这里把 WAIT / 从没取过 / 这次没取到 / 真没课 压成两句，
-    //   于是「教务那份这周没给课」会在教务**根本没取过**的机子上出现 —— 那是替学校下结论。
-    //   现在一句话对一个态，措辞全交给 `jwVerdictSentence`（首页与这里共用，不会再各写一遍分叉）。
-    val sub = when {
-        plan == null -> com.muyao.wanzaihyperos.data.schedule.jwVerdictSentence(slotVerdict) +
-            when (slotVerdict) {
-                com.muyao.wanzaihyperos.data.schedule.JwVerdict.IN_FLIGHT ->
-                    "：要走一次网页登录，第一次可能要十几秒"
-                com.muyao.wanzaihyperos.data.schedule.JwVerdict.SETTLED_EMPTY,
-                com.muyao.wanzaihyperos.data.schedule.JwVerdict.NO_CONCLUSION,
-                com.muyao.wanzaihyperos.data.schedule.JwVerdict.NOT_STARTED ->
-                    "，这里画的是学在城院那份，没画不存在的一节"
-                else -> ""
-            }
-        next != null -> listOfNotNull(
-            next.room.takeIf { it.isNotBlank() },
-            PeriodClock.startOf(UiPrefs.periodTimes, next.periodStart)?.takeIf { it.isNotBlank() }
-                ?.let { it + " 上课" },
-        ).joinToString(" · ").ifBlank { null }
-        else -> plan.detail
-    }
+}
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(152.dp)
-            .clip(RoundedCornerShape(Dims.cardCorner))
-            .border(
-                1.dp,
-                if (isDark) Color.White.copy(alpha = 0.12f)
-                else Color.White.copy(alpha = 0.35f),
-                RoundedCornerShape(Dims.cardCorner),
-            ),
-    ) {
-        SkyPreview(
-            preset = preset,
-            wallpaper = wallpaper,
-            dim = dim,
-            soft = soft,
-            panX = panX,
-            panY = panY,
-            zoom = zoom,
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        // `.pv-date`
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 14.dp, top = 12.4.dp),
-        ) {
-            Text(
-                text = "${today.monthValue} 月 ${today.dayOfMonth} 日 · " +
-                    WEEKDAYS.getOrElse(today.dayOfWeek.value - 1) { "" },
-                fontSize = Type.micro,
-                fontWeight = Type.weightTitle,
-                letterSpacing = 0.14.em,
-                color = look.ink.copy(alpha = 0.55f),
-            )
-            Text(
-                text = "今天",
-                // 板 21px/780/-.04em ⇒ 18.6sp
-                fontSize = 19.sp,
-                fontWeight = Type.weightTitle,
-                letterSpacing = (-0.04).em,
-                lineHeight = 20.sp,
-                color = look.ink,
-            )
-        }
-
-        // `.pv-bar`：五根小槓 = 五個板塊，選中跟著本頁（外觀從「設置」進，就亮最後一根）
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 8.9.dp, vertical = 0.dp)
-                .padding(bottom = 5.3.dp)
-                .fillMaxWidth()
-                .height(19.5.dp)
-                .clip(RoundedCornerShape(Dims.chipCorner))
-                .background(
-                    if (isDark) Color.White.copy(alpha = 0.09f)
-                    else Color.White.copy(alpha = 0.30f),
-                )
-                .border(
-                    1.dp,
-                    if (isDark) Color.White.copy(alpha = 0.12f)
-                    else Color.White.copy(alpha = 0.34f),
-                    RoundedCornerShape(Dims.chipCorner),
-                ),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // 板 `.pv-bar` 里面画的是**五个线性图标**（`.pv-bar .icon{width:9px;opacity:.45}`、
-            // `.icon.on{color:var(--accent);opacity:.95}`），不是五根灰杠。
-            // 用底栏同一套 `ic_board_*`，预览和真机就是同一排字形。
-            listOf(
-                R.drawable.ic_board_home, R.drawable.ic_board_cal, R.drawable.ic_board_msg,
-                R.drawable.ic_board_grid, R.drawable.ic_board_gear,
-            ).forEachIndexed { idx, res ->
-                Icon(
-                    imageVector = ImageVector.vectorResource(res),
-                    contentDescription = null,
-                    tint = if (idx == 0) colors.primary
-                    else colors.onBackground.copy(alpha = if (isDark) 0.42f else 0.45f),
-                    modifier = Modifier.size(8.dp),
-                )
-            }
-        }
-
-        // `.pv-card`
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 12.4.dp)
-                .padding(bottom = 32.dp)
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(Dims.containerCorner))
-                .background(cardBg)
-                .border(1.dp, cardBorder, RoundedCornerShape(Dims.containerCorner))
-                .padding(horizontal = 9.7.dp, vertical = 8.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = "此刻 · " + LocalTime.now().format(TIME_HM),
-                        fontSize = Type.micro,
-                        fontWeight = Type.weightTitle,
-                        letterSpacing = 0.10.em,
-                        color = cardInk.copy(alpha = 0.60f),
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        // 板 `.pv-card .n{font-size:13px;font-weight:730;letter-spacing:-.02em}` ⇒ 11.5sp
-                        text = headline,
-                        fontSize = Type.body,
-                        fontWeight = Type.weightTitle,
-                        letterSpacing = (-0.02).em,
-                        color = cardInk,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (sub != null) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = sub,
-                            fontSize = Type.micro,
-                            color = cardInk.copy(alpha = 0.62f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-                if (plan != null && plan.totalToday > 0) {
-                    // 板 `.pv-card .pill{font-size:8px;font-weight:650;padding:3px 7px;
-                    // background:rgba(46,107,100,.16);color:#2E6B64}`
-                    Text(
-                        text = "今天 ${plan.totalToday} 节",
-                        style = TextStyle(fontFeatureSettings = Type.tabular),
-                        fontSize = Type.micro,
-                        fontWeight = Type.weightBody,
-                        color = if (cardOnGlass) Tone.ok else colors.primary,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(colors.primary.copy(alpha = 0.16f))
-                            .padding(horizontal = 6.2.dp, vertical = 2.7.dp),
-                    )
-                }
+@Composable private fun ThemeSample(id: String) {
+    Row(Modifier.fillMaxSize()) {
+        val variants = if (id == "System") listOf(false, true) else listOf(id == "Dark")
+        variants.forEach { dark ->
+            Column(Modifier.weight(1f).fillMaxHeight().background(if (dark) PreviewInk.darkPage else PreviewInk.lightPage).padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.fillMaxWidth(.7f).height(4.dp).background(if (dark) Color.White else PreviewInk.darkLine, RoundedCornerShape(Dims.chipCorner)))
+                Box(Modifier.fillMaxWidth().height(24.dp).background(if (dark) PreviewInk.darkCard else Color.White, RoundedCornerShape(Dims.chipCorner)))
             }
         }
     }
 }
 
-@Composable
-private fun SubSection(text: String, note: String = "") {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 11.5.dp, bottom = 4.4.dp),
-        verticalAlignment = Alignment.Bottom,
-    ) {
-        Text(
-            text = text,
-            fontSize = Type.summary,
-            fontWeight = Type.weightTitle,
-            letterSpacing = (-0.01).em,
-            color = MiuixTheme.colorScheme.onBackground,
-            modifier = Modifier.weight(1f),
-        )
-        if (note.isNotEmpty()) {
-            Text(
-                text = note,
-                fontSize = Type.micro,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
+@Composable private fun MaterialSample(id: String) {
+    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(PreviewInk.skyTop, PreviewInk.skyBottom)))) {
+        Column(Modifier.align(Alignment.Center).fillMaxWidth(.8f).padding(4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            repeat(3) { Box(Modifier.fillMaxWidth().height(3.dp).background(PreviewInk.inkLine.copy(alpha = .65f))) }
+        }
+        Box(Modifier.align(Alignment.Center).size(60.dp, 40.dp).clip(RoundedCornerShape(Dims.chipCorner))
+            .background(Color.White.copy(alpha = when (id) { "liquid" -> .3f; "frost" -> .65f; else -> 1f }))) {
+            if (id == "liquid") Box(Modifier.fillMaxWidth().height(2.dp).background(Color.White.copy(alpha = .85f)))
         }
     }
 }
 
-/**
- * 板 `.ctl{display:flex;align-items:center;gap:10px;padding:9px 18px;
- * border-top:1px solid var(--line)}` + `.lab{font-size:11px;font-weight:600;width:52px}`
- * ⇒ 一行：左边 46dp 标签 + 右边控件；行与行之间一条发丝线，第一行不画。
- */
-@Composable
-private fun CtlRow(
-    label: String,
-    modifier: Modifier = Modifier,
-    first: Boolean = false,
-    content: @Composable () -> Unit,
-) {
+@Composable private fun LayoutSample(compact: Boolean, wallpaper: Boolean) {
     val colors = MiuixTheme.colorScheme
-    Column(modifier) {
-        if (!first) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(0.7.dp)
-                    .background(colors.dividerLine),
-            )
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
-        ) {
-            Text(
-                text = label,
-                // 板 `.lab{font-size:11px;font-weight:600}` ⇒ 9.7sp
-                fontSize = Type.summary,
-                fontWeight = Type.weightBody,
-                color = colors.onBackground,
-                // 46dp 是板上的标签列宽，但它是按**字重 600 的 3 字标签**量的。
-                // 「玻璃材质」「界面密度」是 4 字，用户把系统字号调到 1.15 倍后
-                // 46dp 装不下，于是折成「玻璃材 / 质」—— 一行标签变两行，右侧控件
-                // 也跟着错位。改成「至少 46dp、按需取宽、绝不折行」：短标签仍是 46dp
-                // 的对齐基线，长标签多占几 dp，右侧控件按 weight 自动让位。
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier.widthIn(min = 46.dp),
-            )
-            Box(Modifier.weight(1f)) { content() }
-        }
+    Column(Modifier.fillMaxSize().background(if (wallpaper) PreviewInk.wallpaperTint else colors.background).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 8.dp)) {
+        repeat(if (compact) 4 else 3) { Box(Modifier.fillMaxWidth().height(if (compact) 8.dp else 10.dp).background(colors.surface, RoundedCornerShape(Dims.chipCorner))) }
     }
 }
 
-/**
- * 板 `.ctl .seg{display:flex;background:rgba(26,25,23,.045);border-radius:10px;padding:2px}`
- * + `span{flex:1;text-align:center;font-size:9.5px;font-weight:600;color:var(--sub);
- * padding:5px 0;border-radius:8px}` + `.on{background:var(--card);color:var(--ink);
- * box-shadow:0 2px 6px rgba(0,0,0,.08)}`
- * ⇒ 9dp 圆角的一条浅底槽 + 均分的格；选中那格是**纸白 + 墨字 + 一点投影**（不是薄荷底）。
- * 选中**不换字重**（硬规则 1：加粗让文字变宽，整排会横抖）。
- */
 @Composable
-private fun <T : Any> Segmented(
-    options: List<Pair<String, T>>,
-    selectedValue: T,
-    onSelect: (T) -> Unit,
-) {
+internal fun AppearanceChoice(label: String, selected: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier, subtitle: String? = null, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    val isDark = com.muyao.wanzaihyperos.ui.design.liquid.isInDarkTheme()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Dims.chipCorner))
-            .background(colors.onBackground.copy(alpha = 0.045f))
-            .padding(1.8.dp),
-    ) {
-        options.forEach { (label, value) ->
-            val on = value == selectedValue
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(Dims.chipCorner))
-                    .background(
-                        if (on) {
-                            if (isDark) Color.White.copy(alpha = 0.12f)
-                            else Color.White.copy(alpha = 0.66f)   // 板 --card
-                        } else {
-                            Color.Transparent
-                        },
-                    )
-                    .clickable(onClickLabel = label) { onSelect(value) }
-                    .padding(vertical = 4.4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    // 板 `.ctl .seg span{font-size:9.5px}` ⇒ 8.4sp
-                    fontSize = Type.caption,
-                    fontWeight = Type.weightBody,
-                    color = if (on) colors.onBackground else colors.onSurfaceVariantSummary,
-                    maxLines = 1,
-                )
-            }
+    val canMove = rememberMotion().canMove
+    val selectionTint by androidx.compose.animation.animateColorAsState(
+        if (selected) colors.primary.copy(alpha = .10f) else Color.Transparent,
+        animationSpec = if (canMove) androidx.compose.animation.core.spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow) else androidx.compose.animation.core.snap(),
+        label = "appearance-selection",
+    )
+    val selectionDepth by animateFloatAsState(if (selected && enabled) 1f else 0f,
+        animationSpec = if (canMove) androidx.compose.animation.core.spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow) else androidx.compose.animation.core.snap(),
+        label = "appearance-depth")
+    // 圆角只走统一 token（CornerTierTest 盯着外观页不许写死 dp）：选中感由阴影/底色抬升。
+    val sampleShape = RoundedCornerShape(Dims.cardCorner)
+    Row(modifier.fillMaxWidth().heightIn(min = 48.dp)
+        .graphicsLayer { shadowElevation = 1.5.dp.toPx() * selectionDepth; shape = sampleShape; clip = true }
+        .background(selectionTint, sampleShape)
+        .clickable(enabled = enabled, role = Role.Button, onClick = onClick).semantics { this.selected = selected }
+        .padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, fontSize = 14.sp, color = if (!enabled) colors.onSurfaceVariantSummary else if (selected) colors.primary else colors.onSurface)
+            if (!subtitle.isNullOrBlank()) Text(subtitle, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
         }
+        if (selected) Text("✓", color = colors.primary)
     }
 }
 
-/** 板 `.appline{margin:12px 18px 0;padding:10px 12px;border:1px solid var(--line);border-radius:14px}` */
 @Composable
-private fun BorderedRow(
+internal fun AppearanceSectionHeader(
     title: String,
-    subtitle: String,
-    /**
-     * 整行可点（`null` = 这一行只是展示）。有它才能在行上挂 › 出口；
-     * 没有它的行**不要**传箭头 —— 那会画出一个点不动的箭头。
-     */
-    onClick: (() -> Unit)? = null,
-    trailing: @Composable () -> Unit,
-) {
-    BorderedCard { PlainRow(title, subtitle, onClick, trailing) }
-}
-
-/**
- * 一张描边卡，里面可以放**多行**。
- *
- * 稿里 `.appline` 是一行一卡，但外观页第 11 段是「开关 + ›」两行同处一张卡；
- * 两行各自描边会看成两张卡，所以在中间用 [RowDivider] 分一行，外壳只描一次。
- */
-@Composable
-private fun BorderedCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    androidx.compose.foundation.layout.Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Dims.containerCorner))
-            .border(1.dp, colors.dividerLine, RoundedCornerShape(Dims.containerCorner)),
-        content = content,
-    )
-}
-
-/** 卡内两行之间的分隔线。比整卡描边淡一档，避免「卡里还有卡」的错觉。 */
-@Composable
-private fun RowDivider() {
-    val colors = MiuixTheme.colorScheme
-    androidx.compose.foundation.layout.Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 10.6.dp)
-            .height(1.dp)
-            .background(colors.dividerLine.copy(alpha = 0.6f)),
-    )
-}
-
-/** 卡里的一行（只有内容，没有描边）。 */
-@Composable
-private fun PlainRow(
-    title: String,
-    subtitle: String,
-    onClick: (() -> Unit)? = null,
-    trailing: @Composable () -> Unit,
+    summary: String,
+    icon: SettingIcon,
+    expanded: Boolean,
+    enabled: Boolean,
+    toggle: () -> Unit,
+    shape: androidx.compose.ui.graphics.Shape,
 ) {
     val colors = MiuixTheme.colorScheme
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(onClickLabel = title, onClick = onClick)
-                } else {
-                    Modifier
-                },
-            )
-            .padding(horizontal = 10.6.dp, vertical = 8.9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = Type.summary,
-                fontWeight = Type.weightBody,
-                color = colors.onBackground,
-            )
-            Text(
-                text = subtitle,
-                fontSize = Type.micro,
-                color = colors.onSurfaceVariantSummary,
-                lineHeight = 12.sp,
-            )
-        }
-        Spacer(Modifier.width(9.dp))
-        trailing()
-    }
-}
-
-/**
- * 壁纸格：板 `.wp{border-radius:13px;aspect-ratio:1/.92;border:1.5px solid transparent}`
- * + `.wp.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}`
- * + `.wp span{…bottom:0;padding:10px 5px 4px;font-size:7px;font-weight:650;color:#fff;
- *   background:linear-gradient(transparent,rgba(0,0,0,.38))}`
- * ⇒ × 0.886：11.5dp 圆角、1:0.92、1.3dp 边 + 2.7dp 外圈，**名字在格子底边那条压暗渐变上**。
- */
-@Composable
-private fun WallpaperTile(
-    name: String,
-    preset: SkyPreset,
-    wallpaper: androidx.compose.ui.graphics.ImageBitmap?,
-    dim: Int,
-    soft: Int,
-    on: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val colors = MiuixTheme.colorScheme
-    Column(modifier) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f / 0.92f)
-                .clip(RoundedCornerShape(Dims.wallpaperTileCorner))
-                .then(
-                    if (on) {
-                        Modifier.border(
-                            2.7.dp,
-                            colors.primary.copy(alpha = 0.11f),
-                            // 同一枚格子的 clip 与描边统一到 `Dims.wallpaperTileCorner`（11.5dp，設計板 .wp）。
-                            RoundedCornerShape(Dims.wallpaperTileCorner),
-                        )
-                    } else {
-                        Modifier
-                    },
-                )
-                .border(
-                    if (on) 1.3.dp else 0.dp,
-                    colors.primary,
-                    RoundedCornerShape(Dims.wallpaperTileCorner),
-                )
-                .clickable(onClickLabel = "壁纸$name") { onClick() },
-        ) {
-            SkyPreview(
-                preset = preset,
-                wallpaper = wallpaper,
-                dim = dim,
-                soft = soft,
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(RoundedCornerShape(Dims.wallpaperTileCorner)),
-                cornerRadius = Dims.wallpaperTileCorner,
-            )
-            // 压暗条：板上是 `linear-gradient(transparent, rgba(0,0,0,.38))`，
-            // 名字直接白字坐在上面 —— 不靠描边、不靠底色。
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    // 压暗条为什么要比板上那条（`.wp span` 的 21px / 0.38）更狠：
-                    // 小样的底边是**真的淡到纸色**了（`SkyPreview` 走 `fadeTo = pageBg`），
-                    // 真机实测格内文字上方那片底是 (169~221 灰)，白字压上去只有 2.31:1 ——
-                    // 名字看着像被洗掉。板上那套 21px / 0.38 是给「底色本来就深」的皮肤写的，
-                    // 照抄到淡到纸色的小样上不成立。
-                    //
-                    // 34dp 高、四站：0 → 0.30 → 0.56 → 0.64。文字带（距底 3.5~17.5dp，即整条的
-                    // 48%~90% 那一段）落在 0.49 以上；叠在 221 的浅灰上合成 113，白字仍有 4.9:1。
-                    // 第一站之所以不是一上来就压满，是因为压满会在格子里切出一道硬边。
-                    .height(34.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.30f to Color.Black.copy(alpha = 0.30f),
-                            0.55f to Color.Black.copy(alpha = 0.56f),
-                            1f to Color.Black.copy(alpha = 0.64f),
-                        ),
-                    ),
-            )
-            Text(
-                text = name,
-                // 板 `.wp span{font-size:7px;font-weight:650}` ⇒ 6.2sp（取 floor 8sp）
-                fontSize = Type.micro,
-                fontWeight = Type.weightBody,
-                color = Color.White,
-                maxLines = 1,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 3.5.dp),
-            )
-        }
-    }
-}
-
-/**
- * 相册那一格。和 [WallpaperTile] 同一枚格子（同宽高比、同圆角、同选中描边），
- * 区别只有两处：里面装的是相册图的缩略图而不是天空预览；没存图时是一个「+」。
- *
- * ★ 存过图但当前用的是预设时，**照样把那张缩略图画出来**（原实现只在选中时画）。
- *   现在是 3 列网格里的一格，画出来他才知道「已存的那张长什么样」，
- *   否则一格「+」看不出与「从没存过」有什么区别。
- */
-@Composable
-private fun AlbumTile(
-    on: Boolean,
-    wallpaper: androidx.compose.ui.graphics.ImageBitmap?,
-    isDark: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val colors = MiuixTheme.colorScheme
-    val corner = RoundedCornerShape(Dims.wallpaperTileCorner)
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .aspectRatio(1f / 0.92f)
-            .clip(corner)
-            .then(
-                if (on) {
-                    Modifier.border(2.7.dp, colors.primary.copy(alpha = 0.11f), corner)
-                } else {
-                    Modifier
-                },
-            )
-            .then(
-                if (on) {
-                    Modifier.border(1.3.dp, colors.primary, corner)
-                } else {
-                    Modifier.border(
-                        1.dp,
-                        if (isDark) Color.White.copy(alpha = 0.18f) else Tone.ink.copy(alpha = 0.16f),
-                        corner,
-                    )
-                },
-            )
-            .background(colors.onBackground.copy(alpha = 0.04f))
-            .clickable(onClickLabel = "从相册选择壁纸") { onClick() },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (wallpaper != null) {
-            Image(
-                bitmap = wallpaper,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Text(
-                // 板 `.plusmark{font-size:19px;font-weight:300;color:var(--faint)}` ⇒ 17sp
-                text = "+",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Normal,
-                color = colors.onSurfaceVariantSummary,
-            )
-        }
-        if (wallpaper != null) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    // 压暗条为什么要比板上那条（`.wp span` 的 21px / 0.38）更狠：
-                    // 小样的底边是**真的淡到纸色**了（`SkyPreview` 走 `fadeTo = pageBg`），
-                    // 真机实测格内文字上方那片底是 (169~221 灰)，白字压上去只有 2.31:1 ——
-                    // 名字看着像被洗掉。板上那套 21px / 0.38 是给「底色本来就深」的皮肤写的，
-                    // 照抄到淡到纸色的小样上不成立。
-                    //
-                    // 34dp 高、四站：0 → 0.30 → 0.56 → 0.64。文字带（距底 3.5~17.5dp，即整条的
-                    // 48%~90% 那一段）落在 0.49 以上；叠在 221 的浅灰上合成 113，白字仍有 4.9:1。
-                    // 第一站之所以不是一上来就压满，是因为压满会在格子里切出一道硬边。
-                    .height(34.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.30f to Color.Black.copy(alpha = 0.30f),
-                            0.55f to Color.Black.copy(alpha = 0.56f),
-                            1f to Color.Black.copy(alpha = 0.64f),
-                        ),
-                    ),
-            )
-        }
-        Text(
-            text = "相册",
-            fontSize = Type.micro,
-            fontWeight = Type.weightBody,
-            color = if (wallpaper != null) Color.White else colors.onSurfaceVariantSummary,
-            maxLines = 1,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 3.5.dp),
-        )
-    }
-}
-
-/** 板 `.mods span`：一排胶囊 chip，点上切。 */
-@Composable
-private fun ModuleChip(label: String, id: String) {
-    val colors = MiuixTheme.colorScheme
-    val on = id in UiPrefs.homeModules
-    Text(
-        text = label,
-        // 板 `.mods span{font-size:9.5px;font-weight:600;padding:5px 9px}` ⇒ 8.4sp / 4.4×8dp
-        fontSize = Type.caption,
-        fontWeight = Type.weightBody,
-        color = if (on) colors.primary else colors.onSurfaceVariantSummary,
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(if (on) colors.primary.copy(alpha = 0.11f) else Color.Transparent)
-            .then(
-                if (on) {
-                    Modifier
-                } else {
-                    Modifier.border(
-                        1.dp,
-                        if (com.muyao.wanzaihyperos.ui.design.liquid.isInDarkTheme())
-                            Color.White.copy(alpha = 0.18f)
-                        else Tone.ink.copy(alpha = 0.16f),
-                        RoundedCornerShape(50),
-                    )
-                },
-            )
-            .clickable(onClickLabel = label) {
-                // 至少留一块：全关掉的首页只剩一片天空，那不是简洁是坏了。
-                if (on && UiPrefs.homeModules.size > 1) {
-                    UiPrefs.setHomeModule(id, false)
-                } else if (!on) {
-                    UiPrefs.setHomeModule(id, true)
-                }
+    val angle by animateFloatAsState(if (expanded) 180f else 0f, label = "section-chevron")
+    val animate = rememberMotion().canMove
+    SettingRow(
+        icon = icon,
+        tint = colors.onSurface,
+        title = title,
+        subtitle = summary,
+        modifier = Modifier.clip(shape).background(colors.surface).semantics {
+            stateDescription = if (expanded) "已展开" else "已折叠"
+        },
+        onClick = toggle.takeIf { enabled },
+        trailing = {
+            Canvas(Modifier.size(20.dp).graphicsLayer { rotationZ = if (animate) angle else if (expanded) 180f else 0f }) {
+                val left = Offset(size.width * .25f, size.height * .4f)
+                val right = Offset(size.width * .75f, size.height * .4f)
+                val middle = Offset(size.width * .5f, size.height * .65f)
+                drawLine(colors.onSurfaceVariantSummary, left, middle, 1.5.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
+                drawLine(colors.onSurfaceVariantSummary, middle, right, 1.5.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
             }
-            .padding(horizontal = 8.dp, vertical = 4.4.dp),
+        },
     )
 }
 
-/**
- * 一块背景色卡。
- *
- * 色卡**画的是这一套真实的渐层**（[BackgroundPreset.lightStops] 三档），不是一坨近似色：
- * 用户在设置里看到的就是回首页看到的那三档。深色档由主题切换时自动跟（枚举里
- * lightStops/darkStops 是成对的），所以这里只画亮档，不在选色区掺一份"当前深浅"的临时态。
- *
- * 色值全部来自 [BackgroundPreset]，本文件里不写任何一个十六进制字面量
- *（`IconSystemTest` 盯着这三个页面的硬编码颜色）。
- */
 @Composable
-private fun BackgroundSwatch(
-    preset: BackgroundPreset,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val colors = MiuixTheme.colorScheme
-    val shape = RoundedCornerShape(Dims.wallpaperTileCorner)
-    Column(
-        modifier = modifier.clickable(onClickLabel = preset.label) { onClick() },
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f / 0.62f)
-                .clip(shape)
-                .background(
-                    Brush.linearGradient(
-                        colors = preset.lightStops,
-                        start = Offset(0f, 0f),
-                        end = Offset(600f, 400f),
-                    ),
-                )
-                .border(
-                    width = if (selected) 1.6.dp else 0.8.dp,
-                    color = if (selected) colors.primary else colors.dividerLine,
-                    shape = shape,
-                ),
-        ) {
-            // 选中不只在描边上说话：右下角一颗实心勾，色弱也分得清。
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(5.dp)
-                        .size(15.dp)
-                        .clip(CircleShape)
-                        .background(colors.primary),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "✓",
-                        fontSize = Type.micro,
-                        fontWeight = Type.weightTitle,
-                        color = colors.onPrimary,
-                    )
-                }
+private fun AppearanceToggle(title: String, summary: String, checked: Boolean, enabled: Boolean, onToggle: () -> Unit) {
+    Column(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+        .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = { onToggle() })
+        .padding(vertical = 6.dp), verticalArrangement = Arrangement.Center) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                val colors = MiuixTheme.colorScheme
+                Text(title, fontSize = 15.sp, color = colors.onSurface)
+                Text(summary, fontSize = 12.sp, lineHeight = 17.sp, color = colors.onSurfaceVariantSummary)
             }
+            top.yukonga.miuix.kmp.basic.Switch(checked = checked, onCheckedChange = null, enabled = enabled)
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = preset.label,
-            fontSize = Type.micro,
-            fontWeight = if (selected) Type.weightTitle else Type.weightBody,
-            color = if (selected) colors.primary else colors.onSurfaceVariantSummary,
-            maxLines = 1,
-        )
     }
 }
 
 @Composable
-private fun PresetChip(
-    label: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
+private fun AppearanceSection(title: String, last: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     val colors = MiuixTheme.colorScheme
-    Box(
-        modifier = modifier
-            .height(36.dp)
-            .clip(RoundedCornerShape(Dims.chipCorner))
-            .background(
-                if (selected) colors.primary.copy(alpha = 0.14f)
-                else colors.surfaceContainer.copy(alpha = 0.55f),
-            )
-            .then(
-                if (selected) {
-                    Modifier.border(
-                        1.dp,
-                        colors.primary.copy(alpha = 0.42f),
-                        RoundedCornerShape(Dims.chipCorner),
-                    )
-                } else {
-                    Modifier
-                },
-            )
-            .clickable(onClickLabel = label) { onClick() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            fontSize = Type.caption,
-            fontWeight = if (selected) Type.weightBody else Type.weightBody,
-            color = if (selected) colors.primary else colors.onSurfaceVariantSummary,
-            maxLines = 1,
-        )
+    Column(Modifier.fillMaxWidth().themeSegment(last).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
+        content()
     }
 }
 
-/**
- * 自繪滑桿。
- *
- * 為什麼不用第三方：這個工程沒有現成的 Slider 用法，而 Miuix 的版本要接
- * 一整條 interaction/語義。這裡只需要「拖到哪就是哪、放開才落盤」——
- * 拖的過程中**不寫 SharedPreferences**（否則一次拖動會寫幾十次）。
- */
 @Composable
-internal fun ValueSlider(
-    value: Int,
-    max: Int,
-    /** 板 `.ctl .val` 写的是「38%」这种带单位的数，不是裸整数。 */
-    percent: Boolean = false,
-    onChange: (Int) -> Unit,
-) {
+private fun WallpaperThumbnail(library: WallpaperLibrary, entry: WallpaperEntry, selected: Boolean, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    var image by remember(library, entry.id) { mutableStateOf<LoadedWallpaper?>(null) }
+    LaunchedEffect(library, entry.id) {
+        try {
+            val decoded = loadWallpaper(library.file(entry), 180, 240, WallpaperBudget(80_000, 320_000))
+            currentCoroutineContext().ensureActive()
+            image = decoded
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (_: Exception) { image = null }
+    }
     val colors = MiuixTheme.colorScheme
-    var widthPx by remember { mutableIntStateOf(1) }
-    // ★ 状态对象必须只创建一次。上一版是 `remember(value)`：落盘后 value 一变，
-    //   remember 会造一个新的 MutableState，而 pointerInput 里捕获的仍是旧对象 ⇒
-    //   第二次拖动只改一个没人读的孤儿状态，拇指不动、松手才跳一下（审查 2026-10-21）。
+    Box(modifier.width(84.dp).height(110.dp).clip(RoundedCornerShape(Dims.wallpaperTileCorner)).clickable(enabled = enabled, onClick = onClick)) {
+        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(Dims.cardCorner))) {
+            image?.let { Image(it.bitmap, "壁纸", Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            if (selected) Text("✓", color = colors.primary, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(colors.surface, RoundedCornerShape(Dims.chipCorner)).padding(4.dp))
+        }
+    }
+}
+
+@Composable
+private fun AppearanceSlider(label: String, value: Int, max: Int, onChange: (Int) -> Unit, onPreview: (Int) -> Unit = {}) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(label, fontSize = 13.sp); ValueSlider(value, max, true, onChange) }
+}
+
+@Composable
+internal fun ValueSlider(value: Int, max: Int, percent: Boolean = false, onChange: (Int) -> Unit, onPreview: (Int) -> Unit = {}) {
+    val colors = MiuixTheme.colorScheme
+    var width by remember { mutableIntStateOf(0) }
     var local by remember { mutableFloatStateOf(value.toFloat()) }
+    val latestChange by rememberUpdatedState(onChange)
+    val latestPreview by rememberUpdatedState(onPreview)
+    val latestValue by rememberUpdatedState(value)
     LaunchedEffect(value) { local = value.toFloat() }
-
-    fun apply(x: Float) {
-        // ★ 宽度还没量到时（`widthPx` 仍是初值 1）**什么都不做**。
-        // 原来直接 `x / 1`，任何一次早于 onSizeChanged 的拖动都会被夹到 1.0、
-        // 直接跳到 max —— 真机上表现为「碰一下滑块就冲到 100%」
-        // （2026-11-08 12:29 截图：通透度停在 100，而默认值是 50）。
-        if (widthPx <= 1) return
-        local = (x / widthPx).coerceIn(0f, 1f) * max
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // 板 `.ctl .track{flex:1;height:4px;border-radius:99px;background:var(--line-strong)}` ⇒ 3.5dp 高
-        // 命中区仍然保持 30dp（板上拇指能抓），只是**看得见的那条**收成 3.5dp。
-        //
-        // ★ 這裡必須是 `weight(1f)`，不能是 `fillMaxWidth()`：Row 裡 fillMaxWidth 會把
-        //   右邊那列 `.val`（板 30px 寬的數字）整個擠出畫面 —— 17:15 截圖裡暗度的
-        //   「24」就是這樣消失的。
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height(30.dp)
-                .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
-                .semantics {
-                    progressBarRangeInfo = ProgressBarRangeInfo(
-                        current = local,
-                        range = 0f..max.toFloat(),
-                    )
-                    setProgress { target ->
-                        local = target.coerceIn(0f, max.toFloat())
-                        onChange(local.roundToInt())
-                        true
-                    }
-                }
-                .then(
-                    Modifier.pointerInput(max) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { off -> apply(off.x) },
-                            onHorizontalDrag = { change, _ -> apply(change.position.x) },
-                            onDragEnd = { onChange(local.roundToInt()) },
-                            onDragCancel = { onChange(local.roundToInt()) },
-                        )
-                    },
-                ),
-        ) {
+    fun update(x: Float) { if (width > 1) { local = (x / width).coerceIn(0f, 1f) * max; latestPreview(local.roundToInt()) } }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(Modifier.weight(1f).height(48.dp).onSizeChanged { width = it.width }.semantics {
+            progressBarRangeInfo = ProgressBarRangeInfo(local, 0f..max.toFloat())
+            setProgress { target -> local = target.coerceIn(0f, max.toFloat()); latestChange(local.roundToInt()); true }
+        }.pointerInput(max) { detectTapGestures { position -> update(position.x); latestChange(local.roundToInt()) } }
+        .pointerInput(max) { detectHorizontalDragGestures(
+            onDragStart = { update(it.x) }, onHorizontalDrag = { change, _ -> change.consume(); update(change.position.x) },
+            onDragEnd = { latestChange(local.roundToInt()) }, onDragCancel = { local = latestValue.toFloat(); latestPreview(latestValue) },
+        ) }) {
             Canvas(Modifier.fillMaxSize()) {
-                val cy = size.height / 2f
-                // ★ 這裡必須用 dp.toPx()：直接寫 5f/9f 是「像素」，
-                //   在 3x 屏上軌道只有 1.7dp、拇指 3dp —— 看上去像一條頭髮絲。
-                // 板 `.ctl .track{height:4px}` / `b{width:14px;height:14px}` × 0.886
-                // ⇒ **轨道 3.5dp、拇指 12.4dp**。原来 5dp/18dp 是一根粗管顶着一颗大珠。
-                val trackH = 3.5.dp.toPx()
-                val thumbR = 6.2.dp.toPx()
-                val r = CornerRadius(trackH, trackH)
-                drawRoundRect(
-                    color = colors.onSurfaceVariantSummary.copy(alpha = 0.20f),
-                    topLeft = Offset(0f, cy - trackH / 2f),
-                    size = Size(size.width, trackH),
-                    cornerRadius = r,
-                )
-                val frac = (local / max.toFloat()).coerceIn(0f, 1f)
-                drawRoundRect(
-                    color = colors.primary,
-                    topLeft = Offset(0f, cy - trackH / 2f),
-                    size = Size(size.width * frac, trackH),
-                    cornerRadius = r,
-                )
-                val thumbX = (size.width * frac).coerceIn(thumbR, size.width - thumbR)
-                // 板 `b{background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25);border:1px solid rgba(0,0,0,.06)}`
-                // —— 拇指是一颗**白珠**，不是薄荷环。投影用一条更深的下缘近似（Canvas 里没有阴影）。
-                drawCircle(
-                    color = Color.Black.copy(alpha = 0.10f),
-                    radius = thumbR,
-                    center = Offset(thumbX, cy + 0.8.dp.toPx()),
-                )
-                drawCircle(
-                    // 这一处在 Canvas 的绘制作用域里（非 @Composable），只能用同一条表达式的纯计算版
-                    color = if (colors.background.luminance() < 0.5f) colors.surface else Color.White,
-                    radius = thumbR,
-                    center = Offset(thumbX, cy),
-                )
-                drawCircle(
-                    color = Color.Black.copy(alpha = 0.06f),
-                    radius = thumbR,
-                    center = Offset(thumbX, cy),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.6.dp.toPx()),
-                )
+                val y = size.height / 2
+                val fraction = (local / max.coerceAtLeast(1)).coerceIn(0f, 1f)
+                val height = 4.dp.toPx()
+                drawRoundRect(colors.onSurfaceVariantSummary.copy(alpha = .18f), Offset(0f, y - height / 2), Size(size.width, height), CornerRadius(height))
+                drawRoundRect(colors.primary, Offset(0f, y - height / 2), Size(size.width * fraction, height), CornerRadius(height))
+                val radius = 8.dp.toPx()
+                drawCircle(colors.surface, radius, Offset((size.width * fraction).coerceIn(radius, (size.width - radius).coerceAtLeast(radius)), y))
             }
         }
-        // 板 `.ctl .val{font-size:9.5px;color:var(--faint);width:30px;text-align:right;
-        // font-variant-numeric:tabular-nums}` ⇒ 8.4sp / 26.5dp 右对齐等宽数字
-        Text(
-            text = if (percent) "${local.roundToInt()}%" else "${local.roundToInt()}",
-            fontSize = Type.caption,
-            color = colors.onSurfaceVariantSummary,
-            style = TextStyle(fontFeatureSettings = Type.tabular),
-            textAlign = androidx.compose.ui.text.style.TextAlign.End,
-            maxLines = 1,
-            // 板 `.val{width:30px}` ⇒ 26.5dp 装得下两位，但**这台机 3.5x + 9sp 等宽数字**
-            // 实测会把「24」折成两行（17:04 截图）。给 34dp，右对齐不变。
-            modifier = Modifier.width(34.dp),
-        )
+        Text(if (percent) "${local.roundToInt()}%" else local.roundToInt().toString(), modifier = Modifier.width(42.dp), fontSize = 12.sp)
     }
 }
-
-/**
- * 這一頁蓋住狀態欄時，圖標要跟著頁面底色走。
- *
- * 首頁在夜航天空上會把圖標改成白色；外觀頁是淺色/深色紙面，
- * 不接這一道就會出現「黑圖標壓在深色紙上」——而且只在從夜航進來時發生。
- */
-@Composable
-private fun AppearanceStatusIcons(isDark: Boolean) {
-    val context = LocalContext.current
-    val window = (context as? Activity)?.window ?: return
-    DisposableEffect(isDark, window) {
-        val controller = WindowCompat.getInsetsController(window, window.decorView)
-        val prevStatus = controller.isAppearanceLightStatusBars
-        val prevNav = controller.isAppearanceLightNavigationBars
-        controller.isAppearanceLightStatusBars = !isDark
-        controller.isAppearanceLightNavigationBars = !isDark
-        onDispose {
-            controller.isAppearanceLightStatusBars = prevStatus
-            controller.isAppearanceLightNavigationBars = prevNav
-        }
-    }
-}
-
-private val WEEKDAYS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-private val TIME_HM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-
-

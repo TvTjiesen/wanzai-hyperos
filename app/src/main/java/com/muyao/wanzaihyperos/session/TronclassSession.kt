@@ -171,9 +171,11 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
     /** 存 `X-SESSION-ID`（換到新的時由客戶端回呼）。**這是憑據**，只進加密存儲。 */
     fun saveXSessionId(sid: String) {
         if (sid.isBlank()) return
-        xSessionIdValue = sid
-        store.write(KEY_X_SESSION_ID, sid)
-        markLoaded()
+        synchronized(lock) {
+            ensureLoaded()
+            persist(mapOf(KEY_X_SESSION_ID to sid))
+            xSessionIdValue = sid
+        }
     }
 
     /**
@@ -246,6 +248,7 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
     }
 
     override fun clearMemory() {
+        invalidateCredential()
         accessTokenValue = null
         refreshTokenValue = null
         ssoCookiesJsonValue = null
@@ -254,24 +257,37 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
     }
 
     /**
-     * 登录成功后落盘（token 对 + 可选的 SSO cookie）。
+     * 新登录同批清旧 SID 并标记替换；只有显式 renewal 才保留 SID 和替换版本。
      *
      * accessToken 为空视为脏数据，**直接拒绝** —— 存进去只会让 SPA 的
      * `loginByAccessToken` 失败，还不如让调用方立刻发现。
      */
-    fun saveTokens(accessToken: String, refreshToken: String?, ssoCookiesJson: String? = null) {
+    fun saveTokens(
+        accessToken: String,
+        refreshToken: String?,
+        ssoCookiesJson: String? = null,
+        renewal: Boolean = false,
+    ) {
         val access = accessToken.trim()
         require(access.isNotEmpty()) { "TRONCLASS_ACCESS_TOKEN 为空，拒绝保存" }
         val now = System.currentTimeMillis()
-        store.write(KEY_TOKENS, writeTokenPair(access, refreshToken))
-        store.write(KEY_SAVED_AT, now.toString())
-        if (ssoCookiesJson != null) store.write(KEY_SSO, ssoCookiesJson)
         synchronized(lock) {
+            val sso = ssoCookiesJson ?: if (loaded) ssoCookiesJsonValue else store.read(KEY_SSO)
+            val sid = if (renewal) {
+                if (loaded) xSessionIdValue else store.read(KEY_X_SESSION_ID)?.takeIf { it.isNotBlank() }
+            } else null
+            persist(mapOf(
+                KEY_TOKENS to writeTokenPair(access, refreshToken),
+                KEY_SAVED_AT to now.toString(),
+                KEY_SSO to sso,
+            ) + (if (renewal) emptyMap() else mapOf(KEY_SESSION_ID to null)))
             accessTokenValue = access
             refreshTokenValue = refreshToken?.takeIf { it.isNotBlank() }
-            if (ssoCookiesJson != null) ssoCookiesJsonValue = ssoCookiesJson
+            ssoCookiesJsonValue = sso
+            xSessionIdValue = sid
             savedAtMillisValue = now
             markLoaded()
+            if (!renewal) markCredentialReplacement()
         }
         notifyListeners()
     }
@@ -282,8 +298,9 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
      */
     fun saveSsoCookies(json: String) {
         if (json.isBlank()) return
-        store.write(KEY_SSO, json)
         synchronized(lock) {
+            ensureLoaded()
+            persist(mapOf(KEY_SSO to json))
             ssoCookiesJsonValue = json
         }
     }
@@ -294,13 +311,15 @@ class TronclassSession(store: SecureStore) : StoredSession(store) {
      * 连 T44 的旧键一起清：不留残留，哪怕那些值现在已经没用了。
      */
     fun clear() {
-        store.delete(KEY_TOKENS)
-        store.delete(KEY_SSO)
-        store.delete(KEY_SESSION_ID)
-        store.delete(KEY_COOKIES)
-        store.delete(KEY_SAVED_AT)
-        store.delete(KEY_DISPLAY_NAME)
         synchronized(lock) {
+            persist(mapOf(
+                KEY_TOKENS to null,
+                KEY_SSO to null,
+                KEY_SESSION_ID to null,
+                KEY_COOKIES to null,
+                KEY_SAVED_AT to null,
+                KEY_DISPLAY_NAME to null,
+            ))
             clearMemory()
             markLoaded()
         }

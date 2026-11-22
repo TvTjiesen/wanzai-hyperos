@@ -18,6 +18,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -71,7 +72,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun ScheduleContent(
     repository: ScheduleRepository,
     onBack: () -> Unit,
-    onOpenCourse: (courseId: Int, courseName: String) -> Unit,
+    onOpenCourse: (courseId: Int, courseName: String, source: androidx.compose.ui.layout.LayoutCoordinates?) -> Unit,
     onOpenWeb: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -93,7 +94,7 @@ fun ScheduleContent(
     }
 
     // 0 = 本週，1 = 全部。用 Int 而不是枚舉：只有兩項，不會再長。
-    var tab by remember(schedule) { mutableIntStateOf(TAB_WEEK) }
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(TAB_WEEK) }
     val currentWeek = schedule.currentWeek.orNull
 
     val scope = rememberCoroutineScope()
@@ -125,12 +126,10 @@ fun ScheduleContent(
         }
 
         item {
-            TabRow(
-                tabs = listOf("本周", "全部"),
-                selectedTabIndex = tab,
-                onTabSelected = { tab = it },
-                minWidth = 88.dp,
-                maxWidth = 88.dp,
+            com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
+                labels = listOf("本周", "全部"),
+                selectedIndex = tab,
+                onSelect = { tab = it },
                 modifier = Modifier.padding(horizontal = Dims.screenH),
             )
         }
@@ -218,12 +217,14 @@ fun ScheduleContent(
 
 /** 一格課：課名 + 節次 +（全部檢視時）週次。點進去是課程詳情。 */
 @Composable
-private fun SlotItem(slot: TronScheduleSlot, onOpenCourse: (Int, String) -> Unit) {
+private fun SlotItem(slot: TronScheduleSlot, onOpenCourse: (Int, String, androidx.compose.ui.layout.LayoutCoordinates?) -> Unit) {
     val colors = MiuixTheme.colorScheme
+    var source by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     AppCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onOpenCourse(slot.courseId, slot.courseName) },
+            .onGloballyPositioned { source = it }
+            .clickable { onOpenCourse(slot.courseId, slot.courseName, source) },
     ) {
         Column(modifier = Modifier.padding(Dims.cardPadding)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

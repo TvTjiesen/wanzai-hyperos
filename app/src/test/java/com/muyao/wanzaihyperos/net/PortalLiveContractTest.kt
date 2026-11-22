@@ -38,6 +38,7 @@ class PortalLiveContractTest {
 
         /** 登录一次，之后所有用例共用同一个会话。 */
         fun ensureLoggedIn(): PortalApi? {
+            LiveNetworkGate.requireOptIn()
             api?.let { return it }
             val credentials = HzcuLiveLoginTest.readCredentials() ?: return null
             val session = PortalSession(InMemorySecureStore())

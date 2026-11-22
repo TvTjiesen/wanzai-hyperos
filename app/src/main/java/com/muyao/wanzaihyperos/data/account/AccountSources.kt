@@ -128,6 +128,38 @@ data class AccountSource(
     }
 }
 
+data class AccountConfigurationSummary(
+    val sourceCount: Int,
+    val configuredCount: Int,
+    val unknownCount: Int,
+    val webOnlyCount: Int,
+    val reading: Boolean,
+) {
+    fun countText(): String = if (reading) {
+        "$sourceCount 来源 · 配置读取中"
+    } else {
+        "$sourceCount 来源 · $configuredCount 项已确认配置" +
+            if (unknownCount > 0) " · $unknownCount 项未知" else ""
+    }
+
+    fun boundaryText(): String = buildString {
+        append("配置不等于在线；只读本机凭据，不向学校验证。")
+        if (webOnlyCount > 0 || reading) append("智云在网页内确认，不计入已配置。")
+        if (unknownCount > 0 && !reading) append("未知单独列出，不当成未配置。")
+    }
+}
+
+fun accountConfigurationSummary(sources: List<AccountSource>): AccountConfigurationSummary =
+    AccountConfigurationSummary(
+        sourceCount = sources.size.takeIf { it > 0 } ?: 7,
+        configuredCount = sources.count {
+            it.status == AccountStatus.LoggedIn || it.status == AccountStatus.ObtainedNotActivated
+        },
+        unknownCount = sources.count { it.status == AccountStatus.Unknown },
+        webOnlyCount = sources.count { it.status == AccountStatus.InWebOnly },
+        reading = sources.isEmpty(),
+    )
+
 /** 今天给到点、昨天/前天给词、一周内给「N天前」、再往外给日期（**不编「很久以前」**）。 */
 internal fun relativeMoment(millis: Long, nowMillis: Long, zone: ZoneId): String {
     val at = Instant.ofEpochMilli(millis).atZone(zone)

@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.Color
+import kotlin.math.roundToInt
 import io.github.neoruaa.glasmio.core.GlassAppearance
 import io.github.neoruaa.glasmio.core.GlassColors
 import io.github.neoruaa.glasmio.core.LocalGlassAppearance
@@ -117,7 +118,10 @@ internal fun rememberResolvedGlassMaterialContext(
             visibilityThreshold = .001f,
             label = "GlassMaterialAppearance",
         )
-        fraction
+        // Quantize the presentation weight: the atlas/RenderEffect chain is keyed by identity
+        // (see NavigationGlassFilter), so every spring tick otherwise rebuilds the whole mip
+        // pyramid during scroll even though the recipe changes are invisible below ~1/8 steps.
+        (fraction * 8f).roundToInt() / 8f
     }
     return remember(environmentColors, environmentDark, probe, ownsLuminance, adaptive, dark, darkFraction, luminanceRange) {
         GlassMaterialContext(environmentDark, dark,

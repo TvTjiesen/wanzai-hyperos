@@ -2,6 +2,8 @@ package com.muyao.wanzaihyperos.data.tronclass
 
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.failWith
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
 import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startRefresh
@@ -117,13 +119,31 @@ interface HomeworkDetailRepository {
 class LiveHomeworkDetailRepository(
     private val client: TronclassClient,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : HomeworkDetailRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<HomeworkDetail>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<HomeworkDetail>> = _state.asStateFlow()
 
     private val inFlight = Mutex()
+    private data class CacheKey(val owner: Long, val courseId: Int, val homeworkId: Int)
+    private val snapshots = linkedMapOf<CacheKey, ListState<HomeworkDetail>>()
+    @Volatile private var activeReadToken: Long? = null
+
+    // Called only within the owner publication boundary.
+    private fun rememberSelected() {
+        if (courseId <= 0) return
+        val key = CacheKey(epoch.token(), courseId, wantedHomeworkId)
+        val settled = when (val state = _state.value) {
+            is ListState.Content -> state.copy(meta = state.meta.copy(refreshing = false, loadingMore = false))
+            is ListState.Empty -> state.copy(meta = state.meta.copy(refreshing = false, loadingMore = false))
+            else -> null
+        }
+        snapshots.remove(key)
+        if (settled != null) snapshots[key] = settled
+        while (snapshots.size > 12) snapshots.remove(snapshots.keys.first())
+    }
 
     @Volatile
     private var courseId: Int = 0
@@ -145,64 +165,149 @@ class LiveHomeworkDetailRepository(
     @Volatile
     private var userId: Int? = null
 
+    init {
+        epoch.registerReset {
+            guard.invalidate()
+            snapshots.clear()
+            activeReadToken = null
+            courseId = 0
+            wantedHomeworkId = 0
+            courseName = ""
+            wantedTitle = ""
+            resolvedHomeworkId = 0
+            userId = null
+            _state.value = ListState.FirstLoad
+        }
+    }
+
     override suspend fun load(courseId: Int, homeworkId: Int, courseName: String, title: String) {
-        this.courseId = courseId
-        this.wantedHomeworkId = homeworkId
-        this.courseName = courseName
-        this.wantedTitle = title
-        resolvedHomeworkId = 0
-        // 換作業就**清空重載**：留著上一項作業的要求比空白更糟
-        //（使用者會以為這份要求就是眼前這項作業的，然後照它交）。
-        _state.value = ListState.FirstLoad
-        refresh()
+        if (courseId <= 0) return
+        var token: Long? = null
+        epoch.publishData(epoch.token()) {
+            val sameKey = this.courseId == courseId && wantedHomeworkId == homeworkId
+            this.courseName = courseName
+            wantedTitle = title
+            if (sameKey && activeReadToken == guard.current) return@publishData
+            if (!sameKey) {
+                rememberSelected()
+                this.courseId = courseId
+                wantedHomeworkId = homeworkId
+                resolvedHomeworkId = 0
+                _state.value = snapshots[CacheKey(epoch.token(), courseId, homeworkId)] ?: ListState.FirstLoad
+            }
+            token = guard.begin()
+            activeReadToken = token
+            _state.value = _state.value.startRefresh()
+        }
+        token?.let { refresh(it, forceRefresh = false) }
     }
 
     override suspend fun refresh() {
-        if (courseId <= 0) return
-        inFlight.withLock {
-            val token = guard.begin()
+        var token: Long? = null
+        epoch.publishData(epoch.token()) {
+            if (courseId <= 0 || activeReadToken == guard.current) return@publishData
+            token = guard.begin()
+            activeReadToken = token
             _state.value = _state.value.startRefresh()
+        }
+        token?.let { refresh(it, forceRefresh = true) }
+    }
 
-            // ── 1) 要求（課程作業清單裡的那一項）──────────────────────────
-            val listResult = runCatching { client.homeworks(courseId, page = 1, pageSize = 50) }
-            val found = listResult.getOrNull()?.let { list -> resolveIn(list) }
+    private fun failRead(error: HzcuException.LoginExpired) {
+        val state = _state.value
+        _state.value = when (state) {
+            is ListState.Content -> state.copy(meta = state.meta.copy(
+                refreshing = false, loadingMore = false, stale = true, lastRefreshError = error,
+            ))
+            is ListState.Empty -> state.copy(meta = state.meta.copy(
+                refreshing = false, loadingMore = false, stale = true, lastRefreshError = error,
+            ))
+            else -> state.failWith(error)
+        }
+    }
 
-            // ── 2) 我的提交記錄（需要 user id）────────────────────────────
-            val me = userId ?: runCatching { client.profileUserId() }.getOrNull().also { userId = it }
-            val submissionsResult = if (me != null && resolvedHomeworkId > 0) {
-                runCatching { client.submissions(resolvedHomeworkId, me) }
-            } else {
-                Result.failure(HzcuException.Parse("还不知道我的编号或这项作业，没去取提交记录"))
-            }
+    private suspend fun refresh(token: Long, forceRefresh: Boolean) {
+        try {
+            inFlight.withLock {
+                if (!guard.isCurrent(token)) return
+                val course = courseId
+                if (course <= 0) return
+                val wanted = wantedHomeworkId
+                val name = courseName
+                val title = wantedTitle
 
-            // ── 3) 我交了沒（狀態那支；獨立成敗）──────────────────────────
-            val statusResult = runCatching { client.homeworkStatus(courseId) }
+                // ── 1) 要求（課程作業清單裡的那一項）──────────────────────────
+                val listResult = catchingActive { client.homeworks(course, page = 1, pageSize = 50, forceRefresh = forceRefresh) }
+                if (!guard.isCurrent(token)) return
+                listResult.exceptionOrNull()?.let { if (it is HzcuException.LoginExpired) throw it }
+                val found = listResult.getOrNull()?.let { list -> resolveIn(list, wanted, title) }
 
-            if (!guard.isCurrent(token)) return
-            val submissions = submissionsResult.getOrNull()
-            val detail = HomeworkDetail(
-                courseId = courseId,
-                courseName = courseName,
-                title = wantedTitle.ifBlank { found?.title.orEmpty() },
-                homework = found,
-                listFailed = listResult.isFailure,
-                // ★ 狀態按**解析後的 id** 挑：按帶過來的 id 挑可能是待辦 id，
-                //   那樣會把「另一項作業的已交」顯示成「這一項已交」。
-                myStatus = found?.id?.let { statusResult.getOrNull()?.get(it) },
-                submissions = submissions.orEmpty(),
-                submissionsKnown = submissions != null,
-                userId = me,
-            )
-            _state.value = if (detail.homework == null && detail.listFailed) {
-                // 要求那一支**整個失敗** → 這一頁確實沒內容，走「失敗」形態（可重試、有原因）。
-                _state.value.failWith(
-                    HzcuException.Parse(
-                        "作业要求没取到",
-                        cause = listResult.exceptionOrNull(),
-                    ),
+                // ── 2) 我的提交記錄（需要 user id）────────────────────────────
+                val profileResult = userId?.let { Result.success(it) }
+                    ?: catchingActive { client.profileUserId(forceRefresh) }
+                if (!guard.isCurrent(token)) return
+                profileResult.exceptionOrNull()?.let { if (it is HzcuException.LoginExpired) throw it }
+                val me = profileResult.getOrNull()
+                val activity = found?.id ?: 0
+                val submissionsResult = if (me != null && activity > 0) {
+                    catchingActive { client.submissions(activity, me, forceRefresh) }
+                } else {
+                    Result.failure(HzcuException.Parse("还不知道我的编号或这项作业，没去取提交记录"))
+                }
+
+                // ── 3) 我交了沒（狀態那支；獨立成敗）──────────────────────────
+                if (!guard.isCurrent(token)) return
+                submissionsResult.exceptionOrNull()?.let { if (it is HzcuException.LoginExpired) throw it }
+                val statusResult = catchingActive { client.homeworkStatus(course, forceRefresh) }
+
+                if (!guard.isCurrent(token)) return
+                statusResult.exceptionOrNull()?.let { if (it is HzcuException.LoginExpired) throw it }
+                val submissions = submissionsResult.getOrNull()
+                val detail = HomeworkDetail(
+                    courseId = course,
+                    courseName = name,
+                    title = title.ifBlank { found?.title.orEmpty() },
+                    homework = found,
+                    listFailed = listResult.isFailure,
+                    // ★ 狀態按**解析後的 id** 挑：按帶過來的 id 挑可能是待辦 id，
+                    //   那樣會把「另一項作業的已交」顯示成「這一項已交」。
+                    myStatus = found?.id?.let { statusResult.getOrNull()?.get(it) },
+                    submissions = submissions.orEmpty(),
+                    submissionsKnown = submissions != null,
+                    userId = me,
                 )
-            } else {
-                _state.value.settleFirstPage(listOf(detail), clock()) { it.homework?.id ?: 0 }
+                guard.publish(token) {
+                    resolvedHomeworkId = activity
+                    userId = me
+                    _state.value = if (detail.homework == null && detail.listFailed) {
+                        // 首载失败可重试；已有要求则保留内容和上次成功时间。
+                        _state.value.failWith(
+                            HzcuException.Parse(
+                                "作业要求没取到",
+                                cause = listResult.exceptionOrNull(),
+                            ),
+                        )
+                    } else {
+                        _state.value.settleFirstPage(listOf(detail), clock()) { it.homework?.id ?: 0 }
+                    }
+                    rememberSelected()
+                }
+            }
+        } catch (error: HzcuException.LoginExpired) {
+            guard.publish(token) {
+                resolvedHomeworkId = 0
+                failRead(error)
+                rememberSelected()
+            }
+        } finally {
+            guard.publish(token) {
+                _state.value = when (val state = _state.value) {
+                    is ListState.Content -> state.copy(meta = state.meta.copy(refreshing = false, loadingMore = false))
+                    is ListState.Empty -> state.copy(meta = state.meta.copy(refreshing = false, loadingMore = false))
+                    else -> state
+                }
+                activeReadToken = null
+                rememberSelected()
             }
         }
     }
@@ -226,22 +331,12 @@ class LiveHomeworkDetailRepository(
      * （「第一次作业」同時包含在「第一次作业(补)」裡），
      * 那種撞名在只讀頁只是難看，在寫操作頁就是交錯東西。
      */
-    private fun resolveIn(list: List<TronHomework>): TronHomework? {
-        val byId = list.firstOrNull { it.id == wantedHomeworkId }
-        if (byId != null) {
-            resolvedHomeworkId = byId.id
-            return byId
-        }
-        val byTitle = list.firstOrNull { it.title.isNotBlank() && it.title == wantedTitle }
-        if (byTitle != null) {
-            resolvedHomeworkId = byTitle.id
-            return byTitle
-        }
-        resolvedHomeworkId = 0
-        return null
-    }
+    private fun resolveIn(list: List<TronHomework>, wantedId: Int, title: String): TronHomework? =
+        list.firstOrNull { it.id == wantedId }
+            ?: list.firstOrNull { it.title.isNotBlank() && it.title == title }
 
     override suspend fun submit(comment: String, draft: Boolean): HomeworkSubmitResult {
+        val token = epoch.token()
         // 閘門放在**這一層**（而不是只在界面擋）：界面可能因為重组或狀態落後
         // 而放行一次點擊，倉庫是唯一能保证「不發」的地方。
         val current = (_state.value as? ListState.Content)?.items?.firstOrNull()
@@ -273,6 +368,9 @@ class LiveHomeworkDetailRepository(
                 message = "已经交过 ${homework.submitTimes} 次的上限，没再提交",
             )
         }
-        return client.submitHomework(target, comment, draft)
+        if (!epoch.isCurrent(token)) throw kotlinx.coroutines.CancellationException("Account changed")
+        val result = client.submitHomework(target, comment, draft)
+        if (!epoch.isCurrent(token)) throw kotlinx.coroutines.CancellationException("Account changed")
+        return result
     }
 }

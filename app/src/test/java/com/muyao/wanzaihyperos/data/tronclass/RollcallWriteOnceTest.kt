@@ -34,6 +34,7 @@ class RollcallWriteOnceTest {
     /** 缓存测试要往它身上挂 [com.muyao.wanzaihyperos.net.ResponseCache]。 */
     private lateinit var clientUnderTest: TronclassClient
 
+    private val cacheIdentity = com.muyao.wanzaihyperos.net.RequestIdentity("synthetic-rollcall-owner", 1)
     private val writeMethods = setOf("PUT", "POST", "PATCH", "DELETE")
 
     @Before
@@ -59,6 +60,7 @@ class RollcallWriteOnceTest {
             // 已缓存 sessionID ⇒ 不会去换 token（换 token 也是写操作之外的事，这里不测）。
             cachedSessionId = { "FAKE-SESSION-ID" },
             limiter = HzcuRateLimiter.forTesting(minIntervalMs = 0, perPathMinIntervalMs = 0),
+            identityProvider = { cacheIdentity },
         )
         clientUnderTest = client
         repository = LiveRollcallRepository(client)
@@ -292,7 +294,10 @@ class RollcallWriteOnceTest {
         val cacheDir = java.io.File(System.getProperty("java.io.tmpdir"), "wzrc-${System.nanoTime()}")
         val cache = com.muyao.wanzaihyperos.net.ResponseCache(cacheDir)
         // 先塞一份「進行中清單是空的」的舊快照，假裝五分鐘內取過。
-        cache.put("/api/radar/rollcalls?api_version=1.1.0", """{"rollcalls":[]}""")
+        val cachedPath = "/api/radar/rollcalls?api_version=1.1.0"
+        val staleBody = """{"rollcalls":[]}"""
+        cache.put("tronclass", cacheIdentity, cachedPath, staleBody)
+        assertEquals(staleBody, cache.get("tronclass", cacheIdentity, cachedPath, 300_000))
         clientUnderTest.cache = cache
 
         server.enqueue(status = 200, body = """{"id":36519}""")

@@ -56,13 +56,13 @@ class PopupHostWiringTest {
     @Test
     fun `弹层宿主必须包住页面内容、并且叠在内容之上`() {
         val box = blockAfter(theme, "androidx.compose.foundation.layout.Box(")
-        val overlay = blockAfter(box, "WanzaiGlasmioHost(themeMode = themeMode)")
+        val overlay = blockAfter(box, "WanzaiGlasmioHost(themeMode = themeMode, appearanceSettings = appearance)")
         val contentAt = overlay.indexOf("content()")
         val hostAt = overlay.indexOf("MiuixPopupHost()")
         assertTrue("同一 Box 的 Glasmio 内容槽里没找到页面 content", contentAt >= 0)
         assertTrue("同一内容槽里没找到 legacy 宿主", hostAt >= 0)
         assertTrue("宿主必须写在 content 之后，否则弹层被内容盖住", hostAt > contentAt)
         val hostTheme = SourceScan.stripComments(File(root, "app/src/main/java/com/muyao/wanzaihyperos/ui/design/glasmio/WanzaiGlasmioTheme.kt").readText())
-        assertTrue("页面与 legacy 弹层必须位于不采自身的 overlay", "overlayContent = { content() }" in hostTheme && "sampledContent" !in hostTheme)
+        assertTrue("页面与 legacy 弹层必须位于不采自身的 overlay", "overlayContent = { content() }" in hostTheme && "sampledContent = {" in hostTheme && "sampledContent = { content" !in hostTheme)
     }
 }

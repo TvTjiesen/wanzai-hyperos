@@ -51,9 +51,9 @@ class SlotSourceTest {
     }
 
     @Test
-    fun `教务有结论且没货才退学在城院`() {
+    fun `教务确认无课不被旧学在城院课程覆盖`() {
         assertEquals(
-            SlotSource.TRONCLASS,
+            SlotSource.JIAOWU,
             pickSlots(emptyList(), JwVerdict.SETTLED_EMPTY, listOf(slot(9))).source,
         )
     }

@@ -92,36 +92,45 @@ class SztySession(store: SecureStore) : StoredSession(store) {
         get() = !token().isNullOrBlank() && (userId() ?: 0) > 0
 
     fun save(token: String, userId: Int, nowMillis: Long) {
-        tokenValue = token.trim()
-        userIdValue = userId
-        lastSyncValue = nowMillis
-        savedAtValue = nowMillis
-        store.write(KEY_TOKEN, tokenValue)
-        store.write(KEY_USER_ID, userId.toString())
-        store.write(KEY_LAST_SYNC, nowMillis.toString())
-        store.write(KEY_SAVED_AT, nowMillis.toString())
-        markLoaded()
+        val clean = token.trim()
+        synchronized(lock) {
+            persist(mapOf(
+                KEY_TOKEN to clean,
+                KEY_USER_ID to userId.toString(),
+                KEY_LAST_SYNC to nowMillis.toString(),
+                KEY_SAVED_AT to nowMillis.toString(),
+            ))
+            tokenValue = clean
+            userIdValue = userId
+            lastSyncValue = nowMillis
+            savedAtValue = nowMillis
+            markLoaded()
+            markCredentialReplacement()
+        }
         notifyListeners()
     }
 
     /** 只更新「上次成功取数」时间。 */
     fun markSync(nowMillis: Long) {
-        lastSyncValue = nowMillis
-        store.write(KEY_LAST_SYNC, nowMillis.toString())
-        markLoaded()
+        synchronized(lock) {
+            ensureLoaded()
+            persist(mapOf(KEY_LAST_SYNC to nowMillis.toString()))
+            lastSyncValue = nowMillis
+        }
         notifyListeners()
     }
 
     fun clear() {
-        tokenValue = null
-        userIdValue = null
-        lastSyncValue = null
-        savedAtValue = null
-        store.delete(KEY_TOKEN)
-        store.delete(KEY_USER_ID)
-        store.delete(KEY_LAST_SYNC)
-        store.delete(KEY_SAVED_AT)
-        markLoaded()
+        synchronized(lock) {
+            persist(mapOf(
+                KEY_TOKEN to null,
+                KEY_USER_ID to null,
+                KEY_LAST_SYNC to null,
+                KEY_SAVED_AT to null,
+            ))
+            clearMemory()
+            markLoaded()
+        }
         notifyListeners()
     }
 
@@ -136,6 +145,7 @@ class SztySession(store: SecureStore) : StoredSession(store) {
     }
 
     override fun clearMemory() {
+        invalidateCredential()
         tokenValue = null
         userIdValue = null
         lastSyncValue = null

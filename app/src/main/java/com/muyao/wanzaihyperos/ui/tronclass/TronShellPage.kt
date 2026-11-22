@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.tronclass
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -52,6 +53,8 @@ fun TronShellPage(
     rollcallRepository: RollcallRepository,
     courseDetailRepository: com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository,
     scheduleRepository: com.muyao.wanzaihyperos.data.tronclass.ScheduleRepository,
+    membersRepository: com.muyao.wanzaihyperos.data.tronclass.TronMembersRepository,
+    resourcesRepository: com.muyao.wanzaihyperos.data.tronclass.TronResourcesRepository,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
     /** 網頁版出口（學在城院原站）。 */
@@ -64,7 +67,13 @@ fun TronShellPage(
     // 子頁（課程詳情 / 作業 / 簽到站 / 課表）是**整頁**，自己帶頂欄。
     // 它們打開時外殼必須讓位：否則會在「我的課」頂欄與標籤列底下再畫一層頂欄，
     // 實機上就是兩條返回箭頭、兩層標題（2026-11-08 拍照為證）。
-    var sub by remember { mutableStateOf<TronSub>(TronSub.None) }
+    var navigation by remember { mutableStateOf(TronBackStack()) }
+    val sub = navigation.current
+    var fullscreen by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(sub) {
+        if (sub != TronSub.None) fullscreen = true
+    }
+    BackHandler(enabled = sub != TronSub.None) { navigation = navigation.back() }
 
     // 頂欄走共享殼（[SecondaryScaffold]）：底下的漸變、安全區、返回鍵、
     // 標題欄高度都只由設計層決定一次。
@@ -77,19 +86,29 @@ fun TronShellPage(
     // 看到的就是這一頁的資料，刷別的板塊既慢又看不出效果。
     val scope = rememberCoroutineScope()
 
-    if (sub != TronSub.None) {
-        TronHomeContent(
-            repository = homeRepository,
-            homeworkRepository = homeworkRepository,
-            homeworkDetailRepository = homeworkDetailRepository,
-            rollcallRepository = rollcallRepository,
-            courseDetailRepository = courseDetailRepository,
-            scheduleRepository = scheduleRepository,
-            onOpenWeb = onOpenWeb,
-            subState = sub,
-            onSub = { sub = it },
-            modifier = modifier,
-        )
+    val homeContent = remember(homeRepository, feedRepository, meRepository) {
+        androidx.compose.runtime.movableContentOf<TronSub, Modifier> { destination, contentModifier ->
+            TronHomeContent(
+                repository = homeRepository,
+                homeworkRepository = homeworkRepository,
+                homeworkDetailRepository = homeworkDetailRepository,
+                rollcallRepository = rollcallRepository,
+                courseDetailRepository = courseDetailRepository,
+                scheduleRepository = scheduleRepository,
+                membersRepository = membersRepository,
+                resourcesRepository = resourcesRepository,
+                onOpenWeb = onOpenWeb,
+                subState = destination,
+                onSub = { navigation = navigation.open(it) },
+                modifier = contentModifier,
+                onPresentationSettled = { settled ->
+                    if (settled == TronSub.None && navigation.current == TronSub.None) fullscreen = false
+                },
+            )
+        }
+    }
+    if (sub != TronSub.None || fullscreen) {
+        homeContent(sub, modifier)
         return
     }
 
@@ -123,30 +142,17 @@ fun TronShellPage(
             // ⚠️ Miuix 的 TabRow 是**資料驅動**的（`tabs` + `selectedTabIndex`
             //   + `onTabSelected`），不是 Material 那種「自己放 Tab 子項」的用法。
             // 88dp 兩態（選中／未選中同寬）—— 與稿上三個等寬標籤一致。
-            TabRow(
-                tabs = TABS.map { it.first },
-                selectedTabIndex = tab,
-                onTabSelected = { tab = it; sub = TronSub.None },
-                minWidth = 88.dp,
-                maxWidth = 88.dp,
+            com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
+                labels = TABS.map { it.first },
+                selectedIndex = tab,
+                onSelect = { tab = it; navigation = TronBackStack() },
                 modifier = Modifier.padding(horizontal = Dims.screenH),
             )
 
             val contentModifier = Modifier.fillMaxSize()
 
             when (tab) {
-                TAB_HOME -> TronHomeContent(
-                    repository = homeRepository,
-                    homeworkRepository = homeworkRepository,
-                    homeworkDetailRepository = homeworkDetailRepository,
-                    rollcallRepository = rollcallRepository,
-                    courseDetailRepository = courseDetailRepository,
-                    scheduleRepository = scheduleRepository,
-                    onOpenWeb = onOpenWeb,
-                    subState = sub,
-                    onSub = { sub = it },
-                    modifier = contentModifier,
-                )
+                TAB_HOME -> homeContent(sub, contentModifier)
                 TAB_FEED -> TronFeedContent(
                     repository = feedRepository,
                     onOpenWeb = onOpenWeb,
@@ -154,6 +160,8 @@ fun TronShellPage(
                 )
                 else -> TronMeContent(
                     repository = meRepository,
+                    onOpenResources = { navigation = navigation.open(TronSub.Resources) },
+                    onOpenRollcall = { navigation = navigation.open(TronSub.Rollcall) },
                     onOpenWeb = onOpenWeb,
                     modifier = contentModifier,
                 )

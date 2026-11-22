@@ -63,31 +63,21 @@ class HomeSkyTest {
         }
     }
     @Test
-    fun `壁纸降采样闸门必须按 或 判，不许退回与`() {
-        val src = java.io.File("src/main/java/com/muyao/wanzaihyperos/ui/home/HomeStudio.kt")
-        assertTrue("找不到 ${src.absolutePath}", src.isFile)
-        // 认那行闸门本身（`/ (sample * 2)`），不是 `inSampleSize = sample` 那行赋值
-        val line = src.readLines().firstOrNull { it.contains("/ (sample * 2)") }
-        assertTrue("找不到降采样闸门那一行", line != null)
-        assertTrue(
-            "闸门必须是 `||`：`&&` 要求两边都还超上限才继续缩，而 4:3 照片的高永远到不了 3200 ⇒ " +
-                "4032×3024 卡在 inSampleSize=1（46.5MiB）、8000×6000 同理（183MiB），" +
-                "外层 runCatching 还会把 OOM 吞成 null、界面一个字都不说。行：$line",
-            line!!.contains("||") && !line.contains("&&"),
-        )
-        // 按闸门算一遍落带（与实现同一条式子），钉住"缩到不超上限"这件事。
-        fun sampleOf(w: Int, h: Int, maxWidth: Int = 1440, maxHeight: Int = 3200): Int {
-            var s = 1
-            while (w / (s * 2) >= maxWidth || h / (s * 2) >= maxHeight) s *= 2
-            return s
+    fun `实际壁纸计划遵守预算并保留取景分辨率`() {
+        val phone = requireNotNull(wallpaperDecodePlan(4032, 3024, 1440, 3200))
+        val large = requireNotNull(wallpaperDecodePlan(8000, 6000, 1440, 3200))
+        val small = requireNotNull(wallpaperDecodePlan(1200, 900, 1440, 3200))
+        assertEquals("4032×3024 手机原图", 2, phone.sampleSize)
+        assertEquals(2016, phone.width)
+        assertEquals(1512, phone.height)
+        assertEquals("8000×6000", 4, large.sampleSize)
+        assertEquals(2000, large.width)
+        assertEquals(1500, large.height)
+        assertEquals("小图不许被无谓缩糊", 1, small.sampleSize)
+        listOf(phone, large, small).forEach { plan ->
+            assertTrue("像素预算被突破", plan.pixels <= WallpaperBudget().maxPixels)
+            assertTrue("ARGB字节预算被突破", plan.argbBytes <= WallpaperBudget().maxArgbBytes)
         }
-        // 闸门语义是"再缩一半仍不小于上限才继续"⇒ 4032×3024 落 sample=2（2016×1512 ≈ 12.2MiB）。
-        // 要紧的不是那 4 还是 2，而是**不许停在 1**（46.5MiB，runCatching 还会把 OOM 吞成 null）。
-        assertEquals("4032×3024 手机原图", 2, sampleOf(4032, 3024))
-        // 8000×6000：同样按"再缩一半仍不小于上限"⇒ sample=4（2000×1500 ≈ 12.2MiB，
-        // 而不是卡死在 1 的 **183MiB**）。这条才是台账那条 OOM 雷的量级。
-        assertEquals("8000×6000", 4, sampleOf(8000, 6000))
-        assertTrue("小图不许被无谓缩糊", sampleOf(1200, 900) == 1)
         // cover 裁切的 slack 必须 >= 0（负数意味着"缩完还盖不满框"，会露白边）
         assertTrue(
             "降采样后（2016×1512）铺满 1:0.62 的取景框时 slack 必须非负，否则露白边",

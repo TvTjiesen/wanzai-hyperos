@@ -17,7 +17,7 @@ class GlasmioControlsAdapterTest {
         assertTrue("Keep the existing regular default", "prominent: Boolean = false" in button)
         assertEquals("Both native and reduced-motion slots bridge their actual foreground", 2,
             Regex("LocalContentColor provides LocalContentColor.current").findAll(button).count())
-        assertTrue("Forward enabled to both control paths", Regex("enabled = enabled").findAll(button).count() == 2)
+        assertTrue("Forward enabled to both control paths", Regex("enabled = enabled").findAll(button).count() == 3)
         assertTrue("Text actions stay regular", "enabled = enabled, prominent = false" in controls)
     }
 

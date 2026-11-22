@@ -2,6 +2,9 @@ package com.muyao.wanzaihyperos.ui.main.pages
 
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.width
@@ -189,7 +192,10 @@ fun PeriodsPage(
     }
 
     if (confirmClear) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { confirmClear = false }) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { confirmClear = false },
+            properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true),
+        ) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -217,7 +223,8 @@ fun PeriodsPage(
                         color = colors.onSurfaceVariantSummary,
                         modifier = Modifier
                             .clickable(onClickLabel = "不清除") { confirmClear = false }
-                            .padding(6.dp),
+                            .sizeIn(minWidth = 64.dp, minHeight = 48.dp)
+                            .wrapContentSize(Alignment.Center),
                     )
                     Text(
                         text = "清除",
@@ -230,7 +237,8 @@ fun PeriodsPage(
                                 UiPrefs.savePeriodTimes(emptyList())
                                 confirmClear = false
                             }
-                            .padding(6.dp),
+                            .sizeIn(minWidth = 64.dp, minHeight = 48.dp)
+                            .wrapContentSize(Alignment.Center),
                     )
                 }
             }

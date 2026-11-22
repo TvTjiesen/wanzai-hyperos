@@ -31,7 +31,7 @@ object GlassTuning {
      *   adb shell settings put global hzr_glass_bar_blur 20   # 板上这版（默认）
      */
     const val BAR_DEFAULT_DP = 20f
-    const val VEIL_DEFAULT_DP = 30f
+    const val VEIL_DEFAULT_DP = 14f
     const val LENS_DEFAULT_DP = 24f
 
     @Volatile

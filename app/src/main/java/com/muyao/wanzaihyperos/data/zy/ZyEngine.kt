@@ -1,11 +1,23 @@
 package com.muyao.wanzaihyperos.data.zy
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.net.http.SslError
+import android.webkit.SslErrorHandler
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.net.URI
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.coroutines.resume
 
 /**
@@ -39,16 +51,43 @@ import kotlin.coroutines.resume
 class ZyEngine(private val baseUrl: String = BASE) {
 
     private var webView: WebView? = null
+    private var cleanupRegistration: AutoCloseable? = null
+    private val work = com.muyao.wanzaihyperos.ui.web.CleanupWorkSet()
 
-    /** 每次 fetch 一個唯一 key（見 [fetchJson] 的兩步做法）。 */
     private var nextFetchId = 0
+    private var documentReady = false
 
-    fun attach(view: WebView) {
-        webView = view
+    internal val reader: ZyReader = object : ZyReader {
+        override suspend fun awaitAttached() = this@ZyEngine.awaitAttached()
+        override suspend fun ensureSession(force: Boolean) = this@ZyEngine.ensureSession(force)
+        override suspend fun fetchText(path: String) = this@ZyEngine.fetchText(path)
+        override suspend fun invalidateSession() = withContext(Dispatchers.Main) { documentReady = false }
     }
 
-    fun detach() {
+    fun attach(view: WebView) {
+        if (webView === view || com.muyao.wanzaihyperos.ui.web.WebViewCleanup.isStopped(view)) return
+        if (webView != null) detach()
+        webView = view
+        view.settings.javaScriptEnabled = true
+        view.settings.blockNetworkLoads = false
+        cleanupRegistration = com.muyao.wanzaihyperos.ui.web.WebViewCleanup.register(this) { detach(permanent = true) }
+    }
+
+    fun detach(permanent: Boolean = false) {
+        val view = webView
         webView = null
+        documentReady = false
+        cleanupRegistration?.close()
+        cleanupRegistration = null
+        work.cancelAll()
+        view?.let { com.muyao.wanzaihyperos.ui.web.WebViewCleanup.stop(it, permanent) }
+    }
+
+    fun release(view: WebView) {
+        try {
+            if (webView === view) detach(permanent = true)
+            else com.muyao.wanzaihyperos.ui.web.WebViewCleanup.stop(view)
+        } finally { view.destroy() }
     }
 
     /**
@@ -58,7 +97,9 @@ class ZyEngine(private val baseUrl: String = BASE) {
      * 在 **layout 階段**跑，而 `LaunchedEffect` 組合完就跑，順序**不保證**。
      * 少了這步，第一次進來時 `webView == null`，取數會失敗。
      */
-    suspend fun awaitAttached(timeoutMs: Long = ATTACH_TIMEOUT_MS): Boolean {
+    suspend fun awaitAttached(timeoutMs: Long = ATTACH_TIMEOUT_MS): Boolean = work.run { awaitAttachedActive(timeoutMs) }
+
+    private suspend fun awaitAttachedActive(timeoutMs: Long): Boolean {
         if (webView != null) return true
         var waited = 0L
         while (waited < timeoutMs) {
@@ -69,44 +110,34 @@ class ZyEngine(private val baseUrl: String = BASE) {
         return false
     }
 
-    /** 目前頁面網址。 */
-    suspend fun currentUrl(): String = evalJsDecoded("location.href").orEmpty()
-
-    /**
-     * 載入 SPA 首頁以建立／沿用會話，並回報**登入狀態**。
-     *
-     * 判據用 `localStorage.yjUserInfo`（實測：登入後才有，含 `id`／`tenant_id`）。
-     * 不用「頁面上有沒有『退出登录』」那種文字判斷 —— 那會隨版面改動而失效。
-     *
-     * @return 已登入時回 `user_id`（取數要用）；未登入回 null。
-     */
-    suspend fun ensureSession(): String? {
-        if (currentUrl().startsWith(baseUrl)) {
-            // 已經在這個站上，不必重新載入（省一次白屏）
-            readUserId()?.let { return it }
+    private suspend fun ensureSession(force: Boolean): String = work.run {
+        withContext(Dispatchers.Main) {
+            val view = webView ?: throw ZyDomainFailure(ZyFailure.EngineNotReady)
+            if (!force && documentReady && isZyOrigin(view.url, baseUrl)) {
+                readUserId(view)?.let { return@withContext it }
+            }
+            documentReady = false
+            navigate(view)
+            // Storage provides a query ID only. The repository still verifies it with the read API.
+            val id = withTimeoutOrNull(SESSION_TIMEOUT_MS) {
+                var userId = readUserId(view)
+                while (userId == null) {
+                    delay(SESSION_POLL_MS)
+                    userId = readUserId(view)
+                }
+                userId
+            } ?: throw ZyDomainFailure(ZyFailure.IdentityUnavailable)
+            documentReady = true
+            id
         }
-        val loaded = load("$baseUrl/#/pages/liveCourse/index?tenant_code=$TENANT")
-        if (!loaded) return null
-        // 等 SPA 起來（Vue 掛載 + 它自己那幾個請求）
-        repeat(SESSION_POLLS) {
-            withContext(Dispatchers.Main) { kotlinx.coroutines.delay(SESSION_POLL_MS) }
-            readUserId()?.let { return it }
-        }
-        return null
     }
 
-    private suspend fun readUserId(): String? {
-        val raw = evalJsDecoded("localStorage.getItem('yjUserInfo')") ?: return null
-        return runCatching {
-            val obj = kotlinx.serialization.json.Json.parseToJsonElement(raw)
-                as? kotlinx.serialization.json.JsonObject ?: return null
-            val data = obj["data"] as? kotlinx.serialization.json.JsonObject ?: return null
-            val id = data["id"]
-            when (id) {
-                is kotlinx.serialization.json.JsonPrimitive -> id.content
-                else -> null
-            }
-        }.getOrNull()?.takeIf { it.isNotBlank() && it != "0" }
+    private suspend fun readUserId(view: WebView): String? {
+        val raw = evalOnZy(view, "localStorage.getItem('yjUserInfo')") ?: return null
+        val obj = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
+        val data = obj?.get("data") as? JsonObject
+        return (data?.get("id") as? JsonPrimitive)?.content
+            ?.takeIf { it.isNotBlank() && it != "0" && it != "null" }
     }
 
     /**
@@ -127,60 +158,137 @@ class ZyEngine(private val baseUrl: String = BASE) {
      * 1. 起 fetch，結果與完成旗標寫進 `window`；
      * 2. **輪詢**那個旗標，拿到才回。
      */
-    suspend fun fetchText(path: String): String? {
+    private suspend fun fetchText(path: String): String = work.run {
+        withContext(Dispatchers.Main) {
+            val view = webView ?: throw ZyDomainFailure(ZyFailure.EngineNotReady)
+            if (!documentReady || !path.startsWith("/") || path.startsWith("//")) {
+                throw ZyDomainFailure(ZyFailure.EngineNotReady)
+            }
+            withTimeoutOrNull(FETCH_TIMEOUT_MS) { fetchInDocument(view, path) }
+                ?: throw ZyDomainFailure(ZyFailure.Timeout)
+        }
+    }
+
+    private suspend fun fetchInDocument(view: WebView, path: String): String {
         val key = "__zyFetch_${nextFetchId++}"
         val kickoff = """
             (function(){
-              window.$key = { done: false, text: null };
-              fetch(${jsString(path)}, { credentials: 'include' })
-                .then(function(r){ return r.text(); })
-                .then(function(t){ window.$key = { done: true, text: t }; })
-                .catch(function(e){ window.$key = { done: true, text: '__ERR__' + String(e).slice(0,120) }; });
+              var slot = window.$key = { result: null };
+              var controller = new AbortController();
+              var timer = setTimeout(function(){ controller.abort(); }, $FETCH_TIMEOUT_MS);
+              fetch(${jsString(path)}, { credentials: 'same-origin', signal: controller.signal })
+                .then(async function(r){
+                  var text = r.ok && new URL(r.url).origin === location.origin ? await r.text() : null;
+                  slot.result = { status: r.status, url: r.url, type: r.headers.get('Content-Type'), text: text };
+                })
+                .catch(function(e){ slot.result = { timeout: e.name === 'AbortError' }; })
+                .finally(function(){
+                  clearTimeout(timer);
+                  setTimeout(function(){ delete window.$key; }, $FETCH_TIMEOUT_MS);
+                });
               return 'started';
             })()
         """.trimIndent()
-        if (evalJsDecoded(kickoff) != "started") return null
+        if (evalOnZy(view, kickoff) != "started") throw ZyDomainFailure(ZyFailure.NoResponse)
 
-        repeat(FETCH_POLLS) {
-            withContext(Dispatchers.Main) { kotlinx.coroutines.delay(FETCH_POLL_MS) }
-            val probe = """
-                (function(){
-                  var r = window.$key;
-                  if (!r) return '__PENDING__';
-                  if (!r.done) return '__PENDING__';
-                  delete window.$key;
-                  return r.text === null ? '__ERR__no-text' : r.text;
-                })()
-            """.trimIndent()
-            val out = evalJsDecoded(probe)
-            if (out != null && out != "__PENDING__") return out
+        val probe = """
+            (function(){
+              var slot = window.$key;
+              if (!slot || !slot.result) return null;
+              delete window.$key;
+              return JSON.stringify(slot.result);
+            })()
+        """.trimIndent()
+        while (true) {
+            delay(FETCH_POLL_MS)
+            val raw = evalOnZy(view, probe) ?: continue
+            return decodeZyFetch(raw, baseUrl)
         }
-        return null
     }
 
-    /** 載入一個網址並等它載完。 */
-    suspend fun load(url: String): Boolean = withContext(Dispatchers.Main) {
-        val view = webView ?: return@withContext false
-        suspendCancellableCoroutine { cont ->
-            view.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(v: WebView?, u: String?) {
-                    if (cont.isActive) cont.resume(true)
+    private suspend fun navigate(view: WebView) {
+        val target = "$baseUrl/#/pages/liveCourse/index?tenant_code=$TENANT"
+        var finished = false
+        try {
+            val failure = withTimeoutOrNull(NAVIGATION_TIMEOUT_MS) {
+                suspendCancellableCoroutine<NavigationResult> { cont ->
+                    var startedUrl: String? = null
+                    fun finish(failure: ZyFailure?) {
+                        if (cont.isActive && webView === view) cont.resume(NavigationResult(failure))
+                    }
+                    view.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
+                            if (!request.isForMainFrame || isZyNavigation(request.url.toString())) return false
+                            finish(ZyFailure.NoResponse)
+                            return true
+                        }
+
+                        override fun onPageStarted(v: WebView, url: String, favicon: Bitmap?) {
+                            startedUrl = url
+                        }
+
+                        override fun onPageFinished(v: WebView, url: String) {
+                            if (startedUrl == null || view.url != url) return
+                            when {
+                                isZyLoginUrl(url, baseUrl) -> finish(ZyFailure.NotLoggedIn)
+                                isZyOrigin(url, baseUrl) -> finish(null)
+                                !isZyNavigation(url) -> finish(ZyFailure.NoResponse)
+                            }
+                        }
+
+                        override fun onReceivedError(v: WebView, request: WebResourceRequest, error: WebResourceError) {
+                            if (request.isForMainFrame) finish(ZyFailure.NoResponse)
+                        }
+
+                        override fun onReceivedHttpError(v: WebView, request: WebResourceRequest, error: WebResourceResponse) {
+                            if (request.isForMainFrame) finish(httpFailure(error.statusCode))
+                        }
+
+                        override fun onReceivedSslError(v: WebView, handler: SslErrorHandler, error: SslError) {
+                            handler.cancel()
+                            if (error.url == startedUrl || error.url == target) finish(ZyFailure.NoResponse)
+                        }
+                    }
+                    // Reload starts a real document even when the entry differs only by its hash.
+                    if (view.url?.substringBefore('#') == target.substringBefore('#')) view.reload()
+                    else view.loadUrl(target)
                 }
+            } ?: throw ZyDomainFailure(ZyFailure.Timeout)
+            failure.failure?.let { throw ZyDomainFailure(it) }
+            finished = true
+        } finally {
+            if (webView === view) {
+                view.webViewClient = WebViewClient()
+                if (!finished) view.stopLoading()
             }
-            view.loadUrl(url)
         }
     }
 
-    private suspend fun evalJsDecoded(script: String): String? =
-        withContext(Dispatchers.Main) {
-            val view = webView ?: return@withContext null
-            suspendCancellableCoroutine { cont ->
+    private data class NavigationResult(val failure: ZyFailure?)
+
+    private fun isZyNavigation(url: String): Boolean = isZyOrigin(url, baseUrl) ||
+        isZyOrigin(url, CAS_ORIGIN) || isZyOrigin(url, CALLBACK_ORIGIN)
+
+    private fun checkZyDocument(view: WebView) {
+        if (webView !== view) throw ZyDomainFailure(ZyFailure.EngineNotReady)
+        if (isZyLoginUrl(view.url, baseUrl)) throw ZyDomainFailure(ZyFailure.NotLoggedIn)
+        if (!isZyOrigin(view.url, baseUrl)) throw ZyDomainFailure(ZyFailure.NoResponse)
+    }
+
+    private suspend fun evalOnZy(view: WebView, script: String): String? {
+        checkZyDocument(view)
+        val result = withTimeoutOrNull(JS_TIMEOUT_MS) {
+            suspendCancellableCoroutine<JsResult> { cont ->
                 view.evaluateJavascript(script) { raw ->
-                    if (!cont.isActive) return@evaluateJavascript
-                    cont.resume(decodeJsResult(raw))
+                    if (cont.isActive) cont.resume(JsResult(decodeJsResult(raw)))
                 }
             }
-        }
+        } ?: throw ZyDomainFailure(ZyFailure.Timeout)
+        checkZyDocument(view)
+        return result.value
+    }
+
+    private data class JsResult(val value: String?)
 
     companion object {
         const val BASE = "https://livemobileapp.hzcu.edu.cn"
@@ -192,12 +300,11 @@ class ZyEngine(private val baseUrl: String = BASE) {
         private const val ATTACH_TIMEOUT_MS = 5000L
         private const val ATTACH_POLL_MS = 100L
 
-        /** 等 SPA 起來（40 × 500ms = 20 秒）。 */
-        private const val SESSION_POLLS = 40
+        private const val NAVIGATION_TIMEOUT_MS = 15_000L
+        private const val JS_TIMEOUT_MS = 3_000L
+        private const val SESSION_TIMEOUT_MS = 10_000L
         private const val SESSION_POLL_MS = 500L
-
-        /** 取數輪詢（40 × 500ms = 20 秒）。 */
-        private const val FETCH_POLLS = 40
+        private const val FETCH_TIMEOUT_MS = 20_000L
         private const val FETCH_POLL_MS = 500L
 
         /**
@@ -232,4 +339,57 @@ class ZyEngine(private val baseUrl: String = BASE) {
             append('"')
         }
     }
+}
+
+internal interface ZyReader {
+    suspend fun awaitAttached(): Boolean
+    suspend fun ensureSession(force: Boolean): String
+    suspend fun fetchText(path: String): String
+    suspend fun invalidateSession()
+}
+
+private const val CAS_ORIGIN = "https://ca.hzcu.edu.cn"
+private const val CALLBACK_ORIGIN = "https://yjapi.hzcu.edu.cn"
+
+private fun parseUri(url: String?): URI? = url?.let { runCatching { URI(it) }.getOrNull() }
+
+private fun isZyOrigin(url: String?, base: String): Boolean {
+    val uri = parseUri(url) ?: return false
+    val origin = parseUri(base) ?: return false
+    if (uri.userInfo != null || !uri.scheme.equals("https", ignoreCase = true) || uri.host == null) return false
+    return uri.host.equals(origin.host, ignoreCase = true) &&
+        (if (uri.port == -1) 443 else uri.port) == (if (origin.port == -1) 443 else origin.port)
+}
+
+private fun isZyLoginUrl(url: String?, base: String): Boolean {
+    val uri = parseUri(url) ?: return false
+    return when {
+        isZyOrigin(url, CAS_ORIGIN) -> uri.path.trimEnd('/') == "/cas/login"
+        isZyOrigin(url, base) -> uri.path.trimEnd('/') == "/login" ||
+            uri.fragment?.substringBefore('?')?.trimEnd('/') == "/pages/login/index"
+        else -> false
+    }
+}
+
+private fun httpFailure(status: Int): ZyFailure =
+    if (status == 401) ZyFailure.NotLoggedIn else ZyFailure.Http(status)
+
+internal fun decodeZyFetch(raw: String, base: String = ZyEngine.BASE): String {
+    val obj = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
+        ?: throw ZyDomainFailure(ZyFailure.NoResponse)
+    if ((obj["timeout"] as? JsonPrimitive)?.content == "true") throw ZyDomainFailure(ZyFailure.Timeout)
+    val status = (obj["status"] as? JsonPrimitive)?.content?.toIntOrNull()
+        ?: throw ZyDomainFailure(ZyFailure.NoResponse)
+    val url = (obj["url"] as? JsonPrimitive)?.content
+    if (isZyLoginUrl(url, base)) throw ZyDomainFailure(ZyFailure.NotLoggedIn)
+    if (!isZyOrigin(url, base)) throw ZyDomainFailure(ZyFailure.NoResponse)
+    if (status !in 200..299) throw ZyDomainFailure(httpFailure(status))
+    val type = (obj["type"] as? JsonPrimitive)?.content.orEmpty()
+    val text = (obj["text"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        ?: throw ZyDomainFailure(ZyFailure.NoResponse)
+    if (type.startsWith("text/html", ignoreCase = true) || text.trimStart().startsWith('<')) {
+        // An unrecognized HTML page could be a proxy or server error, not just login.
+        throw ZyDomainFailure(ZyFailure.UnexpectedResponse)
+    }
+    return text
 }

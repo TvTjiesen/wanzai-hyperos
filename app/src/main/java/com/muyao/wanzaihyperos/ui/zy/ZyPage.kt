@@ -14,14 +14,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -32,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.viewinterop.AndroidView
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.data.items
+import com.muyao.wanzaihyperos.data.metaOrNull
 import com.muyao.wanzaihyperos.data.zy.ZyEngine
 import com.muyao.wanzaihyperos.data.zy.ZyRepository
 import com.muyao.wanzaihyperos.data.zy.ZyScheduleItem
@@ -50,7 +50,6 @@ import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.infoItemsIndexed
 import com.muyao.wanzaihyperos.ui.web.WebShellPage
 import java.time.LocalDate
-import kotlinx.coroutines.launch
 import com.muyao.wanzaihyperos.ui.components.WanzaiButton as Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -92,22 +91,11 @@ fun ZyPage(
     modifier: Modifier = Modifier,
 ) {
     val state by repository.week.collectAsState()
-    val scope = rememberCoroutineScope()
-
-    // 真正的登入出口：打開智雲自己的網頁（可見的 WebView 殼）。
     var webLogin by remember { mutableStateOf(false) }
-    // 從網頁回來之後要重取一次 —— 登入剛完成，手上的肯定是舊結果。
-    var reloadAfterLogin by remember { mutableStateOf(false) }
+    var refreshRequest by remember { mutableIntStateOf(0) }
 
-    // 首次進入就載入（引擎內部會先建／沿用會話）。
-    LaunchedEffect(Unit) {
-        if (state is ListState.FirstLoad) runCatching { repository.load() }
-    }
-    LaunchedEffect(reloadAfterLogin) {
-        if (reloadAfterLogin) {
-            reloadAfterLogin = false
-            runCatching { repository.load(force = true) }
-        }
+    LaunchedEffect(repository, webLogin, refreshRequest) {
+        if (!webLogin) repository.load(force = refreshRequest != 0)
     }
 
     if (webLogin) {
@@ -117,8 +105,8 @@ fun ZyPage(
             title = "智云课堂登录",
             url = ZyEngine.BASE + "/#/pages/liveCourse/index?tenant_code=" + ZyEngine.TENANT,
             onExit = {
+                refreshRequest++
                 webLogin = false
-                reloadAfterLogin = true
             },
             modifier = modifier.fillMaxSize(),
         )
@@ -126,8 +114,10 @@ fun ZyPage(
     }
 
     val failed = state as? ListState.Failed
-    val needsLogin = failed?.error is HzcuException.LoginExpired
-    val items: List<ZyScheduleItem> = (state as? ListState.Content)?.items.orEmpty()
+    val meta = state.metaOrNull
+    val needsLogin = state is ListState.SessionExpired || failed?.error is HzcuException.LoginExpired ||
+        meta?.lastRefreshError is HzcuException.LoginExpired
+    val items = state.items
 
     // 頂欄漸變紗要靠它算進度（見 SecondaryScaffold 的 scrollProgress 說明）。
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -143,7 +133,9 @@ fun ZyPage(
         title = "智云课堂",
         subtitle = "本周课表与回放",
         onBack = onExit,
-        onRefresh = { scope.launch { runCatching { repository.load(force = true) } } },
+        onRefresh = {
+            if (state !is ListState.FirstLoad && meta?.refreshing != true) refreshRequest++
+        },
         modifier = modifier,
     ) { innerPadding ->
         Box(
@@ -161,38 +153,44 @@ fun ZyPage(
                 }
 
                 when {
-                    // 沒登入 → 給他一個**真的**出口：打開智雲自己的網頁登入一次。
-                    // 不做原生登入表單：那是學校統一身份認證的頁面，
-                    // 抄一份等於多一處要跟著學校改的地方。
-                    needsLogin -> {
-                        item(key = "zy-login-banner") {
-                            ResultBanner(
-                                message = "还没有登录智云课堂。打开智云自己的网页登录一次，" +
-                                    "回来刷新就能看到你的课表。",
-                                ok = false,
-                            )
-                        }
-                        item(key = "zy-login-exit") {
-                            Button(
-                                onClick = { webLogin = true },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) { Text("去智云网页登录") }
-                        }
+                    needsLogin -> item(key = "zy-login-banner") {
+                        ResultBanner(message = "智云课堂会话已失效。在官网重新连接后，返回本页会自动刷新。", ok = false)
                     }
 
-                    failed != null -> item {
+                    failed != null -> item(key = "zy-failed") {
                         ResultBanner(message = failed.error.userText, ok = false)
                     }
 
-                    state is ListState.FirstLoad -> item {
-                        HintText("正在登录智云课堂并取课表…")
+                    state is ListState.FirstLoad -> item(key = "zy-loading") {
+                        HintText("正在连接智云课堂并加载课表…")
                     }
 
-                    items.isEmpty() -> item {
-                        HintText("本周没有课程安排。")
+                    meta?.refreshing == true -> item(key = "zy-refreshing") {
+                        HintText("正在刷新课表，暂时显示上次结果。")
                     }
 
-                    else -> zyWeek(items, zyPicked, { zyPicked = it }, onOpenReplay)
+                    meta?.hasRefreshProblem == true -> item(key = "zy-stale") {
+                        val detail = meta.lastRefreshError?.userText ?: "课表尚未更新"
+                        ResultBanner(message = "$detail。暂时显示上次结果。", ok = false)
+                    }
+                }
+                item(key = "zy-login-exit") {
+                    Button(
+                        onClick = { webLogin = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("打开智云官网重新连接") }
+                }
+
+                if (state is ListState.Empty) {
+                    item(key = "zy-empty") {
+                        HintText(if (meta?.refreshing == true || meta?.hasRefreshProblem == true) {
+                            "上次加载时本周没有课程安排。"
+                        } else {
+                            "本周没有课程安排。"
+                        })
+                    }
+                } else if (items.isNotEmpty()) {
+                    zyWeek(items, zyPicked, { zyPicked = it }, onOpenReplay)
                 }
 
                 item {
@@ -215,10 +213,8 @@ fun ZyPage(
                         engine.attach(this)
                     }
                 },
+                onRelease = { engine.release(it) },
             )
-            DisposableEffect(Unit) {
-                onDispose { engine.detach() }
-            }
         }
     }
 }

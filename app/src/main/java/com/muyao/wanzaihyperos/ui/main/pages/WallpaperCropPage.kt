@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -47,7 +51,11 @@ import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
 import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.home.SkyPreset
 import com.muyao.wanzaihyperos.ui.home.coverSlackPx
-import com.muyao.wanzaihyperos.ui.home.decodeWallpaper
+import com.muyao.wanzaihyperos.ui.home.LoadedWallpaper
+import com.muyao.wanzaihyperos.ui.home.loadWallpaper
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import com.muyao.wanzaihyperos.ui.home.deleteWallpaper
 import com.muyao.wanzaihyperos.ui.home.drawCoverBitmap
 import com.muyao.wanzaihyperos.ui.home.wallpaperFile
@@ -79,7 +87,19 @@ fun WallpaperCropPage(
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
     val rev = UiPrefs.wallpaperRev
-    val wallpaper = remember(rev) { decodeWallpaper(wallpaperFile(context)) }
+    var loadedWallpaper by remember(rev) { mutableStateOf<LoadedWallpaper?>(null) }
+    var wallpaperLoading by remember(rev) { mutableStateOf(true) }
+    LaunchedEffect(context, rev) {
+        try {
+            val loaded = loadWallpaper(wallpaperFile(context))
+            currentCoroutineContext().ensureActive()
+            if (UiPrefs.wallpaperRev != rev) return@LaunchedEffect
+            loadedWallpaper = loaded
+        } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+        catch (_: Exception) { loadedWallpaper = null }
+        finally { wallpaperLoading = false }
+    }
+    val wallpaper = loadedWallpaper?.bitmap
 
     var panX by remember { mutableFloatStateOf(UiPrefs.wallpaperPanX) }
     var panY by remember { mutableFloatStateOf(UiPrefs.wallpaperPanY) }
@@ -116,10 +136,18 @@ fun WallpaperCropPage(
             )
             Spacer(Modifier.height(12.dp))
 
-            if (wallpaper == null) {
+            if (wallpaperLoading) {
+                Text(
+                    text = "正在读取本机照片…加载完成前不会判断照片丢失。",
+                    fontSize = Type.body,
+                    color = colors.onSurfaceVariantSummary,
+                )
+                Spacer(Modifier.height(16.dp))
+                ActionButton(text = "取消并返回", primary = false, onClick = onBack)
+            } else if (wallpaper == null) {
                 // 没图就照实说，不拿一片自动天空冒充「你的图」。
                 Text(
-                    text = "选择照片后可以拖动与缩放。相册里还没有存过照片，回上一页点「相册」选一张。",
+                    text = "本机照片暂时无法读取，可能尚未选择或文件不可用；不会自动删除。回上一页可重新选择。",
                     fontSize = Type.body,
                     color = colors.onSurfaceVariantSummary,
                 )
@@ -199,7 +227,10 @@ fun WallpaperCropPage(
     }
 
     if (confirmRemove) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { confirmRemove = false }) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { confirmRemove = false },
+            properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true),
+        ) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -226,7 +257,8 @@ fun WallpaperCropPage(
                         color = colors.onSurfaceVariantSummary,
                         modifier = Modifier
                             .clickable(onClickLabel = "不移除，留在这一页") { confirmRemove = false }
-                            .padding(6.dp),
+                            .sizeIn(minWidth = 64.dp, minHeight = 48.dp)
+                            .wrapContentSize(Alignment.Center),
                     )
                     Text(
                         text = "移除",
@@ -243,7 +275,8 @@ fun WallpaperCropPage(
                                 UiPrefs.bumpWallpaperRev()
                                 onBack()
                             }
-                            .padding(6.dp),
+                            .sizeIn(minWidth = 64.dp, minHeight = 48.dp)
+                            .wrapContentSize(Alignment.Center),
                     )
                 }
             }

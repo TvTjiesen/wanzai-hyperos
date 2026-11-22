@@ -42,8 +42,27 @@ class AppUiState {
     /** 登录页上填的学号，仅用于「我的」页回显；**不是凭据存储**。 */
     var displayAccount by mutableStateOf("")
 
-    /** 底部选中 tab 下标。由主壳与内容共用同一份状态（不给 NavDisplay 推导）。 */
-    var selectedTab by mutableStateOf(0)
+    private data class TabSelection(val index: Int, val requestRevision: Long)
+    private var tabSelection by mutableStateOf(TabSelection(0, 0L))
+
+    /** Every assignment is a navigation request, including a request for the same page. */
+    var selectedTab: Int
+        get() = tabSelection.index
+        set(value) { tabSelection = TabSelection(value, tabSelection.requestRevision + 1L) }
+
+    val tabRequestRevision: Long get() = tabSelection.requestRevision
+
+    /** Keep the selected source when the main route is disposed for an article/detail route. */
+    var notifyFilter by mutableStateOf(4)
+    val notifyListState = androidx.compose.foundation.lazy.LazyListState()
+    val notifyListPositions = mutableMapOf<String, Pair<Int, Int>>()
+
+    /** Settling updates the visible page, but cannot overwrite a newer unconsumed request. */
+    internal fun publishSettledTab(index: Int, expectedRevision: Long): Boolean {
+        if (tabSelection.requestRevision != expectedRevision) return false
+        tabSelection = TabSelection(index, expectedRevision)
+        return true
+    }
 
     /**
      * 課程表用哪種排版：`true` = 週網格（WakeUp 那一類），`false` = 按天列表。
@@ -92,6 +111,7 @@ fun rememberAppUiState(): AppUiState = remember { AppUiState() }
 @Composable
 fun WanzaiTheme(
     themeMode: AppThemeMode,
+    appearance: com.muyao.wanzaihyperos.data.AppearanceSettings? = null,
     content: @Composable () -> Unit,
 ) {
     // ★ 只**覆蓋一個色**：`surfaceContainer`（卡片底），其餘吃 Miuix 預設。
@@ -111,8 +131,33 @@ fun WanzaiTheme(
     // ★ 背景预设也是 key（业主 2026-10-29 让用户自选底色）：主题令牌里的
     //   background / surface / surfaceContainer **都按预设现取**，所以换一套底
     //   必须重建控制器。少这个 key 的症状是「设置里选了米白，页面还是冷的」。
-    val background = com.muyao.wanzaihyperos.ui.design.AppColors.background
-    val controller = remember(themeMode, background) {
+    val background = appearance?.let { com.muyao.wanzaihyperos.ui.design.BackgroundPreset.of(it.background) }
+        ?: com.muyao.wanzaihyperos.ui.design.AppColors.background
+    val customization = (appearance?.customization ?: com.muyao.wanzaihyperos.data.UiPrefs.themeCustomization).copy(useSystemWallpaper = false)
+    val desktopWallpaper = com.muyao.wanzaihyperos.ui.home.rememberDesktopWallpaper(customization.useSystemWallpaper)
+    if (appearance == null) com.muyao.wanzaihyperos.ui.home.DesktopWallpaperWindow(customization.useSystemWallpaper)
+    val inheritedCustomization = com.muyao.wanzaihyperos.ui.design.LocalThemeCustomization.current
+    val inheritedDensity = androidx.compose.ui.platform.LocalDensity.current
+    val customizedDensity = androidx.compose.ui.unit.Density(inheritedDensity.density * customization.displayScale / inheritedCustomization.displayScale, inheritedDensity.fontScale * customization.textScale / inheritedCustomization.textScale)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val accentPair = when (customization.accent) {
+        "blue" -> 0xFF1D5DA8L to 0xFFA8C8FFL
+        "teal" -> 0xFF006B60L to 0xFF75D8C6L
+        "purple" -> 0xFF7040A0L to 0xFFD9B5FFL
+        "rose" -> 0xFFA32958L to 0xFFFFB1C8L
+        "orange" -> 0xFF8B4800L to 0xFFFFBC7CL
+        else -> 0xFF3E4E9EL to 0xFF8E9CE8L
+    }
+    val baseAccentLight = if (customization.dynamicColor && android.os.Build.VERSION.SDK_INT >= 31)
+        Color(context.getColor(android.R.color.system_accent1_600)) else if (customization.accentHex.isNotEmpty()) com.muyao.wanzaihyperos.ui.design.readableThemeAccent(customization.accentHex, false) else Color(accentPair.first)
+    val baseAccentDark = if (customization.dynamicColor && android.os.Build.VERSION.SDK_INT >= 31)
+        Color(context.getColor(android.R.color.system_accent1_200)) else if (customization.accentHex.isNotEmpty()) com.muyao.wanzaihyperos.ui.design.readableThemeAccent(customization.accentHex, true) else Color(accentPair.second)
+    val neutral = customization.colorStyle == "neutral"
+    val accentLight = if (neutral) androidx.compose.ui.graphics.lerp(baseAccentLight, Color(0xFF414141), .85f) else baseAccentLight
+    val accentDark = if (neutral) androidx.compose.ui.graphics.lerp(baseAccentDark, Color(0xFFCCCCCC), .85f) else baseAccentDark
+    val vivid = customization.colorStyle == "vivid"
+    val containerTint = if (vivid) .32f else if (neutral) .04f else .12f
+    val controller = remember(themeMode, background, accentLight, accentDark, containerTint) {
         ThemeController(
             colorSchemeMode = themeMode.mode,
             // 定稿板（wz-v2.html）的真实色值：暖米底 + 墨绿强调 + 暖灰字。
@@ -122,17 +167,17 @@ fun WanzaiTheme(
                 // 2026-10-29 业主「我不喜欢绿色」⇒ 主色 #2E6B64 暖墨绿换成 #3E4E9E 靛蓝。
                 // 白字压它 7.53:1（旧的 4.42:1）；对纸面 6.95、对卡片 7.34。
                 // 同一次还换了背景层：四枚底色改成跟着 BackgroundPreset 走。
-                primary = Color(0xFF3E4E9E),
+                primary = accentLight,
                 onPrimary = Color(0xFFFFFFFF),
-                primaryContainer = Color(0xFFE4E7F7),
-                onPrimaryContainer = Color(0xFF1E2650),
-                secondaryContainer = Color(0xFFE4E7F7),
-                onSecondaryContainer = Color(0xFF1E2650),
-                background = com.muyao.wanzaihyperos.ui.design.AppColors.pageBackgroundLight,
+                primaryContainer = androidx.compose.ui.graphics.lerp(background.paper(false), accentLight, containerTint),
+                onPrimaryContainer = if (vivid) Color(0xFF1A1917) else accentLight,
+                secondaryContainer = androidx.compose.ui.graphics.lerp(background.paper(false), accentLight, containerTint * .6f),
+                onSecondaryContainer = accentLight,
+                background = background.paper(false),
                 onBackground = Color(0xFF1A1917),
-                surface = com.muyao.wanzaihyperos.ui.design.AppColors.surface(isDark = false),
+                surface = background.cardLight,
                 onSurface = Color(0xFF1A1917),
-                surfaceContainer = com.muyao.wanzaihyperos.ui.design.AppColors.surfaceContainerLight,
+                surfaceContainer = background.cardLight,
                 onSurfaceContainer = Color(0xFF1A1917),
                 onSurfaceVariantSummary = Color(0xFF666B71),  // 与 Tone.quiet 同一枚：冷白纸面后 #696E74 对最暗档只剩 4.49:1
                 dividerLine = Color(0xFFE2E7EC),
@@ -141,17 +186,17 @@ fun WanzaiTheme(
             ),
             darkColors = darkColorScheme(
                 // 深档主色 #83C9BC → #8E9CE8：对 #101213 7.22:1、对暗卡 5.93:1。
-                primary = Color(0xFF8E9CE8),
+                primary = accentDark,
                 onPrimary = Color(0xFF101213),
-                primaryContainer = Color(0xFF262E5C),
-                onPrimaryContainer = Color(0xFFC9D0F5),
-                secondaryContainer = Color(0xFF262E5C),
-                onSecondaryContainer = Color(0xFFC9D0F5),
-                background = com.muyao.wanzaihyperos.ui.design.AppColors.pageBackgroundDark,
+                primaryContainer = androidx.compose.ui.graphics.lerp(background.paper(true), accentDark, containerTint),
+                onPrimaryContainer = if (vivid) Color(0xFFF2EFE7) else accentDark,
+                secondaryContainer = androidx.compose.ui.graphics.lerp(background.paper(true), accentDark, containerTint * .6f),
+                onSecondaryContainer = accentDark,
+                background = background.paper(true),
                 onBackground = Color(0xFFF2EFE7),
-                surface = com.muyao.wanzaihyperos.ui.design.AppColors.surface(isDark = true),
+                surface = background.cardDark,
                 onSurface = Color(0xFFF2EFE7),
-                surfaceContainer = com.muyao.wanzaihyperos.ui.design.AppColors.surfaceContainerDark,
+                surfaceContainer = background.cardDark,
                 onSurfaceContainer = Color(0xFFF2EFE7),
                 onSurfaceVariantSummary = Color(0xFFA3A9AF),
                 dividerLine = Color(0xFF2A2D2E),
@@ -208,13 +253,16 @@ fun WanzaiTheme(
                     modifier = androidx.compose.ui.Modifier.fillMaxSize(),
                 ) {
                     androidx.compose.runtime.CompositionLocalProvider(
+                        com.muyao.wanzaihyperos.ui.design.LocalThemeCustomization provides customization,
+                        com.muyao.wanzaihyperos.ui.home.LocalDesktopWallpaper provides desktopWallpaper,
+                        androidx.compose.ui.platform.LocalDensity provides customizedDensity,
                         com.muyao.wanzaihyperos.ui.design.glass.LocalBarMaterial provides
                             com.muyao.wanzaihyperos.ui.design.glass.barMaterialFor(
-                                glassMode = com.muyao.wanzaihyperos.data.UiPrefs.glassMode,
+                                glassMode = appearance?.glass ?: com.muyao.wanzaihyperos.data.UiPrefs.glassMode,
                                 translucent = motion.glassIsTranslucent,
                             ),
                     ) {
-                        com.muyao.wanzaihyperos.ui.design.glasmio.WanzaiGlasmioHost(themeMode = themeMode) {
+                        com.muyao.wanzaihyperos.ui.design.glasmio.WanzaiGlasmioHost(themeMode = themeMode, appearanceSettings = appearance) {
                             content()
                             top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost()
                         }

@@ -123,20 +123,25 @@ class ZhgySession(store: SecureStore) : StoredSession(store) {
     fun entryUrl(): String? = code()?.takeIf { it.isNotBlank() }?.let { buildEntryUrl(it) }
 
     fun save(code: String, nowMillis: Long) {
-        codeValue = code
-        obtainedAtValue = nowMillis
-        store.write(KEY_CODE, code)
-        store.write(KEY_OBTAINED_AT, nowMillis.toString())
-        markLoaded()
+        synchronized(lock) {
+            persist(mapOf(
+                KEY_CODE to code,
+                KEY_OBTAINED_AT to nowMillis.toString(),
+            ))
+            codeValue = code
+            obtainedAtValue = nowMillis
+            markLoaded()
+            markCredentialReplacement()
+        }
         notifyListeners()
     }
 
     fun clear() {
-        codeValue = null
-        obtainedAtValue = null
-        store.delete(KEY_CODE)
-        store.delete(KEY_OBTAINED_AT)
-        markLoaded()
+        synchronized(lock) {
+            persist(mapOf(KEY_CODE to null, KEY_OBTAINED_AT to null))
+            clearMemory()
+            markLoaded()
+        }
         notifyListeners()
     }
 

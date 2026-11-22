@@ -1,15 +1,17 @@
 package com.muyao.wanzaihyperos.ui.design.ai
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.VectorConverter
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.size
@@ -17,13 +19,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.shadow
@@ -32,68 +39,39 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
+import com.muyao.wanzaihyperos.ui.main.HorizontalDragZones
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.stateDescription
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.muyao.wanzaihyperos.ui.design.liquid.LocalPageActive
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import com.muyao.wanzaihyperos.ui.design.rememberMotion
 import com.muyao.wanzaihyperos.ui.design.Tone
-import com.muyao.wanzaihyperos.ui.main.HorizontalDragZones
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
+import kotlinx.coroutines.isActive
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.random.Random
+import io.github.neoruaa.glasmio.glass.applyGlassDragScale
+import io.github.neoruaa.glasmio.glass.pressHighlightSpring
 
 /**
- * AI 小球：一枚 36dp 的表情球，表达「这一页现在是什么状况」。
- *
- * ## 为什么是 36dp + 1dp 环（不是随手定的）
- *
- * 引擎给的脸里，02（待机）与 36（加载）的墨迹最细：直径 28dp 时眼睛外接框只有
- * 26x18 / 26x16 px，认不出是张脸；36dp 才到 33x24 / 33x20，是**所有脸都能用的最小直径**。
- * 再往上一档 44dp 就会跟顶栏那颗 46dp 的搜索钮抢层级。
- *
- * 球体本色 #F3F0E9 对纸面只有 **1.05–1.06:1** —— 裸球在浅底上等于不存在。所以外面必须有
- * 那条 **1dp 的 Tone.quiet 环**：环对纸面 4.70–4.76、环对球体 4.50（帧上众数）。
- * 环不是装饰，是这个元素能存在的前提。
- *
- * ## 它怎么动（2026-10-27 重做）
- *
- * 业主三条口径：「不要放大缩小（呼吸）」「重新设计一套与本 app 匹配的交互与动画，要包含完整动作」
- * 「不要单独一个图层，要与其它内容同层、可以变化位置」。于是：
- *
- * - **没有呼吸**。球径恒定，永不吃掉邻居的边距。
- * - 动的是**眼睛**，不是整个球：眨眼 / 看左 / 看右 / 抬头 / 低头 / 摇头 / 扫视 / 打盹。
- *   每一次都是一个**有始有终的动作**，做完回到静止 —— 不是一条永不结束的循环。
- * - 动作由这一页的真实状态决定：出错会摇头，加载会左右扫，下课会点头，深夜会打盹。
- * - motion.canMove == false（系统关了动画）时一律静止，靠读屏文案区分状态。
- *
- * 为什么不是贴图：眼睛是 96 个顶点逐帧现算的矢量多边形（[AiBallGlyphs]，由
- * tools/gen_ai_ball_glyphs.py 从开源引擎 grok-ball 的真实渲染 DOM 反解而来），
- * 没有一张位图参与。
- *
- * ## 它和内容在同一层
- *
- * 2026-10-26 之前它挂在顶栏 actions 里 —— 那是 chrome 层，不跟页面滚，切页也不跟着淡入，
- * 等于一枚浮在所有内容之外的徽章。现在它由 [AiBallRow] 放在每一页**第一个区块标题的左边**，
- * 随列表一起滚走：它是这一页内容的一部分，不是叠加物。
- *
- * ## 它能被戳
- *
- * - 点一下：眼睛看向你手指那侧，1.4s 后归位。**不改表情** —— 表情是真实数据的读数。
- * - 长按：切下一张脸试看，5 秒后自动回到真实状态。
- *
- * ## 它不是玻璃
- *
- * 不采样 backdrop、不加 RenderEffect、不新增任何全屏玻璃面，画在页面自己的一小块画布上。
+ * 内容层的真实状态球：固定球径，安全平行眼形，不采样 backdrop。
+ * 单击看你、双击一圈，静止长按后可临时拖拽并看真实说明；离页/后台立即归中。
+ * 自旋弹簧和球面 yaw 改编自 grok-ball（MIT），眼形由本地安全 policy 提供，非旧 DOM。
  */
 @Composable
 fun AiBall(
@@ -117,148 +95,294 @@ fun AiBall(
      * 恰好相反。默认只在首页那颗（DIAMETER 及以上）投，页面内 44dp 不投。
      */
     castShadow: Boolean = diameter >= AiBall.DIAMETER_FIELD,
+    stateDescription: String? = null,
+    outline: Boolean = false,
+    presentation: AiBallPresentation? = AiBallPresentation.Home,
+    work: AiBallWork = AiBallWork(),
+    onStatusRequested: (() -> Unit)? = null,
 ) {
     val motion = rememberMotion()
-    val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val pageActive = LocalPageActive.current
 
-    // 长按试看：索引 -1 = 跟随真实状态。5 秒后自动归位，免得留在假状态上骗人。
-    var previewIndex by remember { mutableIntStateOf(-1) }
-    val realShown = if (previewIndex >= 0) AiBall.FACES[previewIndex] else state
-    // 无条件调用（composable 不允许条件调用），只在 announceArrival 时才采信结果。
-    val arrival = rememberArrivalState(realShown)
-    val shown = if (announceArrival) arrival else realShown
+    val arrival = rememberArrivalState(state)
+    val shown = if (announceArrival) arrival else state
+    val description = stateDescription?.takeIf { it.isNotBlank() }
+        ?: if (presentation != null) AiBallPresentationPolicy.description(state, work) else AiBall.labelOf(state)
+    val captureOwner = remember { Any() }
+    val dragPress = remember { Animatable(0f, 0.001f) }
+    val returnOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    var heldOffset by remember { mutableStateOf(Offset.Zero) }
+    var tipVisible by remember { mutableStateOf(false) }
+    var autoDismissStatus by remember { mutableStateOf(false) }
+    val tipAlpha = remember { Animatable(0f) }
+    var ballCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
-    LaunchedEffect(previewIndex) {
-        if (previewIndex >= 0) {
-            delay(AiBall.PREVIEW_MS)
-            previewIndex = -1
+    var lifecycleStarted by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    var interaction by remember { mutableStateOf(AiBallInteraction()) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, _ ->
+            lifecycleStarted = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            if (!lifecycleStarted) {
+                interaction = interaction.cancel(); heldOffset = Offset.Zero; tipVisible = false
+                HorizontalDragZones.releasePointers(captureOwner)
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            HorizontalDragZones.releasePointers(captureOwner)
         }
     }
-
+    val enabled = pageActive && lifecycleStarted
+    val moving = enabled && motion.canMove
+    val latestInteraction = rememberUpdatedState(interaction)
     val blink = remember { Animatable(0f) }
     val gazeX = remember { Animatable(0f) }
     val gazeY = remember { Animatable(0f) }
-    val press = remember { Animatable(0f) }
-
-    // ── 拖动（返工总单 B7：手势第三层，只给首页那颗 96dp）──────────────
-    //
-    // 为什么只给 96dp：44dp 的页面内球紧挨着可点的行，一拖就把「点这一行」变成
-    // 「拖那颗球」，而且它没有可回的「球场」。首页那颗本来就在单独一块天空里，
-    // 拖出去 56dp 仍在同一块区域内。
-    //
-    // 位移只改绘制位置（`Modifier.offset`），不参与父布局测量 —— 否则拖球会把
-    // 整页内容挤动一格，松手再挤回来。
-    val canDrag = diameter >= AiBall.DIAMETER_FIELD
-    // 球没了（换板块 / 退出首页）就把豁免矩形撤掉：留着一个不存在的矩形，
-    // 会让那一小块区域的横向切板块永远失灵，而且没有任何东西看得见。
-    DisposableEffect(canDrag) {
-        onDispose { if (canDrag) HorizontalDragZones.set(AiBall.DRAG_ZONE_KEY, null) }
+    var yaw by remember { mutableFloatStateOf(0f) }
+    var ribbonAlpha by remember { mutableFloatStateOf(0f) }
+    var feedback by remember(presentation) { mutableStateOf(AiBallFeedback()) }
+    val latestWork = rememberUpdatedState(work)
+    val latestShown = rememberUpdatedState(shown)
+    val latestStatusRequest = rememberUpdatedState(onStatusRequested)
+    LaunchedEffect(enabled, motion.canMove) {
+        interaction = interaction.cancel(); heldOffset = Offset.Zero; tipVisible = false
+        HorizontalDragZones.releasePointers(captureOwner)
     }
-    var dragX by remember { mutableFloatStateOf(0f) }
-    var dragY by remember { mutableFloatStateOf(0f) }
 
-    // 松手回弹：同时把 x/y 归零（用 animate 驱动一个 0..1 的进度的两条线性插值，
-    // 而不是两个 Animatable —— 两条各跑各的会在中途「先回 x 再回 y」。
-    fun settleBack() {
-        val x0 = dragX
-        val y0 = dragY
-        if (x0 == 0f && y0 == 0f) return
-        scope.launch {
-            animate(0f, 1f, animationSpec = tween(300, easing = FastOutSlowInEasing)) { t, _ ->
-                dragX = x0 * (1f - t)
-                dragY = y0 * (1f - t)
+    // One coroutine owns every animated channel; a new user ticket cancels autonomous work.
+    LaunchedEffect(
+        if (interaction.action == AiBallAction.REST) shown else null,
+        if (presentation != null && interaction.action == AiBallAction.REST) work else null,
+        presentation, enabled, moving, interaction.action, interaction.ticket,
+    ) {
+        if (presentation != null) {
+            feedback = feedback.observe(work, moving && interaction.action == AiBallAction.REST)
+        }
+        blink.snapTo(0f); gazeX.snapTo(0f); gazeY.snapTo(0f)
+        yaw = 0f; ribbonAlpha = 0f
+        if (!enabled) { dragPress.snapTo(0f); returnOffset.snapTo(Offset.Zero); tipAlpha.snapTo(0f); tipVisible = false; return@LaunchedEffect }
+        if (interaction.action == AiBallAction.RETURN) {
+            try {
+                returnOffset.snapTo(heldOffset)
+                if (moving) {
+                    coroutineScope {
+                        launch { dragPress.animateTo(0f, pressHighlightSpring()) }
+                        launch { returnOffset.animateTo(Offset.Zero, spring(0.5f, 300f)) }
+                        launch { tipAlpha.animateTo(0f, tween(240)) }
+                    }
+                } else {
+                    dragPress.snapTo(0f); returnOffset.snapTo(Offset.Zero)
+                    tipAlpha.animateTo(0f, tween(120))
+                }
+                heldOffset = Offset.Zero; tipVisible = false
+                interaction = interaction.cancel()
+            } finally { returnOffset.snapTo(Offset.Zero) }
+            return@LaunchedEffect
+        }
+        if (interaction.action == AiBallAction.TRACK || interaction.action == AiBallAction.HOLD) {
+            coroutineScope {
+                if (interaction.action == AiBallAction.HOLD) launch {
+                    tipAlpha.animateTo(1f, tween(if (moving) 260 else 120))
+                }
+                if (moving) launch { dragPress.animateTo(1f, pressHighlightSpring()) }
             }
-            dragX = 0f
-            dragY = 0f
+        } else {
+            dragPress.snapTo(0f); heldOffset = Offset.Zero
+            returnOffset.snapTo(Offset.Zero); tipAlpha.snapTo(0f); tipVisible = false
         }
+        if (interaction.action == AiBallAction.HOLD && autoDismissStatus) {
+            delay(AiBallDrag.TIP_MS)
+            autoDismissStatus = false
+            interaction = interaction.release()
+            return@LaunchedEffect
+        }
+        if (!moving) return@LaunchedEffect
+        try {
+            when (interaction.action) {
+                AiBallAction.REST -> {
+                    val response = feedback.response
+                    feedback = feedback.copy(response = AiBallResponse.None)
+                    if (presentation != null && response != AiBallResponse.None) {
+                        presentationResponse(response, gazeX, gazeY, blink)
+                    }
+                    while (isActive) {
+                        val profileActive = presentation != null
+                        delay((if (profileActive) AiBallPresentationPolicy.gapMs(shown, work) else AiBall.gapMs(shown)) + Random.nextLong(0L, 700L))
+                        if (profileActive) presentationActOnce(latestShown.value, latestWork.value, gazeX, gazeY, blink)
+                        else AiBall.actOnce(shown, gazeX, gazeY, blink)
+                    }
+                }
+                AiBallAction.TRACK, AiBallAction.HOLD -> {
+                    var previous = withFrameNanos { it }
+                    while (isActive) {
+                        val now = withFrameNanos { it }
+                        val dt = (now - previous) / 1_000_000_000.0
+                        previous = now
+                        gazeX.snapTo(AiBallSpin.smooth(gazeX.value, latestInteraction.value.x, dt))
+                        gazeY.snapTo(AiBallSpin.smooth(gazeY.value, latestInteraction.value.y, dt))
+                    }
+                }
+                AiBallAction.LOOK -> {
+                    gazeX.animateTo(interaction.x, tween(180, easing = FastOutSlowInEasing))
+                    gazeY.animateTo(interaction.y, tween(180, easing = FastOutSlowInEasing))
+                    delay(AiBall.GAZE_HOLD_MS)
+                    gazeX.animateTo(0f, tween(240)); gazeY.animateTo(0f, tween(240))
+                    interaction = interaction.copy(action = AiBallAction.REST)
+                }
+                AiBallAction.SPIN -> {
+                    var spring = AiBallSpin.Spring()
+                    val start = withFrameNanos { it }
+                    var previous = start
+                    var seconds: Double
+                    do {
+                        val now = withFrameNanos { it }
+                        seconds = (now - start) / 1_000_000_000.0
+                        spring = AiBallSpin.step(spring, (now - previous) / 1_000_000_000.0)
+                        previous = now
+                        yaw = spring.angle.toFloat()
+                        ribbonAlpha = AiBallSpin.ribbonAlpha(seconds, spring.velocity)
+                    } while (isActive && !spring.settled && seconds < AiBallSpin.MAX_SECONDS)
+                    interaction = interaction.cancel()
+                }
+                AiBallAction.RETURN -> Unit
+            }
+        } finally { yaw = 0f; ribbonAlpha = 0f }
     }
 
-    // 一次一个动作：做完就静止，等下一拍。停机时先把眼睛放回正中，
-    // 免得停在「正在摇头」的半路上动不了。
-    LaunchedEffect(shown, motion.canMove) {
-        blink.snapTo(0f)
-        gazeX.snapTo(0f)
-        gazeY.snapTo(0f)
-        if (!motion.canMove) return@LaunchedEffect
-        while (true) {
-            delay(AiBall.gapMs(shown) + Random.nextLong(0L, 700L))
-            AiBall.actOnce(shown, gazeX, gazeY, blink)
-        }
+    fun showStatus() {
+        if (!enabled) return
+        latestStatusRequest.value?.invoke()
+        heldOffset = Offset.Zero; tipVisible = true; autoDismissStatus = true
+        interaction = aiBallStatusInteraction(interaction)
+    }
+    fun accessibleLook() {
+        if (moving) interaction = interaction.cancel().observe(0.5f, 0f).copy(action = AiBallAction.LOOK)
     }
 
     val describeTap = "让小球看一眼"
-    val describeLong = "换一张脸试看"
+    val describeLong = "查看当前状态"
 
     Box(
         modifier = modifier
             .size(diameter + hitSlop * 2)
-            .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
-            .onGloballyPositioned { coordinates ->
-                if (canDrag) HorizontalDragZones.set(AiBall.DRAG_ZONE_KEY, coordinates.boundsInRoot())
-            }
-            .pointerInput(shown, motion.canMove) {
-                detectTapGestures(
-                    onPress = {
-                        press.animateTo(1f, tween(90))
-                        tryAwaitRelease()
-                        press.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
-                    },
-                    onTap = { at ->
-                        val half = size.width / 2f
-                        val nx = ((at.x - half) / half).coerceIn(-1f, 1f)
-                        val ny = ((at.y - half) / half).coerceIn(-1f, 1f)
-                        scope.launch {
-                            if (motion.canMove) {
-                                gazeX.animateTo(nx, tween(220, easing = FastOutSlowInEasing))
-                                gazeY.animateTo(ny, tween(220, easing = FastOutSlowInEasing))
-                                delay(AiBall.GAZE_HOLD_MS)
-                                gazeX.animateTo(0f, tween(280, easing = FastOutSlowInEasing))
-                                gazeY.animateTo(0f, tween(280, easing = FastOutSlowInEasing))
+            .pointerInput(enabled, motion.canMove, diameter, hitSlop) {
+                if (!enabled) return@pointerInput
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = true, pass = PointerEventPass.Main)
+                    val half = size.width / 2f
+                    fun observe(at: Offset) {
+                        if (motion.canMove) interaction = interaction.observe((at.x - half) / half, (at.y - half) / half)
+                    }
+                    var released = false
+                    var held = false
+                    var tap = down
+                    try {
+                        val result = withTimeoutOrNull(AiBallDrag.HOLD_MS) {
+                            var event = awaitPointerEvent(PointerEventPass.Final)
+                            while (true) {
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                    ?: return@withTimeoutOrNull AiBallPressDecision.CANCEL
+                                val decision = aiBallPressDecision(
+                                    change.uptimeMillis - down.uptimeMillis,
+                                    (change.position - down.position).getDistance(),
+                                    viewConfiguration.touchSlop, change.pressed,
+                                    event.changes.count { it.pressed }, change.isConsumed,
+                                )
+                                if (decision == AiBallPressDecision.TAP) tap = change
+                                if (decision != AiBallPressDecision.WAIT) return@withTimeoutOrNull decision
+                                event = awaitPointerEvent(PointerEventPass.Initial)
+                                val initial = event.changes.firstOrNull { it.id == down.id }
+                                    ?: return@withTimeoutOrNull AiBallPressDecision.CANCEL
+                                if (aiBallPressDecision(
+                                        initial.uptimeMillis - down.uptimeMillis,
+                                        (initial.position - down.position).getDistance(),
+                                        viewConfiguration.touchSlop, initial.pressed,
+                                        event.changes.count { it.pressed }, initial.isConsumed,
+                                    ) == AiBallPressDecision.CANCEL
+                                ) return@withTimeoutOrNull AiBallPressDecision.CANCEL
+                                event = awaitPointerEvent(PointerEventPass.Final)
+                            }
+                            @Suppress("UNREACHABLE_CODE")
+                            AiBallPressDecision.CANCEL
+                        }
+                        val last = currentEvent.changes.firstOrNull { it.id == down.id }
+                        val confirmed = result == AiBallPressDecision.HOLD || (result == null && last != null &&
+                            aiBallPressDecision(
+                                AiBallDrag.HOLD_MS, (last.position - down.position).getDistance(),
+                                viewConfiguration.touchSlop, last.pressed,
+                                currentEvent.changes.count { it.pressed }, last.isConsumed,
+                            ) == AiBallPressDecision.HOLD)
+                        if (result == AiBallPressDecision.TAP) {
+                            released = true
+                            observe(tap.position)
+                            if (motion.canMove) interaction = interaction.tap(tap.uptimeMillis, tap.position.x, tap.position.y, viewConfiguration.touchSlop * 2)
+                        } else if (confirmed) {
+                            HorizontalDragZones.claimPointer(down.id.value, captureOwner)
+                            held = true; autoDismissStatus = false; tipVisible = true
+                            heldOffset = Offset.Zero
+                            interaction = aiBallStatusInteraction(interaction)
+                            latestStatusRequest.value?.invoke()
+                            last?.consume()
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (event.changes.count { it.pressed } > 1 || change.isConsumed) break
+                                heldOffset = change.position - down.position
+                                observe(change.position)
+                                change.consume()
+                                if (!change.pressed) { released = true; break }
+                                awaitPointerEvent(PointerEventPass.Main)
                             }
                         }
-                    },
-                    onLongPress = {
-                        previewIndex = if (previewIndex < 0) 0 else (previewIndex + 1) % AiBall.FACES.size
-                    },
-                )
-            }
-            // 拖动与点击分两个 pointerInput：点击那条在 Main 阶段，超过 touchSlop
-            // 时 detectTapGestures 自己会取消，所以「拖一下」不会顺带点亮一次点击。
-            //
-            // ⚠️ 父级「横向切板块」那条手势跑在 Initial 阶段（`SwipeToSwitchSection.kt`），
-            //   比任何子节点都早；它一旦 claim 就会 consume，子节点永远收不到拖动。
-            //   所以这里不跟它抢优先级，而是把球自己那块矩形登记进它的豁免表
-            //   （`HorizontalDragZones`，课表周条用的也是这条路）。
-            .pointerInput(canDrag) {
-                if (!canDrag) return@pointerInput
-                val limit = AiBall.DRAG_RANGE.toPx()
-                detectDragGestures(
-                    onDragEnd = { settleBack() },
-                    onDragCancel = { settleBack() },
-                    onDrag = { change, delta ->
-                        change.consume()
-                        dragX = (dragX + delta.x).coerceIn(-limit, limit)
-                        dragY = (dragY + delta.y).coerceIn(-limit, limit)
-                    },
-                )
+                    } finally {
+                        HorizontalDragZones.releasePointers(captureOwner)
+                        if (held) interaction = interaction.release()
+                        else if (!released) {
+                            heldOffset = Offset.Zero; tipVisible = false; interaction = interaction.cancel()
+                        }
+                    }
+                }
             }
             .semantics {
-                contentDescription = if (previewIndex >= 0) {
-                    "表情试看：" + AiBall.labelOf(shown)
-                } else {
-                    AiBall.labelOf(shown)
-                }
+                contentDescription = "状态球"
+                this.stateDescription = description
                 role = Role.Button
                 onClick(label = describeTap) {
-                    previewIndex = if (previewIndex < 0) 0 else (previewIndex + 1) % AiBall.FACES.size
+                    accessibleLook()
                     true
                 }
+                customActions = listOf(
+                    CustomAccessibilityAction("让小球转一圈") {
+                        if (moving) interaction = interaction.spin()
+                        true
+                    },
+                    CustomAccessibilityAction(describeLong) { showStatus(); true },
+                )
             },
         contentAlignment = Alignment.Center,
     ) {
+        val visualOffset = if (!enabled) Offset.Zero else when (interaction.action) {
+            AiBallAction.TRACK, AiBallAction.HOLD -> heldOffset
+            AiBallAction.RETURN -> if (moving) returnOffset.value else Offset.Zero
+            else -> Offset.Zero
+        }
+        val tipBounds = ballCoordinates?.takeIf { it.isAttached }?.boundsInWindow()
+        CompositionLocalProvider(LocalAiBallTipBounds provides tipBounds) {
+            if (enabled && tipVisible) AiBallStatusTooltip(description, tipAlpha.value)
+        }
         Canvas(
             modifier = Modifier
                 .size(diameter)
+                .graphicsLayer {
+                    applyGlassDragScale(
+                        pressProgress = if (moving) dragPress.value else 0f,
+                        offset = visualOffset,
+                        nativeButtonLift = true,
+                    )
+                }
+                .onGloballyPositioned { ballCoordinates = it }
                 .then(
                     if (castShadow) {
                         Modifier.shadow(
@@ -275,10 +399,9 @@ fun AiBall(
         ) {
             val d = size.minDimension
             val c = Offset(size.width / 2f, size.height / 2f)
-            val squash = 1f - AiBall.PRESS_SCALE * press.value
-            val r = d / 2f * squash
+            val r = d / 2f
 
-            drawCircle(
+            if (!outline) drawCircle(
                 brush = Brush.radialGradient(
                     colors = AiBall.bodyColors(),
                     center = Offset(
@@ -291,32 +414,53 @@ fun AiBall(
                 center = c,
             )
 
-            val shiftX = gazeX.value * AiBall.GAZE_SHIFT * d
-            val shiftY = gazeY.value * AiBall.GAZE_SHIFT * d
-            val shut = 1f - AiBall.BLINK_SQUASH * blink.value
+            val shiftX = if (moving) gazeX.value * AiBall.GAZE_SHIFT * d else 0f
+            val shiftY = if (moving) gazeY.value * AiBall.GAZE_SHIFT * d else 0f
+            val shut = if (moving) 1f - AiBall.BLINK_SQUASH * blink.value else 1f
             val eyeColor = Color(AiBallGlyphs.EYE_COLOR)
-            AiBallGlyphs.eyesOf(shown).forEach { pts ->
+            val eyes = if (presentation != null) {
+                AiBallPresentationPolicy.eyes(presentation, shown, work)
+            } else AiBallGlyphs.eyesOf(shown)
+            eyes.forEach { pts ->
                 if (pts.size >= 6) {
+                    var sumX = 0f
                     var sumY = 0f
-                    var k = 1
-                    while (k < pts.size) {
-                        sumY += pts[k]
+                    var k = 0
+                    while (k + 1 < pts.size) {
+                        sumX += pts[k]; sumY += pts[k + 1]
                         k += 2
                     }
+                    val eyeCx = sumX / (pts.size / 2f)
                     val eyeCy = sumY / (pts.size / 2f)
+                    val projected = AiBallSpin.project(eyeCx, eyeCy, if (moving) yaw.toDouble() else 0.0)
+                    if (!projected.visible) return@forEach
                     val eye = Path()
                     var i = 0
                     while (i + 1 < pts.size) {
-                        val x = c.x + pts[i] * d * squash + shiftX
-                        val y = c.y + (eyeCy + (pts[i + 1] - eyeCy) * shut) * d * squash + shiftY
+                        val x = c.x + (projected.centerX + (pts[i] - eyeCx) * projected.scaleX) * d + shiftX
+                        val y = c.y + (eyeCy + (pts[i + 1] - eyeCy) * shut) * d + shiftY
                         if (i == 0) eye.moveTo(x, y) else eye.lineTo(x, y)
                         i += 2
                     }
                     eye.close()
-                    drawPath(eye, eyeColor)
+                    drawPath(eye, if (outline) Tone.quiet else eyeColor,
+                        style = if (outline) Stroke(width = (d * 0.018f).coerceAtLeast(1f)) else androidx.compose.ui.graphics.drawscope.Fill)
                 }
             }
 
+            if (moving && ribbonAlpha > 0f) {
+                val colors = listOf(Color(0xFF83A9B0), Color(0xFFB3A3C7))
+                repeat(AiBallSpin.RIBBON_COUNT) { index ->
+                    val path = Path()
+                    repeat(17) { step ->
+                        val angle = yaw.toDouble() - step * 0.055 + index * Math.PI
+                        val x = c.x + sin(angle).toFloat() * r * 0.94f
+                        val y = c.y + cos(angle * 1.3 + index).toFloat() * r * 0.38f
+                        if (step == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    drawPath(path, colors[index].copy(alpha = ribbonAlpha), style = Stroke(width = (d * 0.015f).coerceAtLeast(1f)))
+                }
+            }
             val ringPx = AiBall.RING_WIDTH.toPx()
             drawCircle(
                 color = Tone.quiet,
@@ -339,12 +483,55 @@ fun AiBallRow(
     state: AiBallState,
     modifier: Modifier = Modifier,
     diameter: Dp = AiBall.DIAMETER,
+    stateDescription: String? = null,
     content: @Composable RowScope.() -> Unit,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        AiBall(state = state, diameter = diameter, hitSlop = AiBall.INLINE_SLOP)
+        AiBall(state = state, diameter = diameter, hitSlop = AiBall.INLINE_SLOP, stateDescription = stateDescription)
         Spacer(Modifier.width(AiBall.INLINE_GAP))
         content()
+    }
+}
+
+private suspend fun presentationResponse(
+    response: AiBallResponse,
+    gazeX: Animatable<Float, *>,
+    gazeY: Animatable<Float, *>,
+    blink: Animatable<Float, *>,
+) {
+    if (response == AiBallResponse.Success) {
+        gazeY.animateTo(0.25f, tween(160)); gazeY.animateTo(0f, tween(220))
+        blink.animateTo(1f, tween(70)); blink.animateTo(0f, tween(110))
+    } else if (response == AiBallResponse.Error) {
+        gazeX.animateTo(-0.25f, tween(120)); gazeX.animateTo(0.25f, tween(180))
+        gazeX.animateTo(0f, tween(150))
+    }
+}
+
+private suspend fun presentationActOnce(
+    state: AiBallState,
+    work: AiBallWork,
+    gazeX: Animatable<Float, *>,
+    gazeY: Animatable<Float, *>,
+    blink: Animatable<Float, *>,
+) {
+    when {
+        state == AiBallState.Sleep -> AiBall.actOnce(state, gazeX, gazeY, blink)
+        work.phase == AiBallWorkPhase.Reading -> {
+            gazeX.animateTo(-0.35f, tween(260)); gazeX.animateTo(0.35f, tween(320))
+            gazeX.animateTo(0f, tween(220))
+        }
+        state == AiBallState.Error || work.phase == AiBallWorkPhase.Error -> {
+            blink.animateTo(1f, tween(70)); blink.animateTo(0f, tween(110))
+        }
+        state == AiBallState.Waiting || work.phase == AiBallWorkPhase.Waiting -> {
+            gazeX.animateTo(0.35f, tween(220)); delay(350); gazeX.animateTo(0f, tween(240))
+        }
+        else -> when (Random.nextInt(3)) {
+            0 -> { blink.animateTo(1f, tween(70)); blink.animateTo(0f, tween(110)) }
+            1 -> { gazeX.animateTo(0.35f, tween(220)); delay(300); gazeX.animateTo(0f, tween(240)) }
+            else -> { gazeY.animateTo(-0.25f, tween(200)); delay(280); gazeY.animateTo(0f, tween(240)) }
+        }
     }
 }
 
@@ -365,17 +552,6 @@ object AiBall {
 
     /** 首页标题区的主视觉直径：96dp = 560dpi 下 336px，眼睛墨迹约 88x64px —— 那是一张脸。 */
     val DIAMETER_FIELD = 96.dp
-
-    /**
-     * 首页那颗球能被拖动多远（返工总单 B7）。
-     *
-     * 56dp 是「仍在同一块天空里」的上限：再往外就压到日期行或今天的课表，
-     * 那不是「球场内」，是把球拖到别人的区域里。
-     */
-    val DRAG_RANGE = 56.dp
-
-    /** 登记进 `HorizontalDragZones` 的键。首页只有一颗 96dp 的球，键固定即可。 */
-    const val DRAG_ZONE_KEY = "aiBallField"
 
     /** 单独摆放时的命中区外扩：36 + 6x2 = 48dp，正好到触控下限。 */
     val HIT_SLOP = 6.dp
@@ -402,17 +578,11 @@ object AiBall {
     /** 闭眼时眼睛纵向压到原来的 18% —— 留一线，全压平会变成横线，认不出是眼。 */
     const val BLINK_SQUASH = 0.82f
 
-    /** 按下时球体缩 6%。和顶栏按钮的按压量一致（GlassControls 用的是 4%，球更小所以多一点）。 */
-    const val PRESS_SCALE = 0.06f
-
     /** 注视时眼睛最多偏移 0.10 球径（36dp 上 3.6dp）—— 再远眼珠就出球面了。 */
     const val GAZE_SHIFT = 0.10f
 
     /** 看完之后保持多久再归位。 */
     const val GAZE_HOLD_MS = 1400L
-
-    /** 长按试看一张脸的时间。 */
-    const val PREVIEW_MS = 5000L
 
     /** 随机动作的两个间隔基数（真实间隔再加 0..700ms 抖动，避免整屏一个节奏）。 */
     private const val GAP_FAST = 1800L
@@ -532,9 +702,9 @@ object AiBall {
      * 否则「看得见的人和看不见的人听到两个版本」。
      */
     fun lineOf(state: AiBallState): String = when (state) {
-        AiBallState.Sleep -> "这会儿没事，先睡一会儿"
+        AiBallState.Sleep -> "现在是休息时段"
         AiBallState.WakeUp -> "早上好，今天的课在后面"
-        AiBallState.Idle -> "今天暂时没有要你处理的事"
+        AiBallState.Idle -> "当前页面已就绪"
         AiBallState.Curious -> "刚拿到新的内容"
         AiBallState.Focus -> "有件事马上要你去办"
         AiBallState.Thinking -> "正在处理，稍等一下"
@@ -546,21 +716,8 @@ object AiBall {
         AiBallState.Searching -> "正在翻找资料"
     }
 
-    /** 读屏文案：说事实，不说「小球」。 */
-    fun labelOf(state: AiBallState): String = when (state) {
-        AiBallState.Sleep -> "这会儿没课也没待办"
-        AiBallState.WakeUp -> "新的一天开始了"
-        AiBallState.Idle -> "当前没有待办"
-        AiBallState.Curious -> "刚拿到新的内容"
-        AiBallState.Focus -> "有一件待办快到期了"
-        AiBallState.Thinking -> "正在处理"
-        AiBallState.Busy -> "正在上课"
-        AiBallState.Done -> "今天的课已结束"
-        AiBallState.Error -> "这一页没能取到数据"
-        AiBallState.Waiting -> "有一张签到在等你"
-        AiBallState.Loading -> "正在读取"
-        AiBallState.Searching -> "正在检索资料"
-    }
+    /** Without source facts, announce only the state represented by this face. */
+    fun labelOf(state: AiBallState): String = lineOf(state)
 
     /** 球体渐变三站（引擎的 0% / 62% / 100%）。 */
     fun bodyColors(): List<Color> = AiBallGlyphs.BODY_COLORS.map { Color(it) }

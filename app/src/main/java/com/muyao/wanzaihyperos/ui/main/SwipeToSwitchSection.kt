@@ -9,29 +9,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 
-/**
- * 「左右滑动屏幕切板块」的手势层。
- *
- * ## 为什么不换成 HorizontalPager
- *
- * 主壳现在的换页是 `AnimatedContent` + 一个自己维护的 `section` 下标，
- * 而且**每一页各挂一份采样层**给玻璃底栏采（`liquid/PageBackdrop.kt` 那条纪律：
- * 共享一份会被离场页 onDetach 清掉坐标，实时折射全丢）。
- * Pager 会把这两样都拆了重搭 —— 为了一个滑动手势去动已经验证过的玻璃链路，不值。
- * 所以这里只做一件事：**识别出水平拖动，然后调用已经存在的那条切换路径**
- * （`navDir` + 280ms transitionSpec），滑动和点底栏出来的动画因此必然一模一样。
- *
- * ## 三个必须写死的判定
- *
- * 1. **`PointerEventPass.Initial`**：父层要**先**于列表看到这一帧。
- *    用默认的 `Main` 时，`LazyColumn` 已经把竖向消耗掉了，父层读到的
- *    `positionChange()` 是零向量，表现就是「横向怎么拖都没反应」。
- * 2. **未定轴向时绝不 consume**：只从 `position - previousPosition` 自己累加增量。
- *    `positionChange()` 会顺手把事件标记成已消耗 —— 那样竖向滚动就跟着死了。
- * 3. **起手区要排除**：左右各 26dp 是系统侧滑返回的地盘（在里侧起手的拖动**整个放弃**，
- *    不然会和系统返回抢）；底部 170dp 是玻璃底栏 + 悬浮搜索胶囊的地盘，
- *    底栏那颗水滴滑块的拖拽**本来就是水平手势**，抢过来就变成「拖滑块却换了页」。
- */
+/** 历史手势与落点函数保留兼容测试；正式主壳使用 foundation HorizontalPager。 */
 /**
  * **横向手势归属登记处**（v3 #5）。
  *
@@ -51,6 +29,17 @@ internal object HorizontalDragZones {
     fun set(key: String, rect: Rect?) {
         rects = if (rect == null) rects - key else rects + (key to rect)
     }
+
+    private val capturedPointers = mutableMapOf<Long, Any>()
+
+    @Synchronized
+    fun claimPointer(id: Long, owner: Any) { capturedPointers[id] = owner }
+
+    @Synchronized
+    fun releasePointers(owner: Any) { capturedPointers.entries.removeAll { it.value === owner } }
+
+    @Synchronized
+    fun isPointerCaptured(id: Long): Boolean = id in capturedPointers
 
     /** `rootPos` 必须是 root 坐标（与 [androidx.compose.ui.layout.LayoutCoordinates.boundsInRoot] 同系）。 */
     fun blockedAt(rootPos: Offset): Boolean = rects.values.any { it.contains(rootPos) }
@@ -91,6 +80,7 @@ internal fun Modifier.swipeToSwitchSection(
             while (true) {
                 val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (HorizontalDragZones.isPointerCaptured(change.id.value)) break
                 dx += change.position.x - change.previousPosition.x
                 dy += change.position.y - change.previousPosition.y
                 samples.addLast(change.uptimeMillis to dx)
@@ -137,6 +127,33 @@ private fun damped(raw: Float, width: Float): Float {
 }
 
 private val Float.sign: Float get() = if (this >= 0f) 1f else -1f
+
+/** Observe after children and never take over a gesture that a child already owns. */
+internal fun Modifier.crossAxisPageSwipe(enabled: Boolean, onStep: (Int) -> Unit): Modifier =
+    if (!enabled) this else pointerInput(onStep) {
+        val edge = 26.dp.toPx()
+        val slop = viewConfiguration.touchSlop
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            if (down.position.x < edge || down.position.x > size.width - edge ||
+                down.position.y > size.height - 100.dp.toPx()) return@awaitEachGesture
+            var claimed = false
+            while (true) {
+                val changes = awaitPointerEvent().changes
+                val change = changes.firstOrNull { it.id == down.id } ?: break
+                if (change.isConsumed || changes.count { it.pressed } > 1 ||
+                    HorizontalDragZones.isPointerCaptured(change.id.value)) break
+                val delta = change.position - down.position
+                if (!claimed && abs(delta.y) > slop && abs(delta.y) >= abs(delta.x)) break
+                if (abs(delta.x) > slop && abs(delta.x) > abs(delta.y) * 1.15f) claimed = true
+                if (claimed) change.consume()
+                if (!change.pressed) {
+                    if (claimed && abs(delta.x) >= size.width * .18f) onStep(if (delta.x < 0f) 1 else -1)
+                    break
+                }
+            }
+        }
+    }
 
 /**
  * 「这一下切不切板块」——**生产与测试共用这一个函数**（B4-08）。

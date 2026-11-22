@@ -89,7 +89,8 @@ fun GrowthPage(
     val snapshot = (state as? ListState.Content)?.items?.firstOrNull()
 
     LaunchedEffect(ready) {
-        if (ready && (state is ListState.FirstLoad || state is ListState.SessionExpired)) {
+        if (ready && (state is ListState.FirstLoad || state is ListState.SessionExpired ||
+                (state as? ListState.Content)?.meta?.stale == true)) {
             repository.refresh()
         }
     }

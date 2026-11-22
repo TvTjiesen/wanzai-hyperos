@@ -46,8 +46,10 @@ class ThemeEntryGuardTest {
             "main/ui/AppTheme.kt",
             "main/ui/design/glasmio/WanzaiGlasmioTheme.kt",
             "main/ui/main/pages/AppearancePage.kt",
+            "main/ui/main/pages/WallpaperEditor.kt", // 编辑器预览固定用浅色样张，不是入口。
             "main/WanzaiRoot.kt",
             "debug/dev/BoardPreviewActivity.kt",
+            "debug/dev/HomePreviewActivity.kt", // Emulator-only offline production-component preview.
         )
         val pattern = Regex("""AppThemeMode\.(System|Light|Dark)""")
         val hits = SourceScan.sources()
@@ -67,8 +69,9 @@ class ThemeEntryGuardTest {
         val page = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/AppearancePage.kt")
         assertTrue("找不到外观页", page.isFile)
         val code = SourceScan.stripComments(page.readText(Charsets.UTF_8))
-        assertTrue("外观页没有「主题」分段控件", "label = \"主题\"" in code)
-        assertTrue("外观页的主题没接 onSelect = onThemeMode", "onSelect = onThemeMode" in code)
+        assertTrue("外观页没有明暗三档", "跟随系统" in code && "浅色" in code && "深色" in code)
+        assertTrue("外观页的明暗档没落到 theme 上", "current.copy(theme = id)" in code)
+        assertTrue("外观页的 theme 变更必须继续走 onThemeMode", "onThemeMode(appearanceTheme(next.theme))" in code)
         listOf("System", "Light", "Dark").forEach { mode ->
             assertTrue("外观页少了 AppThemeMode.$mode 这一档", "AppThemeMode.$mode" in code)
         }
@@ -91,7 +94,7 @@ class ThemeEntryGuardTest {
             assertTrue("只读桥不能长出第二主题入口：$it", it !in bridge)
         }
         val theme = SourceScan.stripComments(File("src/main/java/com/muyao/wanzaihyperos/ui/AppTheme.kt").readText())
-        assertTrue("root 主题必须把相同 mode 传给 bridge", "WanzaiGlasmioHost(themeMode = themeMode)" in theme)
+        assertTrue("root 主题必须把相同 mode 传给 bridge", "WanzaiGlasmioHost(themeMode = themeMode" in theme)
         val root = SourceScan.stripComments(File("src/main/java/com/muyao/wanzaihyperos/WanzaiRoot.kt").readText())
         val loadAt = root.indexOf("UiPrefs.load(context)")
         val restoreAt = root.indexOf("uiState.themeMode = AppThemeMode.entries.firstOrNull", loadAt)

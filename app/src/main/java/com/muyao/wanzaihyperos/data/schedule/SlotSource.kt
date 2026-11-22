@@ -92,6 +92,7 @@ fun pickSlots(
     val source = when {
         jwSlots.isNotEmpty() -> SlotSource.JIAOWU
         jwVerdict == JwVerdict.IN_FLIGHT -> SlotSource.WAIT
+        jwVerdict == JwVerdict.SETTLED_EMPTY -> SlotSource.JIAOWU
         tronSlots.isNotEmpty() -> SlotSource.TRONCLASS
         else -> SlotSource.NONE
     }

@@ -1,5 +1,7 @@
 package com.muyao.wanzaihyperos.net
 
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -33,10 +35,46 @@ import okhttp3.HttpUrl
  */
 class HzcuCookieJar : CookieJar {
 
-    /** host（小写）→ (cookie 名 → cookie) */
+    @Volatile private var boundEpoch: AccountEpoch? = null
     private val byHost = mutableMapOf<String, MutableMap<String, Cookie>>()
 
+    internal fun bindEpoch(epoch: AccountEpoch?) {
+        if (epoch == null || boundEpoch === epoch) return
+        check(boundEpoch == null) { "Cookie jar already has an owner boundary" }
+        boundEpoch = epoch
+        epoch.registerReset { clear() }
+    }
+
+    internal fun forRequest(epoch: AccountEpoch?, token: Long?): CookieJar = object : CookieJar {
+        override fun loadForRequest(url: HttpUrl): List<Cookie> {
+            if (epoch == null) {
+                if (boundEpoch != null) throw CancellationException("Account changed")
+                return this@HzcuCookieJar.loadForRequest(url)
+            }
+            if (token == null) throw CancellationException("Account changed")
+            var result: List<Cookie> = emptyList()
+            if (!epoch.publish(token) { result = this@HzcuCookieJar.loadForRequest(url) }) {
+                throw CancellationException("Account changed")
+            }
+            return result
+        }
+
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+            if (epoch == null) {
+                if (boundEpoch != null) throw CancellationException("Account changed")
+                saveCookies(url, cookies)
+            } else if (token == null || !epoch.publish(token) { saveCookies(url, cookies) }) {
+                throw CancellationException("Account changed")
+            }
+        }
+    }
+
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        if (boundEpoch == null) saveCookies(url, cookies)
+    }
+
+    @Synchronized
+    private fun saveCookies(url: HttpUrl, cookies: List<Cookie>) {
         val host = url.host.lowercase()
         if (host.isEmpty()) return
         val bucket = byHost.getOrPut(host) { mutableMapOf() }
@@ -48,6 +86,7 @@ class HzcuCookieJar : CookieJar {
         if (bucket.isEmpty()) byHost.remove(host)
     }
 
+    @Synchronized
     override fun loadForRequest(url: HttpUrl): List<Cookie> =
         byHost[url.host.lowercase()]?.values?.toList() ?: emptyList()
 
@@ -55,27 +94,32 @@ class HzcuCookieJar : CookieJar {
     // 诊断：只暴露「名」，永不暴露「值」
     // ---------------------------------------------------------------------------
 
-    val hostNames: Set<String> get() = byHost.keys.toSet()
+    val hostNames: Set<String> get() = synchronized(this) { byHost.keys.toSet() }
 
     /** 某个 host 名下的 cookie 名（不含值），给测试和诊断用。 */
+    @Synchronized
     fun namesFor(host: String): Set<String> = byHost[host.lowercase()]?.keys?.toSet() ?: emptySet()
 
     /** 某个 host 名下有没有这个 cookie（诊断用，不返回值）。 */
+    @Synchronized
     fun hasCookie(host: String, name: String): Boolean =
         byHost[host.lowercase()]?.containsKey(name) == true
 
-    val isEmpty: Boolean get() = byHost.isEmpty()
+    val isEmpty: Boolean get() = synchronized(this) { byHost.isEmpty() }
 
+    @Synchronized
     fun clear() = byHost.clear()
 
     /**
      * ⚠️ **返回值就是凭据**：调用方只允许把它交给 WebView 的 CookieManager
      * 或加密存储，禁止打印、禁止拼进异常/日志。
      */
+    @Synchronized
     fun valueOf(host: String, name: String): String? =
         byHost[host.lowercase()]?.get(name)?.value
 
     /** 某 host 名下所有 cookie 的 `name=value` 计数（不含值），用于诊断。 */
+    @Synchronized
     fun countFor(host: String): Int = byHost[host.lowercase()]?.size ?: 0
 
     // ---------------------------------------------------------------------------
@@ -87,6 +131,7 @@ class HzcuCookieJar : CookieJar {
      *
      * **这是凭据**：调用方只允许把它交给加密存储，禁止打印、禁止写普通文件。
      */
+    @Synchronized
     fun toJson(): String {
         val root = buildJsonObject {
             for ((host, bucket) in byHost) {
@@ -106,6 +151,7 @@ class HzcuCookieJar : CookieJar {
      * 换成一个新罐子不会生效（请求照旧走旧罐）。所以恢复必须改自己的内容，
      * 不能返回新对象。
      */
+    @Synchronized
     fun loadFrom(raw: String?) {
         val restored = fromJson(raw)
         byHost.clear()
@@ -151,6 +197,7 @@ class HzcuCookieJar : CookieJar {
     }
 
     /** 只输出 host 与 cookie 名，**值永不外泄**。 */
+    @Synchronized
     override fun toString(): String =
         "HzcuCookieJar(" + byHost.entries.joinToString(" ") { (host, bucket) ->
             "$host:${bucket.keys.joinToString(",")}"

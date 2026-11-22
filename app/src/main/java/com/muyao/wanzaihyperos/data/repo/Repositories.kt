@@ -42,23 +42,45 @@ object RefreshPolicy {
  *
  * 线程安全：全部走 [AtomicLong]。UI 线程、IO 线程、多个协程都会碰它。
  */
-class StaleGuard {
+class StaleGuard(private val epoch: AccountEpoch? = null) {
 
     private val generation = AtomicLong(0)
+    @Volatile private var ownerGeneration = 0L
 
     /** 开始一次新请求，返回它的代次号。**同时让此前所有在飞请求作废。** */
-    fun begin(): Long = generation.incrementAndGet()
+    fun begin(): Long {
+        val ownerToken = epoch?.token() ?: 0L
+        return synchronized(this) {
+            ownerGeneration = ownerToken
+            generation.incrementAndGet()
+        }
+    }
 
     /**
      * 让所有在飞请求作废，但**不**开始新请求。
      * 用于登出：登出后不该再有任何响应能落回状态。
      */
-    fun invalidate() {
+    fun invalidate() = synchronized(this) {
         generation.incrementAndGet()
+        Unit
     }
 
     /** 这个代次号还是最新的吗？不是就说明该响应已过时。 */
-    fun isCurrent(token: Long): Boolean = generation.get() == token
+    fun isCurrent(token: Long): Boolean = generation.get() == token &&
+        (epoch?.isDataCurrent(ownerGeneration) != false)
+
+    fun publish(token: Long, action: () -> Unit): Boolean {
+        val ownerToken = ownerGeneration
+        val publish = {
+            synchronized(this) {
+                if (generation.get() != token) false else { action(); true }
+            }
+        }
+        return epoch?.let { owner ->
+            var committed = false
+            owner.publishData(ownerToken) { committed = publish() } && committed
+        } ?: publish()
+    }
 
     /** 当前代次号（测试与诊断用）。 */
     val current: Long get() = generation.get()

@@ -252,7 +252,7 @@ fun RestartScopeSheet(
                     initialOffsetY = { it },
                 ),
                 exit = slideOutVertically(
-                    animationSpec = spring(dampingRatio = 1.0f, stiffness = 900f),
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
                     targetOffsetY = { it },
                 ),
             ) {

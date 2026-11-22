@@ -1,18 +1,24 @@
 package com.muyao.wanzaihyperos.data.zy
 
 import com.muyao.wanzaihyperos.data.ListState
-import com.muyao.wanzaihyperos.data.failWith
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
+import com.muyao.wanzaihyperos.data.repo.retainCachedOnFailure
 import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startRefresh
 import com.muyao.wanzaihyperos.net.HzcuException
+import java.net.URLEncoder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * 智雲課堂的倉庫：**維持會話 + 取週課表**。
@@ -36,84 +42,106 @@ interface ZyRepository {
     suspend fun liveInfo(item: ZyScheduleItem): ZyLiveInfo?
 }
 
-class LiveZyRepository(
-    private val engine: ZyEngine,
+class LiveZyRepository internal constructor(
+    private val reader: ZyReader,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : ZyRepository {
+    constructor(
+        engine: ZyEngine,
+        clock: () -> Long = System::currentTimeMillis,
+        epoch: AccountEpoch = AccountEpoch(),
+    ) : this(engine.reader, clock, epoch)
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val inFlight = Mutex()
+    private var verifiedUid: String? = null
+    private var verifiedWeek: Pair<String, String>? = null
     private val _week = MutableStateFlow<ListState<ZyScheduleItem>>(ListState.FirstLoad)
     override val week: StateFlow<ListState<ZyScheduleItem>> = _week.asStateFlow()
 
-    /** 這次執行取到的 `user_id`（取數要用）。 */
-    @Volatile
-    private var userId: String? = null
-
-    override suspend fun load(force: Boolean) {
-        inFlight.withLock {
-            val token = guard.begin()
-            _week.value = _week.value.startRefresh()
-
-            val result = runCatching {
-                if (!engine.awaitAttached()) {
-                    throw ZyDomainFailure(ZyFailure.EngineNotReady)
-                }
-                val uid = userId ?: engine.ensureSession()
-                if (uid == null) throw ZyDomainFailure(ZyFailure.NotLoggedIn)
-                userId = uid
-
-                val (start, end) = currentWeekRange(clock())
-                val path = "$WEEK_PATH?user_id=$uid&tenant_id=${ZyEngine.TENANT}" +
-                    "&start_at=$start&end_at=$end"
-                val text = engine.fetchText(ZyEngine.BASE + path)
-                    ?: throw ZyDomainFailure(ZyFailure.NoResponse)
-                if (text.startsWith("__ERR__")) {
-                    throw ZyDomainFailure(
-                        ZyFailure.Other("请求失败：${text.removePrefix("__ERR__").take(60)}"),
-                    )
-                }
-                if (text.trimStart().startsWith("<")) throw ZyDomainFailure(ZyFailure.NotLoggedIn)
-                val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
-                    ?: throw ZyDomainFailure(
-                        ZyFailure.Other("智云课堂回的格式看不懂（${text.length} 字元），可能需要更新"),
-                    )
-                val week = ZyScheduleParser.parse(root)
-                // 信封裡明確失敗（success=false）→ 當成登入失效，不要畫成「這週沒課」
-                val success = (root["success"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-                if (success == "false") throw ZyDomainFailure(ZyFailure.NotLoggedIn)
-                week.items
-            }
-
-            if (!guard.isCurrent(token)) return
-            _week.value = result.fold(
-                onSuccess = { items ->
-                    if (items.isEmpty()) {
-                        // 明確的空（服務端說這週沒課）
-                        _week.value.settleFirstPage(emptyList(), clock()) { it.id }
-                    } else {
-                        _week.value.settleFirstPage(items, clock()) { it.id }
-                    }
-                },
-                onFailure = { e ->
-                    val failure = (e as? ZyDomainFailure)?.failure
-                        ?: ZyFailure.Other(e.message ?: "取数失败")
-                    _week.value.failWith(failure.toHzcuException())
-                },
-            )
+    init {
+        epoch.registerReset {
+            guard.invalidate()
+            verifiedUid = null
+            verifiedWeek = null
+            _week.value = ListState.FirstLoad
         }
     }
 
-    override suspend fun liveInfo(item: ZyScheduleItem): ZyLiveInfo? = runCatching {
-        val uid = userId ?: return@runCatching null
-        if (uid.isBlank()) return@runCatching null
-        val path = "$LIVE_PATH?all=1&show_all=1&show_delete=2&with_sub_data=1" +
-            "&course_id=${item.courseId}&sub_id=${item.id}&tenant=${ZyEngine.TENANT}"
-        val text = engine.fetchText(ZyEngine.BASE + path) ?: return@runCatching null
-        if (text.startsWith("__ERR__") || text.trimStart().startsWith("<")) return@runCatching null
-        val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
-        ZyLiveParser.parseFirst(root)
-    }.getOrNull()
+    override suspend fun load(force: Boolean) {
+        val owner = epoch.token()
+        if (!inFlight.tryLock()) return
+        try {
+            if (!epoch.isDataCurrent(owner)) return
+            val token = guard.begin()
+            val range = currentWeekRange(clock())
+            var previous = if (verifiedWeek == range) _week.value else ListState.FirstLoad
+            var currentUid: String? = null
+            if (!guard.publish(token) { _week.value = previous.startRefresh() }) return
+
+            val result = try {
+                catchingActive {
+                    if (!reader.awaitAttached()) throw ZyDomainFailure(ZyFailure.EngineNotReady)
+                    val uid = reader.ensureSession(force)
+                    if (!guard.isCurrent(token)) throw CancellationException("Account changed")
+                    currentUid = uid
+                    if (verifiedUid != null && verifiedUid != uid) {
+                        previous = ListState.FirstLoad
+                        if (!guard.publish(token) { _week.value = ListState.FirstLoad }) {
+                            throw CancellationException("Account changed")
+                        }
+                    }
+                    val (start, end) = range
+                    val path = "$WEEK_PATH?user_id=${encodeQuery(uid)}&tenant_id=${ZyEngine.TENANT}" +
+                        "&start_at=$start&end_at=$end"
+                    parseZyWeek(reader.fetchText(path))
+                }.also { if (it.isFailure && guard.isCurrent(token)) reader.invalidateSession() }
+            } catch (e: CancellationException) {
+                guard.publish(token) { _week.value = previous }
+                throw e
+            }
+
+            guard.publish(token) {
+                _week.value = result.fold(
+                    onSuccess = { items ->
+                        verifiedUid = currentUid
+                        verifiedWeek = range
+                        _week.value.settleFirstPage(items, clock()) { it.id }
+                    },
+                    onFailure = { e ->
+                        val failure = ((e as? ZyDomainFailure)?.failure ?: ZyFailure.NoResponse).toHzcuException()
+                        when (val state = _week.value) {
+                            is ListState.Content -> state.copy(meta = state.meta.copy(
+                                refreshing = false, stale = true, lastRefreshError = failure))
+                            is ListState.Empty -> state.copy(meta = state.meta.copy(
+                                refreshing = false, stale = true, lastRefreshError = failure))
+                            else -> retainCachedOnFailure(state, failure)
+                        }
+                    },
+                )
+            }
+        } finally {
+            inFlight.unlock()
+        }
+    }
+
+    override suspend fun liveInfo(item: ZyScheduleItem): ZyLiveInfo? {
+        val owner = epoch.token()
+        return inFlight.withLock {
+            if (!epoch.isDataCurrent(owner)) return@withLock null
+            val result = catchingActive {
+                if (!reader.awaitAttached()) return@catchingActive null
+                reader.ensureSession(force = false)
+                if (!epoch.isDataCurrent(owner)) return@catchingActive null
+                val path = "$LIVE_PATH?all=1&show_all=1&show_delete=2&with_sub_data=1" +
+                    "&course_id=${encodeQuery(item.courseId)}&sub_id=${encodeQuery(item.id)}&tenant=${ZyEngine.TENANT}"
+                ZyLiveParser.parseFirst(Json.parseToJsonElement(reader.fetchText(path)) as? JsonObject)
+            }
+            if (result.isFailure && epoch.isDataCurrent(owner)) reader.invalidateSession()
+            result.getOrNull().takeIf { epoch.isDataCurrent(owner) }
+        }
+    }
 
     private companion object {
         /** 週課表（真機實測路徑）。 */
@@ -144,6 +172,28 @@ class LiveZyRepository(
     }
 }
 
+private fun encodeQuery(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+internal fun parseZyWeek(text: String): List<ZyScheduleItem> {
+    val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+        ?: throw ZyDomainFailure(ZyFailure.UnexpectedResponse)
+    val result = root["result"] as? JsonObject
+    val outerCode = (root["code"] as? JsonPrimitive)?.content?.toIntOrNull()
+    val code = (result?.get("code") as? JsonPrimitive)?.content?.toIntOrNull()
+    if (outerCode == 401 || code == 401) throw ZyDomainFailure(ZyFailure.NotLoggedIn)
+    if ((root["success"] as? JsonPrimitive)?.content != "true" || code != 200) {
+        throw ZyDomainFailure(ZyFailure.UnexpectedResponse)
+    }
+    val days = result?.get("list") as? JsonArray ?: throw ZyDomainFailure(ZyFailure.UnexpectedResponse)
+    val courseCount = days.sumOf { day ->
+        ((day as? JsonObject)?.get("course") as? JsonArray)?.size
+            ?: throw ZyDomainFailure(ZyFailure.UnexpectedResponse)
+    }
+    val items = ZyScheduleParser.parse(root).items
+    if (items.size != courseCount) throw ZyDomainFailure(ZyFailure.UnexpectedResponse)
+    return items
+}
+
 /**
  * 把 [ZyFailure] 當例外往上拋的載體。
  *
@@ -172,14 +222,21 @@ sealed interface ZyFailure {
     /** 請求沒有回內容。 */
     data object NoResponse : ZyFailure
 
-    /** 其它。 */
+    data object Timeout : ZyFailure
+    data object IdentityUnavailable : ZyFailure
+    data object UnexpectedResponse : ZyFailure
+    data class Http(val status: Int) : ZyFailure
     data class Other(val detail: String) : ZyFailure
 
     val message: String
         get() = when (this) {
-            EngineNotReady -> "页面还没准备好，请点右上角重新加载"
-            NotLoggedIn -> "还没有登录智云课堂"
-            NoResponse -> "没有取到数据（页面可能还在加载），请点右上角重试"
+            EngineNotReady -> "页面还没准备好，请重新加载"
+            NotLoggedIn -> "智云课堂会话已失效，请到官网重新连接"
+            NoResponse -> "智云课堂未能响应，请稍后重试"
+            Timeout -> "智云课堂加载超时，请重试"
+            IdentityUnavailable -> "智云课堂页面未能确认身份，可以打开官网重新连接"
+            UnexpectedResponse -> "智云课堂返回的数据格式异常"
+            is Http -> "智云课堂请求失败（HTTP $status）"
             is Other -> detail
         }
 
@@ -190,8 +247,12 @@ sealed interface ZyFailure {
      * 翻成全專案的錯誤模型。
      *
      * `LoginExpired` 在既有機制裡會被映射成 `ListState.SessionExpired`，
-     * 正好對應「要引導登入」——所以需要登入的走它，其餘走 `Parse`。
+     * 正好對應「要引導登入」。
      */
-    fun toHzcuException(): HzcuException =
-        if (needsLogin) HzcuException.LoginExpired(message) else HzcuException.Parse(message)
+    fun toHzcuException(): HzcuException = when (this) {
+        NotLoggedIn -> HzcuException.LoginExpired(message)
+        Timeout -> HzcuException.RequestTimeout(message)
+        NoResponse, is Http -> HzcuException.Transport(message)
+        else -> HzcuException.Parse(message)
+    }
 }

@@ -30,8 +30,9 @@ class MotionFlagsTest {
     }
 
     @Test
-    fun `高对比文字同样压掉半透明`() {
-        assertFalse(MotionFlags(highContrast = true).glassIsTranslucent)
+    fun `高对比文字保留用户选择的玻璃`() {
+        assertTrue(MotionFlags(highContrast = true).glassIsTranslucent)
+        assertFalse(MotionFlags(highContrast = true, reduceTransparency = true).glassIsTranslucent)
     }
 
     @Test

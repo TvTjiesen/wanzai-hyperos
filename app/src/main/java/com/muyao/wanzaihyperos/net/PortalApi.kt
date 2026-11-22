@@ -137,6 +137,22 @@ class PortalApi(private val client: HzcuClient) {
     // 消息
     // ---------------------------------------------------------------------------
 
+    // 学校前端 MessageAllList / MessageSysPage 的只读契约，尚待当前真机响应核验。
+    suspend fun fetchBroadcasts(): HzcuResponse = client.portalPost(
+        path = HzcuEndpoints.PORTAL_BROADCAST_LIST_PATH,
+        jsonBody = buildJsonObject {
+            put("pageindex", 1)
+            put("pagesize", 1000)
+        },
+        context = "系统公告",
+    )
+
+    suspend fun fetchBroadcastDetail(id: String): HzcuResponse = client.portalPost(
+        path = requireNotNull(HzcuEndpoints.portalBroadcastDetailPath(id)) { "Invalid announcement ID" },
+        jsonBody = buildJsonObject {},
+        context = "公告正文",
+    )
+
     /** 消息分组。**form**，可带 `pageindex` / `pagesize`。 */
     suspend fun fetchMessageGroups(
         pageIndex: Int = 1,

@@ -90,12 +90,11 @@ class PageChromePilot internal constructor(
  * 它只是持有器（和 [PageChrome] 同类），不是状态源，所以不会造出"两个真相"。
  */
 @Composable
-fun rememberPageChromePilot(): PageChromePilot {
+fun rememberPageChromePilot(listState: LazyListState = rememberLazyListState()): PageChromePilot {
     val chrome = LocalPageChrome.current
     val largeTitle = LocalLargeTitle.current
     val active = LocalPageActive.current
-    val listState = rememberLazyListState()
-    val pilot = remember(listState) { PageChromePilot(listState, chrome) }
+    val pilot = remember(listState, chrome) { PageChromePilot(listState, chrome) }
     pilot.title = largeTitle
     pilot.active = active
 
@@ -170,11 +169,11 @@ fun LazyListScope.largeTitleItem(
  */
 @androidx.compose.runtime.Composable
 fun pageBottomInsetDp(barVisible: Boolean): Dp {
-    if (!barVisible) return 44.dp
     val inset = androidx.compose.foundation.layout.WindowInsets.navigationBars
         .only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom)
         .asPaddingValues()
         .calculateBottomPadding()
+    if (!barVisible) return inset + 24.dp
     val barBottomGap = if (inset > 0.dp) 6.dp + inset else 16.dp
     return io.github.neoruaa.glasmio.ui.NavigationBarSurfaceHeight + barBottomGap + 4.dp
 }

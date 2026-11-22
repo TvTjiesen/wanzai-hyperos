@@ -1,5 +1,8 @@
 package com.muyao.wanzaihyperos.ui.design.liquid
 
+import io.github.neoruaa.glasmio.glass.render.drawPlainBackdrop
+import io.github.neoruaa.glasmio.glass.progressiveBackdropBlur
+import io.github.neoruaa.glasmio.glass.render.effects.blur
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,8 +32,13 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -70,6 +78,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 class PageChrome {
     /** 0 = 大标题还在原位（顶栏不出现），1 = 完全折叠 */
     var progress by mutableFloatStateOf(0f)
+    var sampledTopLuminance by mutableStateOf<Float?>(null)
 
     /**
      * 「**当前这一页的列表正在滚**」—— 第 9 轮审计必修 4（全工程原本 `scroll` 命中 0 次）。
@@ -127,7 +136,7 @@ val LocalOpenCrownStage = compositionLocalOf<(() -> Unit)?> { null }
 val IosBarHeight = 52.dp
 
 /** 渐变纱往下多延伸的一段：模糊在这里彻底淡到没有 */
-private val IosTailHeight = 44.dp
+private val IosTailHeight = 4.dp
 
 /*
  * 渐变纱：**只采样一次**。
@@ -149,7 +158,7 @@ private const val VEIL_WIN_END = 1.12f
  * 出现曲线：前 [VEIL_DEAD_ZONE] 完全不出现（用户要的"分界点"），
  * 之后 smoothstep 平滑升到满，不会"啪"地一下糊上来。
  */
-private const val VEIL_DEAD_ZONE = 0.22f
+private const val VEIL_DEAD_ZONE = AppColors.VEIL_DEAD_ZONE
 
 private fun veilAlphaOf(progress: Float): Float {
     val t = ((progress - VEIL_DEAD_ZONE) / (1f - VEIL_DEAD_ZONE)).coerceIn(0f, 1f)
@@ -289,8 +298,8 @@ fun GlassSurface(
  * 折叠顶栏。
  *
  * @param title 折叠后显示在栏身中央的小标题（展开时 alpha=0，不和大标题同时出现）
- * @param backdrop 仅为调用点兼容保留；当前顶栏不采样（见带子上的 2026-10-21 注释）
- * @param veilBlurDp 同上，当前未使用
+ * @param backdrop 当前页面背景，供普通模糊采样
+ * @param veilBlurDp 普通模糊半径
  * @param actions 右上角槽位（搜索钮）
  */
 @Composable
@@ -299,11 +308,10 @@ fun IosTopBar(
     chrome: PageChrome,
     canGoBack: Boolean,
     onBack: () -> Unit,
-    backdrop: Backdrop?,
+    backdrop: io.github.neoruaa.glasmio.glass.render.Backdrop?,
     /**
-     * **这一屏顶栏后面真正铺出来的底色**（不是主题令牌）。必填、无默认值 ——
-     * 浅色主题 × 夜航/暗度压到底时，天空已经是暗的，而主题令牌还是浅的 ⇒ 纱会"白压黑"。
-     * 取法：首页传天空最上面那一站（`skyLookOf(...).colorAt(0f)`），其它页传 `AppColors.pageTopColor(...)`。
+     * Fallback brightness before the first background sample completes;
+     * real pixels are sampled exclusively through backdrop, not inferred from a sky color.
      */
     backdropColor: Color,
     modifier: Modifier = Modifier,
@@ -311,44 +319,46 @@ fun IosTopBar(
     veilBlurDp: Float = GlassTuning.VEIL_DEFAULT_DP,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    val surface = MiuixTheme.colorScheme.surface
+    val backgroundLuminance = io.github.neoruaa.glasmio.glass.render.rememberBackdropLuminance()
+    val titleInk = if ((backgroundLuminance.value ?: backdropColor.luminance()) < 0.45f) Color.White else Color.Black
+    androidx.compose.runtime.SideEffect { chrome.sampledTopLuminance = backgroundLuminance.value }
     val statusTop = statusBarTopPadding()
     val bandHeight = statusTop + IosBarHeight + IosTailHeight
-    val progress by animateFloatAsState(chrome.progress, label = "barCollapse")
+    val motion = rememberMotion()
+    val animatedProgress by animateFloatAsState(chrome.progress, label = "barCollapse")
+    val progress = if (motion.canMove) animatedProgress else chrome.progress
     // 死区 + smoothstep：大标题刚起步时完全不糊
     // 沉浸态（表冠放大居中）时顶栏纱必须完全消失，否则会和居中大表冠打架
     val veilAlpha = if (forceHidden) 0f else veilAlphaOf(progress)
-    // 与 `AppColors.veilColorFor` **同一套阈值与配色**（不另建一个 0.5）
-    val veilBase = AppColors.veilColorFor(backdropColor)
-    val motion = rememberMotion()
-    // 减弱透明度 / 高对比：同一套渐变，但顶部更实。
-    val solidBand = !motion.glassIsTranslucent
 
     Box(modifier = modifier.fillMaxWidth().height(bandHeight)) {
-        // ★ 2026-10-21 真机定案：顶栏这条带子**不再采样模糊**。
-        //   证据（课表/消息/应用/设置四页滚动截图）：30dp blur + 0.18~0.45 同色底
-        //   压不住从下面滚过去的正文 —— 状态栏图标、居中小标题、列表文字三层叠着，
-        //   谁都读不出来；带子本身还是每帧一次全屏采样的玻璃。
-        //   顶栏是"内容从底下滚过去"的平面，不是展示材质的玻璃（底栏那颗滑块才是）。
-        //   所以改成纯渐变遮罩：顶部近实底保证图标/标题对比度，向下收到透明，
-        //   没有硬下沿；不碰采样层，也就不存在"空采样画黑"那条路。
-        //   结束色用 `surface.copy(alpha = 0f)` 而不是 `Color.Transparent`：
-        //   否则 sRGB 插值会在底部擦出一条发灰的暗边。
         if (veilAlpha > 0.001f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(veilAlpha)
-                    .background(
-                        Brush.verticalGradient(
-                            // 只换**基色**（按这一屏实际底色挑），alpha 阶梯一个不动
-                            0f to veilBase.copy(alpha = if (solidBand) 0.98f else 0.96f),
-                            0.62f to veilBase.copy(alpha = if (solidBand) 0.98f else 0.90f),
-                            0.80f to veilBase.copy(alpha = if (solidBand) 0.90f else 0.52f),
-                            1f to veilBase.copy(alpha = 0f),
-                        ),
-                    ),
-            )
+            val materialModifier = Modifier.fillMaxSize()
+                .graphicsLayer {
+                    alpha = veilAlpha
+                    compositingStrategy = CompositingStrategy.Offscreen
+                }
+                .drawWithCache {
+                    val featherStart = (statusTop.toPx() + IosBarHeight.toPx() * .50f) / size.height.coerceAtLeast(1f)
+                    val edgeMask = Brush.verticalGradient(
+                        0f to Color.White,
+                        featherStart.coerceIn(0f, 1f) to Color.White,
+                        1f to Color.Transparent,
+                    )
+                    onDrawWithContent {
+                        drawContent()
+                        drawRect(edgeMask, blendMode = BlendMode.DstIn)
+                    }
+                }
+            val liveBackdrop = backdrop
+            if (liveBackdrop != null) {
+                Box(materialModifier.drawPlainBackdrop(
+                    backdrop = liveBackdrop,
+                    shape = { androidx.compose.ui.graphics.RectangleShape },
+                    effects = { progressiveBackdropBlur((veilBlurDp.coerceIn(0f, 32f) * .55f).dp.toPx()) },
+                    luminanceState = backgroundLuminance,
+                ))
+            }
         }
 
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -382,7 +392,9 @@ fun IosTopBar(
                             text = title,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = MiuixTheme.colorScheme.onBackground,
+                            color = titleInk,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier.alpha(veilAlpha),
                         )
                     }

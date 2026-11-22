@@ -172,10 +172,10 @@ fun AccessibilityPage(
                             icon = SettingIcon.Contrast,
                             tint = if (highContrast) Tone.ok else Tone.quiet,
                             title = "高对比显示",
-                            subtitle = if (highContrast) {
-                                "强制实色承载层，提高弱文字对比 · 系统已开启"
-                            } else {
-                                "强制实色承载层，提高弱文字对比"
+                            subtitle = when {
+                                MotionPrefs.systemHighTextContrast -> "提高文字对比，保留所选玻璃材质 · 系统已开启"
+                                UiPrefs.highContrastOverride -> "提高文字对比，保留所选玻璃材质 · 应用内已开启"
+                                else -> "提高文字对比，保留所选玻璃材质"
                             },
                             trailing = {
                                 PillSwitch(

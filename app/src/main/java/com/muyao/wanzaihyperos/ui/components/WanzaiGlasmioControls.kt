@@ -2,6 +2,11 @@ package com.muyao.wanzaihyperos.ui.components
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import io.github.neoruaa.glasmio.glass.GlassSurface
+import io.github.neoruaa.glasmio.glass.LocalGlassBackdrop
+import io.github.neoruaa.glasmio.glass.rememberCrossWindowBackdrop
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -13,10 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.Surface
 import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -24,6 +26,8 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.Alignment
@@ -54,23 +58,27 @@ fun WanzaiSwitch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             onTintColor = colors.accent,
-            modifier = modifier.semantics { contentDescription = label },
+            modifier = modifier.heightIn(min = 44.dp).semantics { contentDescription = label },
         )
     } else {
-        // Accessibility fallback has no spring, drag deformation, or backdrop recording.
+        // Keep the material; only the thumb movement becomes immediate.
         Box(
-            modifier = modifier
-                .size(width = 63.dp, height = 28.dp)
-                .clip(CircleShape)
-                .background(if (checked) colors.accent else colors.separator)
+            modifier = modifier.defaultMinSize(minWidth = 63.dp, minHeight = 44.dp)
                 .toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange)
                 .semantics { contentDescription = label },
-            contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
+            contentAlignment = Alignment.Center,
         ) {
             Box(
-                Modifier.padding(horizontal = 2.dp).size(width = 37.dp, height = 24.dp)
-                    .clip(CircleShape).background(Color.White),
-            )
+                Modifier.size(width = 63.dp, height = 28.dp).clip(CircleShape)
+                    .background(if (checked) colors.accent else colors.separator),
+                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                GlassSurface(
+                    modifier = Modifier.padding(horizontal = 2.dp).size(width = 37.dp, height = 24.dp),
+                    shape = CircleShape,
+                    content = {},
+                )
+            }
         }
     }
 }
@@ -86,7 +94,7 @@ fun WanzaiButton(
     if (rememberMotion().canMove) {
         GlasmioButton(
             onClick = onClick,
-            modifier = modifier,
+            modifier = modifier.heightIn(min = 48.dp),
             enabled = enabled,
             emphasis = if (prominent) GlassEmphasis.Prominent else GlassEmphasis.Regular,
             content = {
@@ -96,21 +104,20 @@ fun WanzaiButton(
             },
         )
     } else {
-        val colors = GlasmioTheme.colors
-        Button(
-            onClick = onClick,
-            modifier = modifier.height(48.dp),
+        GlassSurface(
+            modifier = modifier.heightIn(min = 48.dp)
+                .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+            shape = CircleShape,
+            navigationSurfaceAlphaMultiplier = 1.25f,
+            emphasis = if (prominent) GlassEmphasis.Prominent else GlassEmphasis.Regular,
             enabled = enabled,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (prominent) colors.accent else colors.elevatedBackground,
-                contentColor = if (prominent) androidx.compose.material3.MaterialTheme.colorScheme.onPrimary else colors.content,
-            ),
-            content = {
+        ) {
+            Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 CompositionLocalProvider(top.yukonga.miuix.kmp.theme.LocalContentColor provides LocalContentColor.current) {
                     content()
                 }
-            },
-        )
+            }
+        }
     }
 }
 
@@ -122,7 +129,7 @@ fun WanzaiTextButton(
     enabled: Boolean = true,
 ) {
     WanzaiButton(onClick = onClick, modifier = modifier, enabled = enabled, prominent = false) {
-        Text(text, color = GlasmioTheme.colors.accent)
+        Text(text, color = if (enabled) GlasmioTheme.colors.accent else GlasmioTheme.colors.secondaryContent)
     }
 }
 
@@ -138,6 +145,7 @@ fun WanzaiOverlayDialog(
     val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
     val bodyMaxHeight = (windowHeight - 160.dp).coerceAtLeast(1.dp)
     val dialogBody: @Composable ColumnScope.() -> Unit = {
+        // 对话框窗口自己吃掉返回：弹窗开着时返回只该关它，绝不能让宿主页面在背后翻页。
         BackHandler(enabled = show) { onDismissRequest() }
         Column(
             Modifier.fillMaxWidth().heightIn(max = bodyMaxHeight).verticalScroll(rememberScrollState()),
@@ -159,13 +167,8 @@ fun WanzaiOverlayDialog(
             content = dialogBody,
         )
     } else if (show) {
-        val colors = GlasmioTheme.colors
-        Dialog(onDismissRequest = onDismissRequest) {
-            Surface(
-                shape = GlasmioTheme.shapes.medium,
-                color = colors.elevatedBackground,
-                contentColor = colors.content,
-            ) {
+        Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)) {
+            GlassSurface(shape = GlasmioTheme.shapes.medium, backdrop = rememberCrossWindowBackdrop(LocalGlassBackdrop.current)) {
                 Column(Modifier.fillMaxWidth().padding(22.dp), content = dialogBody)
             }
         }

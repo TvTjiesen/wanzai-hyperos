@@ -35,7 +35,8 @@ internal object ReminderStore {
     }.getOrDefault(emptyList())
 
     fun clear(context: Context) {
-        runCatching { File(context.filesDir, FILE).delete() }
+        val file = File(context.filesDir, FILE)
+        check(!file.exists() || file.delete()) { "Reminder cleanup was not confirmed" }
     }
 
     /** 制表符分列；字段里的制表符与换行先抹平，否则一行会裂成两行。 */

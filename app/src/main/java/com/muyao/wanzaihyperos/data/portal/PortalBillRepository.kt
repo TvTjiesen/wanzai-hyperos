@@ -1,21 +1,21 @@
 package com.muyao.wanzaihyperos.data.portal
 
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.data.ListMeta
+import com.muyao.wanzaihyperos.data.metaOrNull
 import com.muyao.wanzaihyperos.data.appendPage
-import com.muyao.wanzaihyperos.data.failWith
-import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startLoadMore
 import com.muyao.wanzaihyperos.data.startRefresh
-import com.muyao.wanzaihyperos.data.withHasMore
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
+import com.muyao.wanzaihyperos.data.repo.retainCachedOnFailure
 import com.muyao.wanzaihyperos.net.HzcuException
 import com.muyao.wanzaihyperos.net.PortalApi
-import com.muyao.wanzaihyperos.net.isAuthFailure
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /**
  * 「我的事務」倉庫（B3）—— 待辦 / 我的申請 / 我的已辦 三個清單。
@@ -55,9 +55,10 @@ interface PortalBillRepository {
 class LivePortalBillRepository(
     private val api: PortalApi,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : PortalBillRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
 
     private val _bucket = MutableStateFlow(PortalBillBucket.TODO)
     override val bucket: StateFlow<PortalBillBucket> = _bucket.asStateFlow()
@@ -65,83 +66,152 @@ class LivePortalBillRepository(
     private val _state = MutableStateFlow<ListState<PortalBill>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<PortalBill>> = _state.asStateFlow()
 
-    /**
-     * 單飛。**必須串行**：`loadMore` 與 `refresh` 併發時，
-     * 兩個回應會按到達順序覆蓋，出現「列表裡同一頁出現兩次」這種難查的症狀。
-     */
+    /** Reject duplicate page loads; activeReadToken coalesces the selected bucket's reads. */
     private val inFlight = Mutex()
 
-    /** 當前已載入到第幾頁（下一頁 = 這個 + 1）。 */
-    private var loadedPage = 0
+    private var activeReadToken: Long? = null
+    private data class BucketKey(val owner: Long, val bucket: PortalBillBucket)
+    private val snapshots = mutableMapOf<BucketKey, ListState<PortalBill>>()
+
+    private fun settled(state: ListState<PortalBill>): ListState<PortalBill> = when (state) {
+        is ListState.Content -> state.copy(meta = state.meta.copy(refreshing = false, loadingMore = false))
+        is ListState.Empty -> state.copy(meta = state.meta.copy(refreshing = false, loadingMore = false))
+        else -> state
+    }
+
+    private fun rememberBucket() {
+        snapshots[BucketKey(epoch.token(), _bucket.value)] = settled(_state.value)
+    }
+
+    private fun failed(error: Throwable): ListState<PortalBill> {
+        val failure = error.asPortalException()
+        val current = settled(_state.value)
+        return if (failure is HzcuException.LoginExpired) when (current) {
+            is ListState.Content -> current.copy(meta = current.meta.copy(stale = true, lastRefreshError = failure))
+            is ListState.Empty -> current.copy(meta = current.meta.copy(stale = true, lastRefreshError = failure))
+            else -> retainCachedOnFailure(current, failure)
+        } else retainCachedOnFailure(current, failure)
+    }
+
+    init {
+        epoch.registerReset {
+            guard.invalidate()
+            snapshots.clear()
+            activeReadToken = null
+            _bucket.value = PortalBillBucket.TODO
+            _state.value = ListState.FirstLoad
+        }
+    }
 
     override suspend fun refresh() {
-        inFlight.withLock {
-            val token = guard.begin()
-            _state.value = _state.value.startRefresh()
-            val result = runCatching { fetchPage(_bucket.value, page = 1) }
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = { page ->
-                    loadedPage = 1
-                    // settleFirstPage 自己會把 hasMore 設成 true（「取滿一頁才可能還有」），
-                    // 所以取不滿時要**顯式覆蓋**成 false。
-                    _state.value
-                        .settleFirstPage(page.items, clock()) { it.id }
-                        .withHasMore(page.hasMore)
-                },
-                onFailure = { _state.value.failWith(it.asPortalException()) },
-            )
-        }
+        var request: Long? = null
+        if (!epoch.publishData(epoch.token()) {
+            if (activeReadToken == guard.current) return@publishData
+            request = guard.begin()
+            activeReadToken = request
+        }) return
+        refreshWindow(request ?: return)
     }
 
     override suspend fun selectBucket(bucket: PortalBillBucket) {
-        if (_bucket.value == bucket && _state.value is ListState.Content) return
-        inFlight.withLock {
-            // 切清單 = 換資料源，所以**先作廢在途回應**，再把列表清成「首次載入」。
-            // 不清空的話，切過去的一瞬間會顯示**上一個清單的內容** ——
-            // 那比空白更糟：使用者會以為「已辦裡有這些待辦」。
-            guard.begin()
+        var request: Long? = null
+        if (!epoch.publishData(epoch.token()) {
+            if (_bucket.value == bucket && activeReadToken == guard.current) return@publishData
+            rememberBucket()
+            request = guard.begin()
+            activeReadToken = request
             _bucket.value = bucket
-            loadedPage = 0
-            _state.value = ListState.FirstLoad
+            _state.value = snapshots[BucketKey(epoch.token(), bucket)] ?: ListState.FirstLoad
+        }) return
+        refreshWindow(request ?: return)
+    }
+
+    private suspend fun refreshWindow(token: Long) {
+        var bucket: PortalBillBucket? = null
+        var pages = 1
+        if (!guard.publish(token) {
+            bucket = _bucket.value
+            pages = (_state.value.metaOrNull?.page ?: 1).coerceAtLeast(1)
+            _state.value = settled(_state.value).startRefresh()
+        }) return
+        val selected = bucket ?: return
+        try {
+            val result = catchingActive {
+                val items = mutableListOf<PortalBill>()
+                var lastPage = 1
+                var hasMore = false
+                for (page in 1..pages) {
+                    if (!guard.isCurrent(token)) return
+                    val response = fetchPage(selected, page)
+                    if (!guard.isCurrent(token)) return
+                    items += response.items
+                    lastPage = page
+                    hasMore = response.hasMore
+                    if (!hasMore) break
+                }
+                val unique = items.distinctBy { it.id }
+                val meta = ListMeta(page = lastPage, hasMore = hasMore, updatedAtMillis = clock())
+                if (unique.isEmpty()) ListState.Empty(meta) else ListState.Content(unique, meta)
+            }
+            guard.publish(token) {
+                _state.value = result.fold(onSuccess = { it }, onFailure = { failed(it) })
+            }
+        } finally {
+            guard.publish(token) {
+                activeReadToken = null
+                _state.value = settled(_state.value)
+                rememberBucket()
+            }
         }
-        refresh()
     }
 
     override suspend fun loadMore() {
-        inFlight.withLock {
-            val current = _state.value
-            if (current !is ListState.Content) return
-            if (current.meta.hasMore == false) return
-            val token = guard.begin()
-            _state.value = current.startLoadMore()
-            val nextPage = loadedPage + 1
-            val result = runCatching { fetchPage(_bucket.value, page = nextPage) }
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = { page ->
-                    loadedPage = nextPage
-                    _state.value.appendPage(
-                        newItems = page.items,
-                        page = nextPage,
-                        hasMore = page.hasMore,
-                        nowMillis = clock(),
-                    ) { it.id }
-                },
-                onFailure = { _state.value.failWith(it.asPortalException()) },
-            )
-        }
+        if (!inFlight.tryLock()) return
+        try {
+            var request: Long? = null
+            var bucket: PortalBillBucket? = null
+            var previous: ListState.Content<PortalBill>? = null
+            if (!epoch.publishData(epoch.token()) {
+                val current = _state.value as? ListState.Content ?: return@publishData
+                if (!current.meta.hasMore || activeReadToken == guard.current) return@publishData
+                previous = current
+                bucket = _bucket.value
+                request = guard.begin()
+                activeReadToken = request
+                _state.value = current.startLoadMore()
+            }) return
+            val token = request ?: return
+            val content = previous ?: return
+            val selected = bucket ?: return
+            try {
+                val nextPage = content.meta.page + 1
+                val result = catchingActive { fetchPage(selected, nextPage) }
+                guard.publish(token) {
+                    _state.value = result.fold(
+                        onSuccess = { content.appendPage(it.items, nextPage, it.hasMore, clock()) { bill -> bill.id } },
+                        onFailure = { failed(it) },
+                    )
+                }
+            } finally {
+                guard.publish(token) {
+                    activeReadToken = null
+                    _state.value = settled(_state.value)
+                    rememberBucket()
+                }
+            }
+        } finally { inFlight.unlock() }
     }
 
     private class Page(val items: List<PortalBill>, val hasMore: Boolean)
 
     private suspend fun fetchPage(bucket: PortalBillBucket, page: Int): Page {
         val response = api.fetchBills(bucket = bucket, page = page)
-        val rows = response.listPayload.orEmpty().mapNotNull { it as? kotlinx.serialization.json.JsonObject }
+        val returned = response.listPayload.orEmpty()
+        val rows = returned.mapNotNull { it as? kotlinx.serialization.json.JsonObject }
         val items = PortalBillParser.parse(rows)
         // ★ 判「還有下一頁」用**返回條數 == 每頁條數**（門戶自己的判據），
         //   不用 `total` —— A2 已實測 total 不可靠（total=20 而 allrecords=192）。
-        val hasMore = rows.size >= PortalApi.BILL_PAGE_SIZE
+        val hasMore = returned.size >= PortalApi.BILL_PAGE_SIZE
         return Page(items, hasMore)
     }
 }

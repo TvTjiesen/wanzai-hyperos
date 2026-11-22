@@ -9,9 +9,8 @@ import org.junit.Test
  * 消息页的下拉刷新。
  *
  * 为什么值得钉：两个列表都要能刷新，但刷新**不能把列表清空**。
- * 仓库的 `selectGroup`/`refreshMessages` 会先把状态写成 `FirstLoad`，
- * 界面就闪一下「正在取得…」再冒出来 —— 手指往下拉的时候那是明显的抖动。
- * 所以刷新必须走 `startRefresh()`：有内容就原地保留，只把 refreshing 置起来。
+ * 切换分类的 `selectGroup` 会先把状态写成 `FirstLoad`，不能用它刷新当前分类。
+ * 当前分类刷新必须走 `startRefresh()`：有内容就原地保留，只把 refreshing 置起来。
  */
 class PullToRefreshWiringTest {
 
@@ -36,7 +35,11 @@ class PullToRefreshWiringTest {
     fun `刷新走 startRefresh 而不是把列表清成 FirstLoad`() {
         val s = text(repositories)
         assertTrue("仓库没有不清空内容的刷新入口", s.contains("suspend fun refreshKeepingContent()"))
-        assertTrue("刷新没有走 startRefresh（会闪白）", s.contains("_messages.value = _messages.value.startRefresh()"))
+        val messageRepo = s.substringAfter("class LivePortalMessageRepository(")
+        val refresh = messageRepo.substringAfter("override suspend fun refreshKeepingContent() {")
+            .substringBefore("override suspend fun loadMore()")
+        assertTrue("刷新没有走 startRefresh（会闪白）", refresh.contains(".startRefresh()"))
+        assertFalse("刷新不能把已有通知清成 FirstLoad", refresh.contains("ListState.FirstLoad"))
         assertTrue("新闻刷新没有走 startRefresh（会闪白）", s.contains("_news.value = _news.value.startRefresh()"))
     }
 

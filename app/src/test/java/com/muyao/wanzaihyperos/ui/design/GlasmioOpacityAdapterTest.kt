@@ -20,8 +20,11 @@ class GlasmioOpacityAdapterTest {
         val tokens = code("third_party/glasmio/glasmio-core/src/main/java/io/github/neoruaa/glasmio/core/GlassTokens.kt")
         assertTrue("Native default must remain unchanged", "val materialAlphaMultiplier: Float = 1f" in tokens)
         val theme = code("$app/design/glasmio/WanzaiGlasmioTheme.kt")
-        assertTrue("Live preference must reach the material appearance", "materialAlphaMultiplier = com.muyao.wanzaihyperos.ui.design.glass.glassOpacityFactor()" in theme)
-        assertTrue("Off and accessibility still take precedence", "reduceTransparency = UiPrefs.glassMode == \"off\" || !motion.glassIsTranslucent" in theme)
+        assertTrue("Live preference must reach the material appearance",
+            "materialAlphaMultiplier = appearanceSettings?.let { com.muyao.wanzaihyperos.ui.design.glass.opacityFactorFor(it.opacity.toFloat()) }" in theme)
+        assertTrue("Fallback must still read the persisted preference",
+            "?: com.muyao.wanzaihyperos.ui.design.glass.glassOpacityFactor()" in theme)
+        assertTrue("Off and accessibility still take precedence", "reduceTransparency = glassMode == \"off\" || !motion.glassIsTranslucent" in theme)
         assertEquals(1.38f, com.muyao.wanzaihyperos.ui.design.glass.opacityFactorFor(0f), 0.0001f)
         assertEquals(1f, com.muyao.wanzaihyperos.ui.design.glass.opacityFactorFor(50f), 0.0001f)
         assertEquals(0.62f, com.muyao.wanzaihyperos.ui.design.glass.opacityFactorFor(100f), 0.0001f)

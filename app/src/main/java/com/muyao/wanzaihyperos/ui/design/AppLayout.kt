@@ -32,6 +32,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import com.kyant.capsule.ContinuousRoundedRectangle
+import io.github.neoruaa.glasmio.glass.render.backdrops.rememberLayerBackdrop
+import io.github.neoruaa.glasmio.glass.render.backdrops.layerBackdrop
 import io.github.neoruaa.glasmio.ui.GlasmioGroupedList
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -203,7 +205,8 @@ fun InfoItem(
                 Text(
                     text = subtitle,
                     style = MiuixTheme.textStyles.footnote2,
-                    color = colors.onSurfaceVariantSummary,
+                    color = if (rememberMotion().highContrast) colors.onSurface else colors.onSurfaceVariantSummary,
+                    lineHeight = Type.caption * 1.45f,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -244,7 +247,8 @@ fun KeyValueRow(
         Text(
             text = label,
             style = MiuixTheme.textStyles.body2,
-            color = colors.onSurfaceVariantSummary,
+            color = if (rememberMotion().highContrast) colors.onSurface else colors.onSurfaceVariantSummary,
+            lineHeight = Type.body * 1.45f,
             modifier = Modifier.widthIn(min = labelWidth),
         )
         Text(
@@ -318,7 +322,8 @@ fun HintText(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         style = MiuixTheme.textStyles.footnote2,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        color = if (rememberMotion().highContrast) MiuixTheme.colorScheme.onBackground else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        lineHeight = Type.caption * 1.45f,
         modifier = modifier.padding(horizontal = Dims.tight),
     )
 }
@@ -505,26 +510,19 @@ fun SecondaryScaffold(
     scrollProgress: Float = 0f,
     content: @Composable (PaddingValues) -> Unit,
 ) {
+    val pageSource = rememberLayerBackdrop()
+    val pageDark = MiuixTheme.colorScheme.background.luminance() < .5f
     // 背景漸層交給 [ThemedScaffold] —— 不在這裡再寫一份。
     // 兩份的後果是「改了一處另一處沒改」，本專案已經吃過這種虧。
     ThemedScaffold(
         modifier = modifier,
         topBar = {
-            // ★ 頂欄 = 漸變紗 + 透明頂欄。
-            //
-            // 順序要緊：**紗在下、文字在上**。
-            // 反過來（文字先、紗後）會把標題糊掉。
             Box {
-                // 紗只覆蓋「欄身 + 尾巴」那一條，不是整頁。
-                // progress 為 0 時 [TopVeil] 內部直接 return，連合成層都不建。
                 TopVeil(
                     progress = scrollProgress,
-                    // 这一屏真正铺的底色 = `ThemedScaffold` 那支 `pageBrush` 的最上一站
-                    //（**不是**主题令牌；浅色主题 + 暗壁纸时两者不同）。
-                    backdrop = AppColors.pageTopColor(
-                        MiuixTheme.colorScheme.background.luminance() < 0.5f,
-                    ),
+                    source = pageSource,
                     modifier = Modifier.align(Alignment.TopCenter),
+                    heightDp = Dims.barHeight + 12.dp,
                 )
                 SmallTopAppBar(
                     title = title,
@@ -571,7 +569,14 @@ fun SecondaryScaffold(
                 )
             }
         },
-        content = content,
+        content = { padding ->
+            Box(Modifier.fillMaxSize().layerBackdrop(pageSource)) {
+                com.muyao.wanzaihyperos.ui.home.ThemePageBackground(Modifier.fillMaxSize(), pageDark)
+                androidx.compose.runtime.CompositionLocalProvider(
+                    io.github.neoruaa.glasmio.glass.LocalBlurBackdrop provides pageSource,
+                ) { content(padding) }
+            }
+        },
     )
 }
 /**

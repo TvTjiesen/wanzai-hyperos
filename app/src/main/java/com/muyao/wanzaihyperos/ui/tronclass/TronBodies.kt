@@ -1,15 +1,21 @@
 package com.muyao.wanzaihyperos.ui.tronclass
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.muyao.wanzaihyperos.data.ListMeta
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.tronclass.HomeworkRepository
 import com.muyao.wanzaihyperos.data.tronclass.RollcallRepository
@@ -46,24 +52,68 @@ fun TronHomeBody(
     onOpenCourse: (com.muyao.wanzaihyperos.data.tronclass.TronCourse) -> Unit,
     onOpenWeb: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenScanner: () -> Unit = onOpenRollcall,
+    onCourseBounds: (Int, LayoutCoordinates?) -> Unit = { _, _ -> },
 ) {
     val state by repository.state.collectAsState()
     val pageState = state.toPageState()
-    val home = (state as? ListState.Content)?.items?.firstOrNull()
+    val content = state as? ListState.Content
+    val home = content?.items?.firstOrNull()
+    val failures = listOfNotNull(
+        home?.coursesError?.let { TronSourceFailure("我的课程", it) },
+        home?.todosError?.let { TronSourceFailure("待交作业", it) },
+    )
+    val meta = content?.meta ?: (state as? ListState.Empty)?.meta ?: ListMeta()
+    val hasProblem = tronHasPartialProblem(meta, failures)
 
     if (home == null) {
-        StatePlaceholder(
-            state = pageState,
-            modifier = modifier,
-            onAction = onOpenWeb,
-            actionLabel = "改用网页版",
-        )
+        androidx.compose.foundation.layout.Column(modifier) {
+            com.muyao.wanzaihyperos.ui.design.ai.AiBall(
+                state = com.muyao.wanzaihyperos.ui.design.ai.AiBallStates.ofList(state),
+                diameter = 72.dp,
+                modifier = Modifier.padding(horizontal = Dims.screenH),
+                stateDescription = "学习资料状态",
+            )
+            CjhChipFlow(
+                modifier = Modifier.padding(horizontal = Dims.screenH),
+                chips = listOf(
+                    CjhChipSpec("学在课表", onOpenSchedule),
+                    CjhChipSpec("扫一扫", onOpenScanner),
+                    CjhChipSpec("签到站", onOpenRollcall),
+                ),
+            )
+            if (hasProblem) {
+                AppList(modifier = Modifier.weight(1f)) {
+                    item { TronPartialNotice(meta, failures, repository::refresh) }
+                    item { HintText("课程与待交尚未确认，不能据此判断没有数据。") }
+                }
+            } else {
+                StatePlaceholder(
+                    state = pageState,
+                    modifier = Modifier.weight(1f),
+                    onAction = onOpenWeb,
+                    actionLabel = "改用网页版",
+                )
+            }
+        }
         return
     }
 
     val scope = rememberCoroutineScope()
 
     AppList(modifier = modifier) {
+        if (hasProblem) {
+            item { TronPartialNotice(meta, failures, repository::refresh) }
+        }
+        item {
+            com.muyao.wanzaihyperos.ui.design.ai.AiBall(
+                state = if (hasProblem) com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Error
+                    else com.muyao.wanzaihyperos.ui.design.ai.AiBallStates.ofList(state),
+                diameter = 72.dp,
+                modifier = Modifier.padding(horizontal = Dims.screenH),
+                stateDescription = if (hasProblem) "部分学习资料尚未确认" else "学习资料状态",
+            )
+        }
         item {
             TronHero(
                 eyebrow = "LEARNING / 学在城院",
@@ -81,10 +131,11 @@ fun TronHomeBody(
                 modifier = Modifier.padding(horizontal = Dims.screenH),
                 chips = listOf(
                     CjhChipSpec("学在课表", onOpenSchedule),
+                    CjhChipSpec("扫一扫", onOpenScanner),
                     CjhChipSpec("签到站", onOpenRollcall),
                     CjhChipSpec(
                         "刷新",
-                        { scope.launch { runCatching { repository.refresh() } } },
+                        { scope.launch { tronRetryRead { repository.refresh() } } },
                     ),
                 ),
             )
@@ -94,13 +145,19 @@ fun TronHomeBody(
             TronSection(
                 text = "我的课程",
                 icon = MarkIcon.Course,
-                trailing = { SectionMeta("本学期 · ${home.courses.size} 门") },
+                trailing = {
+                    SectionMeta(if (home.coursesError != null) "课程尚未确认" else "本学期 · ${home.courses.size} 门")
+                },
             )
         }
         if (home.courses.isEmpty()) {
-            item { HintText("没有取到课程") }
+            item { HintText(tronSourceEmptyText("课程", home.coursesError, meta.hasRefreshProblem)) }
         } else {
             infoItems(home.courses, key = { it.id }) { c ->
+                DisposableEffect(c.id) {
+                    onDispose { onCourseBounds(c.id, null) }
+                }
+                Box(Modifier.onGloballyPositioned { onCourseBounds(c.id, it) }) {
                 InfoItem(
                     title = c.name,
                     subtitle = c.subtitle.ifBlank {
@@ -111,6 +168,7 @@ fun TronHomeBody(
                     },
                     onClick = { onOpenCourse(c) },
                 )
+                }
             }
         }
 
@@ -122,7 +180,7 @@ fun TronHomeBody(
             )
         }
         if (home.todos.isEmpty()) {
-            item { HintText("没有待交作业") }
+            item { HintText(tronSourceEmptyText("待交作业", home.todosError, meta.hasRefreshProblem)) }
         } else {
             infoItems(home.todos, key = { it.id }) { t ->
                 InfoItem(

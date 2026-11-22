@@ -140,8 +140,8 @@ data class TodoGroup(
         get() = when {
             failed -> "—"
             total != null -> if (hasMore) "$total+" else total.toString()
-            items.isNotEmpty() -> if (hasMore) "${items.size}+" else items.size.toString()
-            else -> "0"
+            items.isNotEmpty() -> "${items.size}+"
+            else -> "—"
         }
 }
 
@@ -161,7 +161,8 @@ data class TodoBoard(
      *   寧可說「總數未知」，也不報一個看起來精確其實偏小的數。
      */
     val knownTotal: Int?
-        get() = if (groups.any { it.failed || it.total == null || it.hasMore }) null
+        get() = if (groups.map { it.source }.toSet() != TodoSource.entries.toSet() ||
+            groups.any { it.failed || it.total == null || it.hasMore }) null
         else groups.sumOf { it.total ?: 0 }
 }
 

@@ -21,17 +21,18 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import com.muyao.wanzaihyperos.ui.design.rememberRevealGate
-import com.muyao.wanzaihyperos.ui.design.revealIn
+import com.muyao.wanzaihyperos.ui.design.rememberSpringListEntrance
+import com.muyao.wanzaihyperos.ui.design.springListEntrance
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import com.muyao.wanzaihyperos.ui.home.collectAsVisibleStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -70,6 +71,7 @@ import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.Mark
 import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.appGridColumns
 import com.muyao.wanzaihyperos.ui.design.markSemantics
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -108,7 +110,9 @@ fun AppsSectionPage(
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
-    val catalogState by graph.catalog.state.collectAsState()
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val gridColumns = appGridColumns(configuration.screenWidthDp, configuration.fontScale)
+    val catalogState by graph.catalog.state.collectAsVisibleStateWithLifecycle()
 
     // 「收起网页服务」是落盘的偏好。必须在这里（组合作用域）读：
     // `LazyColumn` 的构建 lambda 不是 @Composable，在那里读快照状态不会触发重组，
@@ -120,20 +124,24 @@ fun AppsSectionPage(
     //   这一页正是为了第 3 档，自己发了 `graph.frequent.refresh()`（第 1 轮 B-3 就要求改准）。
     //   订阅的是已经落到内存的那两份状态 + 第 3 档那份学校名单：
     // 首页本来就会拉签到与待办，切到这一页时它们要么有货、要么确实没有。
-    val rollcallState by graph.rollcall.state.collectAsState()
-    val todoState by graph.todoBoard.state.collectAsState()
+    val rollcallState by graph.rollcall.state.collectAsVisibleStateWithLifecycle()
+    val todoState by graph.todoBoard.state.collectAsVisibleStateWithLifecycle()
     // 学校门户自己那份「常用应用」（实测 14 条，走 `listappinfoex`）。
     // ★ 独立审计（v3 #7 第 1 轮）抓到：以前这一档是从**目录分组**里找名叫「常用应用」的那组，
     //   而目录的组名是「热门推荐」「校园生活」—— 那个名字只是 `listappinfoex` 的来源标签
     //   （`PortalParsers.FREQUENT_GROUP_NAME`），所以 `schoolFrequent` **恒为空**，
     //   注释里"学校统计出来的"成了假宣传。真数据源是 `graph.frequent`，现在接的是它。
-    val frequentState by graph.frequent.state.collectAsState()
+    val frequentState by graph.frequent.state.collectAsVisibleStateWithLifecycle()
     val pinnedIds = UiPrefs.commonPinned
     val openCounts = UiPrefs.appOpenCounts
     // 整理模式：点格子 = 钉/撤，不是打开。
     val tidy = UiPrefs.appsTidy.value
 
-    LaunchedEffect(Unit) {
+    val pageActive = com.muyao.wanzaihyperos.ui.design.liquid.LocalPageActive.current
+    val entryGate = com.muyao.wanzaihyperos.ui.main.LocalPageEntryGate.current
+    val entryOwner = com.muyao.wanzaihyperos.ui.main.LocalPageEntryOwner.current
+    LaunchedEffect(pageActive, entryOwner, entryGate) {
+        if (!pageActive || !entryGate.claim("apps", entryOwner)) return@LaunchedEffect
         // 应用级作用域，见 `AppGraph.fetch` / `ioScope` 的根因说明。
         graph.fetch { graph.catalog.refresh() }
         // v3 #7：默认算法第 3 档的数据源。以前只有已删的旧壳首页（`ui/home/HomePage.kt`，第 9 轮审计删除）会拉它，
@@ -146,13 +154,12 @@ fun AppsSectionPage(
     // 原本这一页自己画了一个「消息/应用/设置」的大字 —— 那就是双标题的来源：
     // 顶栏已经会显示板块名，页内再画一个，两处的字体/位置迟早不一致。
     val pilot = rememberPageChromePilot()
-    // 交错入场只在页面打开后头 700ms 内生效（见 revealIn 的 KDoc）。
-    val revealGate = rememberRevealGate()
+    val entrance = rememberSpringListEntrance(pilot.listState)
 
     // 小球跟着内容走（业主 2026-10-25「不要单独一个图层」）：挂在大标题左边，随列表滚。
     // 这一页唯一说得出口的状态就是应用清单本身：首次加载 / 失败 / 到手，
     // 三种都不许互相冒充（data/ListState.kt 的红线）。
-    val inFlight by graph.inFlight.collectAsState()
+    val inFlight by graph.inFlight.collectAsVisibleStateWithLifecycle()
     val ballState = AiBallStates.ofList(catalogState, fetching = inFlight > 0)
 
     // ── 英雄区副行（设计稿 v2.1：「79 个来源入口 · 原生与网页分开」）──────────
@@ -184,7 +191,11 @@ fun AppsSectionPage(
         // 顶栏小标题仍是「应用」，首屏大字换成「校园集合」—— 设计稿里这两句本来就不是同一句话。
         largeTitleItem(
             pilot = pilot,
-            leading = { AiBall(state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP, announceArrival = true) },
+            leading = { AiBall(
+                state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP, announceArrival = true,
+                stateDescription = com.muyao.wanzaihyperos.ui.common.listStateDescription("应用清单", catalogState) +
+                    if (heroSubtitle.isNotEmpty()) "\n$heroSubtitle；入口可见不等于业务系统在线。" else "",
+            ) },
             kicker = "校园服务",
             heroTitle = "校园集合",
             subtitle = heroSubtitle,
@@ -334,13 +345,15 @@ fun AppsSectionPage(
                                 }
                             }
                         }
-                        common.chunked(COMMON_LIMIT).forEachIndexed { rowIndex, rowApps ->
-                            item(
-                                key = "c-$rowIndex-" +
-                                    rowApps.joinToString("-") { it.app.id.toString() },
-                            ) {
+                        // 常用那一排的格数同时受「算法上限」和「大字/窄屏列数」约束：
+                        // 上限来自 COMMON_LIMIT，列数来自 appGridColumns —— 两者取小，
+                        // 写死任何一边都会让算法与界面分叉。
+                        val commonColumns = minOf(COMMON_LIMIT, gridColumns)
+                        common.chunked(commonColumns).forEachIndexed { rowIndex, rowApps ->
+                            val rowKey = "c-$rowIndex-" + rowApps.joinToString("-") { it.app.id.toString() }
+                            item(key = rowKey) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().springListEntrance(entrance, rowKey),
                                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                                 ) {
                                     rowApps.forEachIndexed { col, pick ->
@@ -349,8 +362,7 @@ fun AppsSectionPage(
                                         AppGridCell(
                                             app = app,
                                             modifier = Modifier
-                                                .weight(1f)
-                                                .revealIn(revealGate, rowIndex),
+                                                .weight(1f),
                                             web = !isNativeApp(app),
                                             featured = true,
                                             // 整理模式下把"已钉住"画成板上那种薄荷主格；
@@ -366,7 +378,7 @@ fun AppsSectionPage(
                                             },
                                         )
                                     }
-                                    repeat(COMMON_LIMIT - rowApps.size) { Spacer(Modifier.weight(1f)) }
+                                    repeat(commonColumns - rowApps.size) { Spacer(Modifier.weight(1f)) }
                                 }
                             }
                         }
@@ -393,21 +405,18 @@ fun AppsSectionPage(
                                 icon = MarkIcon.App,
                                 note = native.size.toString() + " 项")
                         }
-                        restNative.chunked(4).forEachIndexed { rowIndex, rowApps ->
-                            item(
-                                key = "n-$rowIndex-" +
-                                    rowApps.joinToString("-") { it.id.toString() },
-                            ) {
+                        restNative.chunked(gridColumns).forEachIndexed { rowIndex, rowApps ->
+                            val rowKey = "n-$rowIndex-" + rowApps.joinToString("-") { it.id.toString() }
+                            item(key = rowKey) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().springListEntrance(entrance, rowKey),
                                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                                 ) {
                                     rowApps.forEach { app ->
                                         AppGridCell(
                                             app = app,
                                             modifier = Modifier
-                                                .weight(1f)
-                                                .revealIn(revealGate, rowIndex),
+                                                .weight(1f),
                                             onClick = {
                                                 // ★ 独立审计（v3 #7 第 2 轮）抓到：整理模式下
                                                 //   这些非常用格子**照旧 recordAppOpen + 打开**，
@@ -422,7 +431,7 @@ fun AppsSectionPage(
                                             },
                                         )
                                     }
-                                    repeat(4 - rowApps.size) { Spacer(Modifier.weight(1f)) }
+                                    repeat(gridColumns - rowApps.size) { Spacer(Modifier.weight(1f)) }
                                 }
                             }
                         }
@@ -449,24 +458,23 @@ fun AppsSectionPage(
                                 },
                             )
                         }
-                        // 整张网页卡是一个 item：分隔线、圆角、描边只画一次；
-                        // 卡内是连续的单行列表，跨行 id 重复也不会撞 key。
-                        item(key = "web-card") {
-                            WebCard(
-                                apps = restWeb,
-                                collapsed = webCollapsed,
-                                onOpenApp = {
-                                    // 同上：整理模式里这一行也只是钉/撤，不打开、不计数。
-                                    if (tidy) {
-                                        UiPrefs.toggleCommonPinned(it.id)
-                                    } else {
-                                        UiPrefs.recordAppOpen(it.id)
-                                        onOpenApp(it)
+                        val shownWeb = if (webCollapsed) restWeb.take(1) else restWeb
+                        shownWeb.forEachIndexed { index, app ->
+                            val rowKey = "web-$index-${app.id}"
+                            item(key = rowKey) {
+                                Column(Modifier.springListEntrance(entrance, rowKey)) {
+                                    WebRow(app) {
+                                        if (tidy) UiPrefs.toggleCommonPinned(app.id)
+                                        else { UiPrefs.recordAppOpen(app.id); onOpenApp(app) }
                                     }
-                                },
-                                onExpand = { UiPrefs.saveAppsWebCollapsed(false) },
-                                onCollapse = { UiPrefs.saveAppsWebCollapsed(true) },
-                            )
+                                    if (index != shownWeb.lastIndex) WebDivider()
+                                }
+                            }
+                        }
+                        if (restWeb.size > 1) item(key = "web-expand") {
+                            AppearanceChoice(if (webCollapsed) "展开 ${restWeb.size} 个网页服务" else "收起网页服务", false) {
+                                UiPrefs.saveAppsWebCollapsed(!webCollapsed)
+                            }
                         }
                     }
                 }
@@ -514,16 +522,7 @@ fun AppsSectionPage(
             }
         }
 
-        // A-6：板上 `p.caption.muted` 的后半句。前半句「这里是依据文档构建的静态评审目录」
-        // 只在评审期成立（产品里目录来自门户动态返回），按清单去掉。原文 79 两侧无空格。
-        item(key = "catalog-footnote") {
-            Text(
-                text = "实际产品继续显示门户动态返回的全部项目，不以79为硬上限。",
-                fontSize = Type.caption,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
-            )
-        }
+
     }
 }
 
@@ -897,10 +896,9 @@ private fun AppGridCell(
         Spacer(Modifier.height(6.dp))
         Text(
             text = app.name,
-            // 板 `.app span{font-size:9px;color:var(--sub)}` × 0.886 ⇒ 8sp
-            fontSize = Type.micro,
+            fontSize = Type.caption,
             color = colors.onSurfaceVariantSummary,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
@@ -962,6 +960,7 @@ private fun WebRow(app: PortalApp, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clickable(onClickLabel = "打开${app.name}") { onClick() }
             .padding(horizontal = 10.6.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,

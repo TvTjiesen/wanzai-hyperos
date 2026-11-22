@@ -156,8 +156,8 @@ object AppColors {
         return t * t * (3f - 2f * t)
     }
 
-    /** 紗的起始死區（22%）。 */
-    const val VEIL_DEAD_ZONE = 0.22f
+    /** 顶栏开始显现的滚动死区（30%）。 */
+    const val VEIL_DEAD_ZONE = 0.30f
 
     /**
      * 紗的漸變形狀（四個 stop）。
@@ -257,8 +257,8 @@ object AppColors {
      *
      * @param isDark 由 `MiuixTheme.colorScheme.isDark` 或 controller 決定。
      */
-    fun pageBrush(isDark: Boolean): Brush {
-        val stops = background.stops(isDark)
+    fun pageBrush(isDark: Boolean, preset: BackgroundPreset = background): Brush {
+        val stops = preset.stops(isDark)
         // 斜向漸層（左上 → 右下）。
         //
         // ⚠️ 這裡**不能**用 `Offset.Infinite` ——

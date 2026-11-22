@@ -38,13 +38,38 @@ enum class SessionState {
  */
 abstract class StoredSession(protected val store: SecureStore) {
 
-    protected val lock = Any()
+    protected val lock: Any = store
 
     @Volatile
     protected var loaded: Boolean = false
 
     @Volatile
     private var loadFailed: Boolean = false
+
+    @Volatile
+    var replacementRevision: Long = 0L
+        private set
+
+    private var credentialGeneration = 0L
+
+    /** Call inside [lock] only after replacement credentials have committed. */
+    protected fun markCredentialReplacement() {
+        replacementRevision++
+        invalidateCredential()
+    }
+
+    protected fun invalidateCredential() { credentialGeneration++ }
+
+    fun credentialRevision(): Long = synchronized(lock) {
+        ensureLoaded()
+        credentialGeneration
+    }
+
+    fun publishCredential(revision: Long, action: () -> Unit): Boolean = synchronized(lock) {
+        if (credentialGeneration != revision) return false
+        action()
+        true
+    }
 
     private val listeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
 
@@ -79,6 +104,7 @@ abstract class StoredSession(protected val store: SecureStore) {
             try {
                 loadFrom(store)
                 loadFailed = false
+                lastStorageError = null
             } catch (error: HzcuException.Storage) {
                 // 只留错误码，绝不回显存储值；降级成 Unknown 由上层引导重新登录。
                 clearMemory()
@@ -89,7 +115,7 @@ abstract class StoredSession(protected val store: SecureStore) {
         }
     }
 
-    /** 最近一次存储读取失败的原因（只含 op + 错误码）。成功时为 null。 */
+    /** 最近一次存储读写失败的原因（只含 op + 错误码）。确认成功时为 null。 */
     @Volatile
     var lastStorageError: HzcuException.Storage? = null
         protected set
@@ -109,12 +135,31 @@ abstract class StoredSession(protected val store: SecureStore) {
         }
     }
 
+    /** 由子类在 [lock] 内调用；盘失败不改变内存凭据与 Loaded 状态。 */
+    protected fun persist(changes: Map<String, String?>) {
+        try {
+            store.writeAtomically(changes)
+        } catch (error: HzcuException.Storage) {
+            lastStorageError = error
+            throw error
+        }
+        if (!loadFailed) lastStorageError = null
+    }
+
     /** 标记「已加载且成功」，供子类的 save/clear 复用。 */
     protected fun markLoaded() {
         loaded = true
         loadFailed = false
         lastStorageError = null
     }
+
+    /** Only after the shared store confirmed an atomic multi-source deletion. */
+    fun acceptCommittedClear(notify: Boolean = true) {
+        synchronized(lock) { clearMemory(); markLoaded() }
+        if (notify) notifyListeners()
+    }
+
+    fun notifyCommittedChange() = notifyListeners()
 
     /** 不落盘的凭据一律走这里描述，**禁止把值拼进任何字符串**。 */
     protected fun describe(value: String?): String =

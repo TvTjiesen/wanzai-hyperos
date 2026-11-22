@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "points": 48,
+  "eyeCenterX": 0.145,
+  "states": [
+    {"state":"Sleep", "id":"00", "width":0.150, "height":0.014, "y":0.035},
+    {"state":"WakeUp", "id":"01", "width":0.095, "height":0.065, "y":0.015},
+    {"state":"Idle", "id":"02", "width":0.090, "height":0.125, "y":0.000},
+    {"state":"Curious", "id":"03", "width":0.112, "height":0.160, "y":-0.025},
+    {"state":"Focus", "id":"16", "width":0.130, "height":0.070, "y":0.000},
+    {"state":"Thinking", "id":"30", "width":0.102, "height":0.095, "y":-0.035},
+    {"state":"Busy", "id":"32", "width":0.115, "height":0.082, "y":0.020},
+    {"state":"Done", "id":"33", "width":0.145, "height":0.045, "y":-0.015},
+    {"state":"Error", "id":"34", "width":0.110, "height":0.145, "y":0.025},
+    {"state":"Waiting", "id":"35", "width":0.100, "height":0.135, "y":-0.012},
+    {"state":"Loading", "id":"36", "width":0.128, "height":0.155, "y":0.000},
+    {"state":"Searching", "id":"40", "width":0.085, "height":0.165, "y":-0.020}
+  ]
+}

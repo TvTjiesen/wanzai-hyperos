@@ -1,5 +1,10 @@
 package com.muyao.wanzaihyperos.net
 
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.ui.web.Cjh52Recovery
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -33,17 +38,10 @@ import kotlinx.serialization.json.put
 class Cjh52Client(
     private val transport: HzcuClient,
     private val tokenProvider: () -> String?,
-    /**
-     * 服务端明确说「这枚 token 不行」时回调一次。
-     *
-     * 存在的必要性：CJH52 的 token 有寿命，过期后服务端回 401。
-     * 如果本地会话不清，[com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate]
-     * 会继续认为 `isUsable = true` 而直接放行 —— 页面就永远停在
-     * 「登录状态已失效」，而它建议用户去重新登录，重新登录又不碰这枚旧码，
-     * 于是**再也恢复不了**。清掉它，下次进页闸门就会重新预热。
-     */
     private val onUnauthorized: () -> Unit = {},
+    private val epoch: AccountEpoch? = null,
 ) {
+    internal var recovery: Cjh52Recovery? = null
 
     /**
      * 调一个 CJH52 接口并解析它的信封。
@@ -51,23 +49,58 @@ class Cjh52Client(
      * @param path `/dapi/v2/...` 形式
      * @param body JSON 包体（该站的读接口几乎都是 POST + JSON）
      */
-    suspend fun post(path: String, body: JsonObject = buildJsonObject { }): JsonObject =
-        try {
-            postInner(path, body)
-        } catch (e: HzcuException.LoginExpired) {
-            // 清会话这一步必须在**抛出之前**做：上层拿到 LoginExpired 就只画错误页了。
-            runCatching { onUnauthorized() }
-            throw e
+    suspend fun post(path: String, body: JsonObject = buildJsonObject { }): JsonObject {
+        val ownerToken = epoch?.token()
+        currentCoroutineContext().ensureActive()
+        requireCurrent(ownerToken)
+        val coordinator = recovery
+        if (coordinator != null && ownerToken != null) {
+            val canReplay = path in RECOVERABLE_READS
+            var credential = coordinator.current(ownerToken)
+                ?: (if (canReplay) coordinator.ensure(ownerToken) else null)
+                ?: throw HzcuException.LoginExpired("柒合院会话未建立，请重新连接")
+            repeat(2) { attempt ->
+                try {
+                    return postInner(path, body, ownerToken, credential.token).also { requireCurrent(ownerToken) }
+                } catch (error: HzcuException.LoginExpired) {
+                    currentCoroutineContext().ensureActive()
+                    requireCurrent(ownerToken)
+                    coordinator.reject(ownerToken, credential, allowRecovery = canReplay && attempt == 0)
+                    if (!canReplay || attempt != 0) throw error
+                    credential = coordinator.ensure(ownerToken) ?: throw error
+                }
+            }
+            error("Unreachable")
         }
+        val used = tokenProvider()
+        return try {
+            postInner(path, body, ownerToken, used).also { requireCurrent(ownerToken) }
+        } catch (error: HzcuException.LoginExpired) {
+            currentCoroutineContext().ensureActive()
+            requireCurrent(ownerToken)
+            if (epoch == null) {
+                if (tokenProvider() == used) onUnauthorized()
+            } else if (ownerToken == null || !epoch.publish(ownerToken) {
+                if (tokenProvider() == used) onUnauthorized()
+            }) {
+                throw CancellationException("Account changed")
+            }
+            requireCurrent(ownerToken)
+            throw error
+        }
+    }
 
-    private suspend fun postInner(path: String, body: JsonObject): JsonObject {
-        val token = tokenProvider()
+    private fun requireCurrent(token: Long?) {
+        if (epoch != null && (token == null || !epoch.isCurrent(token))) throw CancellationException("Account changed")
+    }
+
+    private suspend fun postInner(path: String, body: JsonObject, ownerToken: Long?, token: String?): JsonObject {
+        requireCurrent(ownerToken)
         if (token.isNullOrEmpty()) {
             // 没有 token 就别发请求：实测无 Authorization 会回 code=401，
             // 提前抛出能给出更准确的文案（「需要先登录」而不是「没有权限」）。
             // ★ 日志只记「没有 token」这个事实，不记任何值 —— 便于排查
             //   「是没存进去，还是存了但没带上」这两件完全不同的事。
-            android.util.Log.w("WanzaiCjh52", "请求 $path 时没有 token（会话未建立）")
             throw HzcuException.LoginExpired("CJH52 会话未建立")
         }
 
@@ -86,21 +119,13 @@ class Cjh52Client(
                 ),
             ),
             context = "CJH52 $path",
+            maxAttempts = 1,
+            ownerToken = ownerToken,
         )
-        // ★ 只记「HTTP 状态 + token 指纹」，**不记 token 值、不记响应正文**
-        //   （正文可能含姓名/学号 —— 契约文档 §9 已点名）。
-        //
-        // 指纹 = 前 4 位 + 长度 + 简单校验和：**只够判断「两次拿到的是不是同一个」**，
-        // 不足以还原凭据（UUID 还剩 32 位未知）。
-        // 需要它是因为实测出现过一个必须区分的情形：
-        //   HTTP 401「身份驗證失敗」= 带的 token **被拒**（不是缺头）
-        //   code 401「沒有權限訪問接口」= **没带** token
-        // 两者含义完全不同，只靠状态码会误判。
-        android.util.Log.i(
-            "WanzaiCjh52",
-            "POST $path → HTTP ${raw.statusCode}（token ${fingerprint(token)}）",
-        )
+        currentCoroutineContext().ensureActive()
+        requireCurrent(ownerToken)
 
+        if (raw.statusCode == CODE_UNAUTHORIZED) throw HzcuException.LoginExpired("CJH52 会话已失效", details = raw.logShape)
         val bodyText = raw.body
         val root = runCatching {
             kotlinx.serialization.json.Json.parseToJsonElement(bodyText) as? JsonObject
@@ -117,14 +142,14 @@ class Cjh52Client(
             // 让上层走「重新登录」而不是「网络错误」（与门户的判据保持一致）。
             if (code == CODE_UNAUTHORIZED) {
                 throw HzcuException.LoginExpired(
-                    root["msg"].asStringOrNull() ?: "CJH52 会话已失效",
+                    safeRequestText(root["msg"].asStringOrNull() ?: "CJH52 会话已失效", 160),
                     details = raw.logShape,
                 )
             }
             // 其余业务码用服务端原文 —— 学校写的「查无用户」比我们翻译的准。
             throw HzcuException.Api(
                 code = code,
-                message = root["msg"].asStringOrNull() ?: "CJH52 请求失败（code=$code）",
+                message = safeRequestText(root["msg"].asStringOrNull() ?: "CJH52 请求失败（code=$code）", 160),
                 details = raw.logShape,
             )
         }
@@ -162,29 +187,30 @@ class Cjh52Client(
         "Cjh52Client(token=${tokenProvider()?.length ?: 0}字符)"
 
     companion object {
+        private val RECOVERABLE_READS = setOf(
+            HzcuEndpoints.CJH52_GET_USER_BY_TOKEN_PATH,
+            HzcuEndpoints.CJH52_CLASS_INFO_BY_UID_PATH,
+            HzcuEndpoints.CJH52_CURRENT_ATTENDANCE_PATH,
+            HzcuEndpoints.CJH52_NOTICE_READER_PATH,
+            HzcuEndpoints.CJH52_EXAM_LIST_PATH,
+            HzcuEndpoints.CJH52_KQA_SCORE_PATH,
+            HzcuEndpoints.CJH52_PHYSIQUE_PATH,
+            HzcuEndpoints.CJH52_CREDIT_PROGRESS_PATH,
+            HzcuEndpoints.CJH52_ACTIVITY_MONTHS_PATH,
+            HzcuEndpoints.CJH52_USER_INFO_PATH,
+            HzcuEndpoints.CJH52_CLAZZ_INFO_PATH,
+            "/dapi/v2/activity/lecture_service/find_lectures",
+        )
+
         /** 该站的「成功」。注意这是**业务码**，不是 HTTP 状态。 */
         const val CODE_OK = 200
 
         /** 该站表达「没权限 / 没登录」。 */
         const val CODE_UNAUTHORIZED = 401
 
-        /**
-         * 凭据指纹：**前 4 位 + 长度 + 校验和**。
-         *
-         * 用途：日志里判断「两次拿到的是不是同一个 token」，
-         * 而**不足以还原**它（UUID 还剩 32 位未知）。
-         *
-         * 为什么需要：实测存在两种**含义完全不同**的 401 ——
-         * - `HTTP 401` + `"身份驗證失敗"` = 带的 token 被服务端拒绝；
-         * - `HTTP 200` + `code 401` = 压根没带 token。
-         * 排查时必须能区分这两者，否则会把「凭据无效」误判成「漏了请求头」。
-         */
-        fun fingerprint(token: String?): String {
-            if (token.isNullOrEmpty()) return "<无>"
-            var sum = 0
-            for (ch in token) sum = (sum * 31 + ch.code) and 0x7FFFFFFF
-            return "${token.take(4)}…(len=${token.length},sum=$sum)"
-        }
+        /** Legacy diagnostic API; never exposes credential characters or a reusable checksum. */
+        fun fingerprint(token: String?): String =
+            if (token.isNullOrEmpty()) "<无>" else "<长度 ${token.length}>"
     }
 }
 

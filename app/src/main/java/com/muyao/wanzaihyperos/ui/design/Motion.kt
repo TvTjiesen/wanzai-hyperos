@@ -120,7 +120,7 @@ object MotionPrefs {
 
     /** 这块面**能不能**是半透明的。任何一条说不，就老实画实的。 */
     val glassIsTranslucent: Boolean
-        get() = !reduceTransparency && !highTextContrast
+        get() = !reduceTransparency
 
     /** @return 这一次有没有**真的**改变（理由和 `GlassTuning.refresh` 一样：无条件自增会害死重组）。 */
     fun refresh(context: Context): Boolean {
@@ -188,6 +188,7 @@ object MotionPrefs {
  */
 @Composable
 fun rememberMotion(): MotionFlags {
+    LocalMotionPreview.current?.let { return it }
     MotionPrefs.version   // ← 读它就是为了订阅
     return MotionFlags(
         animationsEnabled = MotionPrefs.animationsEnabled,
@@ -204,18 +205,20 @@ fun rememberMotion(): MotionFlags {
  *   （时长令牌：PRESS_MS/FAST_MS/…）。两个同名声明在同一个包里会直接编译不过，
  *   而且就算换了包，"Motion" 这个词在一个工程里指两样东西也是坑。
  */
+val LocalMotionPreview = androidx.compose.runtime.staticCompositionLocalOf<MotionFlags?> { null }
+
 data class MotionFlags(
     /** false = 用户在系统里把动画关掉了 ⇒ 只允许淡入淡出，不允许位移/弹簧。 */
     val animationsEnabled: Boolean = true,
     /** true = 玻璃一律退成"近实底 + 明确描边"，不做模糊与折射。 */
     val reduceTransparency: Boolean = false,
-    /** true = 系统开了高对比文字 ⇒ 同上。 */
+    /** 高对比只增强文字，不隐式关闭用户选定的材质。 */
     val highContrast: Boolean = false,
     /** true = 玻璃带折射（液态）；false = 只糊不折（设置页那格「磨砂」）。 */
     val refractsGlass: Boolean = true,
 ) {
     /** 这块面能不能是半透明的。 */
-    val glassIsTranslucent: Boolean get() = !reduceTransparency && !highContrast
+    val glassIsTranslucent: Boolean get() = !reduceTransparency
 
     /** 位移/弹簧类动效能不能用（淡入淡出仍然允许）。 */
     val canMove: Boolean get() = animationsEnabled

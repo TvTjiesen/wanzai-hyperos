@@ -445,6 +445,7 @@ fun GlasmioMenu(
     overlayContent: @Composable BoxScope.(() -> Float) -> Unit = {},
     anchor: @Composable (onClick: () -> Unit) -> Unit,
     morphFromAnchor: Boolean = true,
+    reduceMotion: Boolean = false,
     viewportBounds: Rect? = null,
     content: @Composable ColumnScope.(LayerBackdrop, close: () -> Unit) -> Unit,
 ) {
@@ -525,10 +526,14 @@ fun GlasmioMenu(
                     progress.snapTo(1f)
                     shadowAlpha.snapTo(1f)
                     liquidMotion.animateTo(true)
+                } else if (reduceMotion) launch {
+                    progress.snapTo(1f)
                 } else launch {
                     progress.animateTo(1f, DropdownMorphSpring)
                 }
-                if (morphSourceBounds == null) {
+                if (reduceMotion) {
+                    launch { menuAlpha.snapTo(1f) }
+                } else if (morphSourceBounds == null) {
                     // Native contentMorph sets the platform view alpha in the same spring
                     // transaction. Fade the whole surface once, including its shadow.
                     launch { menuAlpha.animateTo(1f, DropdownMorphSpring) }
@@ -547,7 +552,10 @@ fun GlasmioMenu(
                     }
                     liquidMotion.animateTo(false)
                 }
-                if (morphSourceBounds == null) {
+                if (reduceMotion) {
+                    launch { progress.snapTo(0f) }
+                    launch { menuAlpha.snapTo(0f) }
+                } else if (morphSourceBounds == null) {
                     launch { progress.animateTo(0f, DropdownMorphSpring) }
                     launch { menuAlpha.animateTo(0f, DropdownMorphSpring) }
                 } else {

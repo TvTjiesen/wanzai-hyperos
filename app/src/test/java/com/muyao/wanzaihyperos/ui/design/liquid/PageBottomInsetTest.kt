@@ -74,7 +74,7 @@ class PageBottomInsetTest {
         assertTrue("内距没有引用 native 同一条高：" + text, "NavigationBarSurfaceHeight + barBottomGap + 4.dp" in text)
         assertTrue("内距不得另写数字条高：" + text, !Regex("""(?:58|62|64|66)\.dp""").containsMatchIn(text))
         assertTrue("内距里没有 4.dp 收尾余量：" + text, text.contains("4.dp"))
-        assertTrue("隐藏底栏时必须仍留列表收尾空间", "if (!barVisible) return 44.dp" in text)
+        assertTrue("隐藏底栏时必须保留系统手势区并留24dp收尾空间", "if (!barVisible) return inset + 24.dp" in text)
     }
 
     @Test
@@ -89,7 +89,7 @@ class PageBottomInsetTest {
         val inset = insetBody()
         val bar = source("main/ui/design/liquid/GlassBar.kt")
         assertTrue("内容必须留系统inset加6dp，无系统栏时16dp", "if (inset > 0.dp) 6.dp + inset else 16.dp" in inset)
-        assertTrue("native adapter 必须使用同样空隙", "bottom = if (inset > 0.dp) inset + 6.dp else 16.dp" in bar)
+        assertTrue("native adapter 必须使用同样空隙", "bottom = if (custom.floatingNavigation) { if (inset > 0.dp) inset + 6.dp else 16.dp } else inset" in bar)
         assertTrue("native adapter 必须实际计算系统导航栏inset", "WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()" in bar)
     }
 

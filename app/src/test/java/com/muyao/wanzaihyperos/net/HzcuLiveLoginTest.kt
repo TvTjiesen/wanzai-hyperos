@@ -87,6 +87,7 @@ class HzcuLiveLoginTest {
          * 改成一个错的，然后表现为「明明密码没错却登不上」，极难排查。
          */
         fun readCredentials(): Pair<String, String>? {
+            LiveNetworkGate.requireOptIn()
             for (file in credentialsCandidates()) {
                 if (!file.isFile) continue
                 val lines = file.readLines()

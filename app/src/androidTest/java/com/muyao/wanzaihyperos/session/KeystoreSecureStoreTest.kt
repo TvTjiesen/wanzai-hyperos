@@ -1,15 +1,14 @@
 package com.muyao.wanzaihyperos.session
 
-import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import com.muyao.wanzaihyperos.net.HzcuException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -25,19 +24,16 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class KeystoreSecureStoreTest {
 
-    private val context: Context
-        get() = InstrumentationRegistry.getInstrumentation().targetContext
+    @get:Rule
+    val storage = IsolatedKeystoreFixture()
 
     private val testKey = "a2_instrumented_test_key"
 
-    private fun prefs() = context.getSharedPreferences(
-        EncryptedSecureStore.PREFS_FILE_NAME,
-        Context.MODE_PRIVATE,
-    )
+    private fun prefs() = storage.prefs
 
     @Test
     fun roundTripThroughAndroidKeystore() {
-        val store = EncryptedSecureStore.open(context)
+        val store = storage.store()
         store.delete(testKey)
 
         val value = "城院-access-token-0123456789abcdef"
@@ -52,7 +48,7 @@ class KeystoreSecureStoreTest {
     /** ★ 这条是红线的直接证据：落盘的不是明文。 */
     @Test
     fun storedValueIsNotPlaintext() {
-        val store = EncryptedSecureStore.open(context)
+        val store = storage.store()
         store.write(testKey, "PLAINTEXT-MARKER-1234567890")
 
         val raw = prefs().getString(testKey, null)
@@ -65,25 +61,29 @@ class KeystoreSecureStoreTest {
     /** 同一个明文两次加密必须不同 —— 否则说明 GCM 的 IV 被复用了。 */
     @Test
     fun newIvForEveryEncryption() {
-        val store = EncryptedSecureStore.open(context)
+        val store = storage.store()
         store.write(testKey, "same-value")
         val first = prefs().getString(testKey, null)
         store.write(testKey, "same-value")
         val second = prefs().getString(testKey, null)
 
-        assertNotEquals("两次加密结果相同 = IV 被复用，GCM 会泄漏明文", first, second)
+        assertFalse("两次加密结果相同 = IV 被复用，GCM 会泄漏明文", first == second)
         store.delete(testKey)
     }
 
     /** 篡改密文必须被 GCM 的认证标签挡下，并且坏数据被就地清掉。 */
     @Test
     fun tamperedCiphertextIsRejectedAndDropped() {
-        val store = EncryptedSecureStore.open(context)
+        val store = storage.store()
         store.write(testKey, "secret-value")
 
         val raw = prefs().getString(testKey, null)!!
-        val flipped = if (raw.last() == 'A') 'B' else 'A'
-        prefs().edit().putString(testKey, raw.dropLast(1) + flipped).commit()
+        val packed = android.util.Base64.decode(raw, android.util.Base64.NO_WRAP)
+        val ciphertextIndex = 1 + KeystoreCrypto.IV_LENGTH
+        assertTrue("合成密文必须包含非头部数据", packed.size > ciphertextIndex)
+        packed[ciphertextIndex] = (packed[ciphertextIndex].toInt() xor 1).toByte()
+        val tampered = android.util.Base64.encodeToString(packed, android.util.Base64.NO_WRAP)
+        assertTrue(prefs().edit().putString(testKey, tampered).commit())
 
         try {
             store.read(testKey)
@@ -91,7 +91,7 @@ class KeystoreSecureStoreTest {
         } catch (expected: HzcuException.Storage) {
             // 期望：认证失败
         }
-        assertNull("解不开的密文应当被就地清掉，否则每次读都抛", prefs().getString(testKey, null))
+        assertTrue("解不开的密文应当被就地清掉，否则每次读都抛", prefs().getString(testKey, null) == null)
     }
 
     /**
@@ -100,7 +100,7 @@ class KeystoreSecureStoreTest {
      */
     @Test
     fun ciphertextIsBoundToKeystoreKey() {
-        val crypto = KeystoreCrypto("a2_key_loss_alias")
+        val crypto = storage.isolatedCrypto("key_loss")
         crypto.deleteKeyForTesting()
 
         val encoded = crypto.encrypt("bound-to-this-device")
@@ -116,7 +116,7 @@ class KeystoreSecureStoreTest {
 
     @Test
     fun unicodeAndLongValuesSurviveRoundTrip() {
-        val store = EncryptedSecureStore.open(context)
+        val store = storage.store()
         val long = "学号2021001".repeat(200) + "★⚠️🚀"
 
         store.write(testKey, long)
@@ -127,7 +127,7 @@ class KeystoreSecureStoreTest {
 
     @Test
     fun multipleKeysAreIndependent() {
-        val store = EncryptedSecureStore.open(context)
+        val store = storage.store()
         val a = "a2_test_key_a"
         val b = "a2_test_key_b"
 

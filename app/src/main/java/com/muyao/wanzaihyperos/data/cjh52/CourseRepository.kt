@@ -1,10 +1,12 @@
 package com.muyao.wanzaihyperos.data.cjh52
 
 import com.muyao.wanzaihyperos.data.ListState
-import com.muyao.wanzaihyperos.data.failWith
 import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startRefresh
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
+import com.muyao.wanzaihyperos.data.repo.retainCachedOnFailure
 import com.muyao.wanzaihyperos.net.Cjh52Client
 import com.muyao.wanzaihyperos.net.HzcuEndpoints
 import com.muyao.wanzaihyperos.net.asIntOrNull
@@ -45,27 +47,37 @@ interface CourseRepository {
 class LiveCourseRepository(
     private val client: Cjh52Client,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : CourseRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<Course>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<Course>> = _state.asStateFlow()
 
     /** 單飛：同一時刻只允許一次請求，避免連點刷新打出兩倍流量。 */
     private val inFlight = Mutex()
 
+    init {
+        epoch.registerReset {
+            guard.invalidate()
+            _state.value = ListState.FirstLoad
+        }
+    }
+
     override suspend fun refresh() {
+        val token = guard.begin()
         inFlight.withLock {
-            val token = guard.begin()
-            _state.value = _state.value.startRefresh()
-            val result = runCatching { load() }
             if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = { courses ->
-                    _state.value.settleFirstPage(courses, clock()) { it.id }
-                },
-                onFailure = { _state.value.failWith(it.asCjh52Exception()) },
-            )
+            if (!guard.publish(token) { _state.value = _state.value.startRefresh() }) return
+            val result = catchingActive { load() }
+            guard.publish(token) {
+                _state.value = result.fold(
+                    onSuccess = { courses ->
+                        _state.value.settleFirstPage(courses, clock()) { it.id }
+                    },
+                    onFailure = { retainCachedOnFailure(_state.value, it.asCjh52Exception()) },
+                )
+            }
         }
     }
 

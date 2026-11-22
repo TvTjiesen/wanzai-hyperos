@@ -363,14 +363,22 @@ object UiPrefs {
      * 而它看起來像还能选。現在課表固定讀教務（學在城院那份只在教务取不到時當兜底），
      * 代碼裡就一處事實，不在偏好裡。
      */
+    var themeCustomization by mutableStateOf(ThemeCustomization())
+        private set
+
     private var loaded = false
 
     /** 冷启动时调一次（幂等）。 */
     fun load(context: Context) {
         holder = context.applicationContext
         if (loaded) return
+        runCatching {
+            com.muyao.wanzaihyperos.ui.home.AppearanceUndo.recoverInterrupted(context)
+            com.muyao.wanzaihyperos.ui.home.WallpaperLibrary.recoverPending(context)
+        }
         loaded = true
         val p = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        themeCustomization = runCatching { kotlinx.serialization.json.Json.decodeFromString<ThemeCustomization>(p.getString("theme_customization_v1", null) ?: "{}").validated() }.getOrDefault(ThemeCustomization())
         themeModeName = p.getString(KEY_THEME, "System") ?: "System"
         timetableGrid = p.getBoolean(KEY_TIMETABLE_GRID, false)
         reduceTransparency = p.getBoolean(KEY_REDUCE_TRANSPARENCY, false)
@@ -630,6 +638,17 @@ object UiPrefs {
             ?.apply()
     }
 
+    internal fun publishRecoveredWallpaper(panX: Float, panY: Float, zoom: Float, revision: Int) {
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            wallpaperPanX = panX
+            wallpaperPanY = panY
+            wallpaperZoom = zoom
+            wallpaperPreset = "album"
+            containerStyle = "designed"
+            wallpaperRev = revision
+        }
+    }
+
     /** 退回「居中裁满」—— 换壁纸时也要清掉，否则新图会沿用上一张的取景。 */
     fun resetWallpaperCrop() {
         saveWallpaperCrop(0f, 0f, 1f)
@@ -697,6 +716,58 @@ object UiPrefs {
     fun saveAppsWebCollapsed(collapsed: Boolean) {
         appsWebCollapsed = collapsed
         prefs()?.edit()?.putBoolean(KEY_APPS_WEB_COLLAPSED, collapsed)?.apply()
+    }
+
+    fun appearanceSnapshot() = AppearanceSettings(
+        themeModeName, backgroundPreset, glassMode, glassOpacity, containerStyle, wallpaperPreset,
+        wallpaperDim, wallpaperSoft, wallpaperPanX, wallpaperPanY, wallpaperZoom,
+        homeDensity, homeModules.toSet(), appsWebCollapsed, reduceTransparency, themeCustomization, reduceMotion, highContrastOverride,
+    )
+
+    /** Commit only appearance keys, then publish the same snapshot as one UI change. */
+    fun applyAppearance(value: AppearanceSettings, persistSynchronously: Boolean = false) {
+        val v = value.validated()
+        val editor = prefs()?.edit()
+            ?.putString(KEY_THEME, v.theme)
+            ?.putString(KEY_BACKGROUND_PRESET, v.background)
+            ?.putString(KEY_GLASS_MODE, v.glass)
+            ?.putInt(KEY_GLASS_OPACITY, v.opacity)
+            ?.putString(KEY_CONTAINER_STYLE, v.container)
+            ?.putString(KEY_WALLPAPER_PRESET, v.sky)
+            ?.putInt(KEY_WALLPAPER_DIM, v.dim)
+            ?.putInt(KEY_WALLPAPER_SOFT, v.soft)
+            ?.putFloat(KEY_WALLPAPER_PAN_X, v.panX)
+            ?.putFloat(KEY_WALLPAPER_PAN_Y, v.panY)
+            ?.putFloat(KEY_WALLPAPER_ZOOM, v.zoom)
+            ?.putString(KEY_HOME_DENSITY, v.density)
+            ?.putString(KEY_HOME_MODULES, HOME_MODULES.filter { it in v.modules }.joinToString(","))
+            ?.putInt(KEY_HOME_MODULES_REV, HOME_MODULES_REV)
+            ?.putBoolean(KEY_APPS_WEB_COLLAPSED, v.appsCollapsed)
+            ?.putBoolean(KEY_REDUCE_TRANSPARENCY, v.reduceTransparency)
+            ?.putBoolean(KEY_REDUCE_MOTION, v.reduceMotion)
+            ?.putBoolean(KEY_HIGH_CONTRAST, v.highContrast)
+            ?.putString("theme_customization_v1", kotlinx.serialization.json.Json.encodeToString(ThemeCustomization.serializer(), v.customization))
+        if (persistSynchronously) check(editor == null || editor.commit()) { "Appearance preferences could not be saved" }
+        else editor?.apply()
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            themeCustomization = v.customization
+            reduceMotion = v.reduceMotion; highContrastOverride = v.highContrast
+            themeModeName = v.theme
+            backgroundPreset = v.background
+            glassMode = v.glass
+            glassOpacity = v.opacity
+            containerStyle = v.container
+            wallpaperPreset = v.sky
+            wallpaperDim = v.dim
+            wallpaperSoft = v.soft
+            wallpaperPanX = v.panX; wallpaperPanY = v.panY; wallpaperZoom = v.zoom
+            homeDensity = v.density; homeModules = v.modules.toSet()
+            appsWebCollapsed = v.appsCollapsed; reduceTransparency = v.reduceTransparency
+        }
+        com.muyao.wanzaihyperos.ui.design.MotionPrefs.setReduceMotion(v.reduceMotion)
+        com.muyao.wanzaihyperos.ui.design.MotionPrefs.setHighContrastOverride(v.highContrast)
+        com.muyao.wanzaihyperos.ui.design.MotionPrefs.setReduceTransparency(v.reduceTransparency)
+        com.muyao.wanzaihyperos.ui.design.MotionPrefs.setRefractsGlass(v.glass == "liquid")
     }
 
     /** 外观页「恢复默认」：只重置外观，不碰周次锚点、节次时间这些学习数据。 */

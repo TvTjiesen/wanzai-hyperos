@@ -32,15 +32,19 @@ function defOf(id){ return GB.config.get(id); }
 
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
 
+var seedRaw = {};
+
 function buildRaw(){
-  var base = defOf(S.id);
+  var base = seedRaw[S.id];
   if (!base) return null;
-  var raw = clone(base.raw);
-  raw.id = "lab-cur";
-  raw.name = "调试中 · " + base.name;
-  raw.group = "custom";
+  var raw = clone(base);
+  raw.id = S.id; // Keep the state's safe silhouette when previewing parameter overrides.
+  if (S.override || S.animOff || S.animOnly != null) {
+    raw.name = "调试中 · " + base.name;
+    raw.group = "custom";
+  }
   if (S.animOff) raw.anims = [];
-  else if (S.animOnly != null) raw.anims = [clone(base.anims[S.animOnly])];
+  else if (S.animOnly != null) raw.anims = [clone((base.anims || [])[S.animOnly])];
   if (S.override) {
     raw.body = raw.body || {};
     raw.eyes = raw.eyes || {};
@@ -55,13 +59,10 @@ function buildRaw(){
 function applyFace(){
   var raw = buildRaw();
   if (!raw) { log("没有找到表情 " + S.id); return; }
-  if (S.override || S.animOff || S.animOnly != null) {
-    var r = GB.config.register(raw);
-    if (!r.ok) { log("注册失败：" + r.errors.join("；")); return; }
-    S.engine.setEmotion("lab-cur");
-  } else {
-    S.engine.setEmotion(S.id);
-  }
+  // Register the immutable seed again when overrides or animation filters are cleared.
+  var r = GB.config.register(raw);
+  if (!r.ok) { log("注册失败：" + r.errors.join("；")); return; }
+  S.engine.setEmotion(S.id);
   renderReadout();
   renderRaw();
 }
@@ -173,13 +174,12 @@ function renderAnims(){
 
 /* ---------- 参数页 ---------- */
 var BODY_RANGES = {
-  x:[-40,40,1], y:[-40,40,1], scale:[0.5,1.8,0.01], rotate:[-180,180,1],
-  breathe:[0,0.08,0.002], sketch:[0,1,0.02], zzz:[0,1,0.02], orbit:[0,1,0.02],
+  x:[-40,40,1], y:[-40,40,1], rotate:[-180,180,1],
+  sketch:[0,1,0.02], zzz:[0,1,0.02], orbit:[0,1,0.02],
   ribbons:[0,1,1], confetti:[0,1,0.05]
 };
 var EYE_RANGES = {
-  x:[-30,30,1], y:[-30,30,1], scaleX:[0.3,2,0.01], scaleY:[0.3,2,0.01],
-  rotate:[-90,90,1], open:[0,1.4,0.02], lookX:[-24,24,0.5], lookY:[-15,15,0.5]
+  open:[0.02,1.3,0.02], lookX:[-24,24,0.5], lookY:[-15,15,0.5]
 };
 
 function slider(kind, key, min, max, step, cur){
@@ -395,6 +395,7 @@ function bindGaze(){
 }
 
 function boot(){
+  GB.EMOTIONS.forEach(function(meta){ seedRaw[meta.id] = clone(defOf(meta.id).raw); });
   S.engine = GB.create(ballEl, {
     emotion: "02",
     color: "#F3F0E9",

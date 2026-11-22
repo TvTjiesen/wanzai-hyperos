@@ -7,17 +7,23 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.layout.onSizeChanged
+import com.muyao.wanzaihyperos.ui.home.redesign.homeDepthCanvasHeight
+import com.muyao.wanzaihyperos.ui.home.redesign.homeStatusDetail
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -25,17 +31,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.muyao.wanzaihyperos.ui.design.OdometerText
 import com.muyao.wanzaihyperos.ui.design.retrievalGlow
+import com.muyao.wanzaihyperos.ui.design.springListEntrance
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import com.muyao.wanzaihyperos.ui.home.collectAsVisibleStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
@@ -86,6 +95,12 @@ import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.LocalContainerStyle
 import com.muyao.wanzaihyperos.ui.design.ai.AiBall
 import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallPresentation
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallWork
+import com.muyao.wanzaihyperos.ui.design.ai.HomeBallFacts
+import com.muyao.wanzaihyperos.ui.design.ai.HomeBallSnapshot
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.glass.BarMaterial
 import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
@@ -111,16 +126,15 @@ import com.muyao.wanzaihyperos.ui.home.TileGlyph
 import com.muyao.wanzaihyperos.ui.home.TileIcon
 import com.muyao.wanzaihyperos.ui.home.cardBackdrops
 import com.muyao.wanzaihyperos.ui.home.cardInkWorstCase
-import com.muyao.wanzaihyperos.ui.home.decodeWallpaper
+import com.muyao.wanzaihyperos.ui.home.LoadedWallpaper
+import com.muyao.wanzaihyperos.ui.home.loadWallpaper
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import com.muyao.wanzaihyperos.ui.home.WallpaperStats
 import com.muyao.wanzaihyperos.ui.home.faceOverSky
-import com.muyao.wanzaihyperos.ui.home.TEXT_BACKING_ALPHA
-import com.muyao.wanzaihyperos.ui.home.textBackingOver
 import com.muyao.wanzaihyperos.ui.home.photoBackdrops
-import com.muyao.wanzaihyperos.ui.home.readableAccent
 import com.muyao.wanzaihyperos.ui.home.skyLookOf
 import com.muyao.wanzaihyperos.ui.home.wallpaperFile
-import com.muyao.wanzaihyperos.ui.home.wallpaperStats
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -165,44 +179,62 @@ fun HomeSectionPage(
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
 
-    val rollcallState by graph.rollcall.state.collectAsState()
-    val todoState by graph.todoBoard.state.collectAsState()
-    val scheduleState by graph.schedule.state.collectAsState()
-    val jwTimetableState by graph.jwTimetable.state.collectAsState()
-    val sztyState by graph.szty.state.collectAsState()
+    val rollcallState by graph.rollcall.state.collectAsVisibleStateWithLifecycle()
+    val todoState by graph.todoBoard.state.collectAsVisibleStateWithLifecycle()
+    val scheduleState by graph.schedule.state.collectAsVisibleStateWithLifecycle()
+    val jwTimetableState by graph.jwTimetable.state.collectAsVisibleStateWithLifecycle()
+    val sztyState by graph.szty.state.collectAsVisibleStateWithLifecycle()
     // 在途取数计数（第 0 期「球场」要它说「正在处理」）。壳里每开一笔 fetch 就 +1。
-    val inFlight by graph.inFlight.collectAsState()
+    val inFlight by graph.inFlight.collectAsVisibleStateWithLifecycle()
+    val homeReads = remember(graph) { MutableStateFlow(0) }
+    val activeHomeReads by homeReads.collectAsVisibleStateWithLifecycle()
+    suspend fun readHomeSource(action: suspend () -> Unit) {
+        homeReads.update { it + 1 }
+        try { action() } finally { homeReads.update { (it - 1).coerceAtLeast(0) } }
+    }
 
-    // 全部待办拍平成一串，交给 AiBallStates.hasUrgentTodo 判「24 小时内有没有到期」。
-    // 取不到（首屏 / 失败）时是空串 —— 那本来就**不知道有没有**，不该被说成「没有急事」；
-    // 但这条只影响 Focus 这张脸，而 loading/failure 的优先级都在它前面，所以不会撒谎。
+    val todoFacts = com.muyao.wanzaihyperos.ui.design.ai.HomeTaskFacts.ofTodos(todoState)
+    val rollcallFacts = com.muyao.wanzaihyperos.ui.design.ai.HomeTaskFacts.ofRollcalls(rollcallState)
     val allTodos = (todoState as? ListState.Content<TodoBoard>)?.items.orEmpty().flatMap { it.groups }.flatMap { it.items }
 
     // 每分鐘對一次時鐘：FocusCard 的「此刻」與時間線的「現在」都要跟著走。
     // 只是一個整數狀態，成本遠低於讓整頁每秒重組。
     var now by remember { mutableStateOf(LocalDateTime.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(60_000)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val activeHome = LocalPageActive.current
+    LaunchedEffect(lifecycleOwner, activeHome) {
+        if (!activeHome) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             now = LocalDateTime.now()
+            while (true) {
+                delay(60_000)
+                now = LocalDateTime.now()
+            }
         }
     }
 
     // ── 壁紙 ──────────────────────────────────────────────────────
     // 版本號一變就重讀檔案：外觀頁換圖/刪圖之後，首頁不能還畫著舊位圖。
-    val wallpaper = remember(UiPrefs.wallpaperRev, UiPrefs.wallpaperPreset) {
-        if (UiPrefs.wallpaperPreset == SkyPreset.ALBUM.id) {
-            decodeWallpaper(wallpaperFile(context))
-        } else {
-            null
-        }
-    }
-    // 相册档：**量一遍照片有多亮**（卡所在那一段 + 整张）。以前这里用 {黑, 白} 两端兜"未知"，
-    // 字色判据扩到三档之后会把垫色抬到 ≈0.9 ⇒ 液态与磨砂在卡上逐像素相同（实测 MAD 0.000）。
-    val photoStats = remember(wallpaper) { wallpaper?.let { wallpaperStats(it) } }
+    val desktop = com.muyao.wanzaihyperos.ui.design.LocalThemeCustomization.current.useSystemWallpaper
+    val desktopImage = com.muyao.wanzaihyperos.ui.home.LocalDesktopWallpaper.current
+    val wallpaperRev = UiPrefs.wallpaperRev
     val requestedPreset = SkyPreset.of(UiPrefs.wallpaperPreset)
-    // 相冊圖不在了（被清理/損壞）就退回自動天空，不顯示一塊破圖。
-    val preset = if (requestedPreset == SkyPreset.ALBUM && wallpaper == null) {
+    var loadedWallpaper by remember(wallpaperRev, requestedPreset) { mutableStateOf<LoadedWallpaper?>(null) }
+    var wallpaperLoading by remember(wallpaperRev, requestedPreset) { mutableStateOf(requestedPreset == SkyPreset.ALBUM) }
+    LaunchedEffect(context, wallpaperRev, requestedPreset, activeHome, desktop) {
+        if (!activeHome || desktop || requestedPreset != SkyPreset.ALBUM) return@LaunchedEffect
+        try {
+            val loaded = loadWallpaper(wallpaperFile(context))
+            currentCoroutineContext().ensureActive()
+            if (UiPrefs.wallpaperRev != wallpaperRev || SkyPreset.of(UiPrefs.wallpaperPreset) != requestedPreset) return@LaunchedEffect
+            loadedWallpaper = loaded
+        } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+        catch (_: Exception) { loadedWallpaper = null }
+        finally { wallpaperLoading = false }
+    }
+    val wallpaper = if (desktop) desktopImage?.bitmap else loadedWallpaper?.bitmap
+    val photoStats = if (desktop) desktopImage?.stats else loadedWallpaper?.stats
+    val preset = if (requestedPreset == SkyPreset.ALBUM && !wallpaperLoading && wallpaper == null) {
         SkyPreset.AUTO
     } else {
         requestedPreset
@@ -218,8 +250,9 @@ fun HomeSectionPage(
     // 也就是 `colors.background`。所以造一版「纸面天空」交给下游：
     // 三段色全取纸色（`cardBackdrops` 会据此喂出一整排纸色，焦点卡按它算字色），
     // 墨色取主题的 `onBackground`，状态栏图标跟随主题明暗。
+    val homeStickersVisible = com.muyao.wanzaihyperos.ui.design.LocalThemeCustomization.current.stickers.isNotEmpty()
     val bare = LocalContainerStyle.current == ContainerStyle.Bare
-    val look = if (bare) {
+    val look = if (bare || desktop) {
         SkyLook(
             top = colors.background,
             bottom = colors.background,
@@ -232,7 +265,6 @@ fun HomeSectionPage(
     } else {
         skyLookOf(preset, now.hour)
     }
-    LightStatusBarIcons(light = look.lightIcons)
 
     // ── 顶栏接线 ──────────────────────────────────────────────────
     //
@@ -241,6 +273,7 @@ fun HomeSectionPage(
     // 120dp 走完：大日期沉到栏下，顶栏接手「首页」小标题与纱。
     // 只让在场那一页写 progress —— 切换过渡期间离场页还在组合里。
     val listState = rememberLazyListState()
+    val entrance = com.muyao.wanzaihyperos.ui.design.rememberSpringListEntrance(listState)
     // 下拉刷新：首页四份数据（签到 / 待办 / 课表 / 未读）一次重取。
     // 走仓库自己的 refresh —— 它们都是「有内容就原地保留」，不会把卡片闪成骨架。
     var refreshing by remember { mutableStateOf(false) }
@@ -249,6 +282,15 @@ fun HomeSectionPage(
     // 用 miuix 自己的 state，不自己截 nestedScroll：`dragOffset` 与内容真实位移同源。
     val pullState = rememberPullToRefreshState()
     val chrome = LocalPageChrome.current
+    val statusMotion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
+    val animatedCollapse by androidx.compose.animation.core.animateFloatAsState(chrome.progress, label = "homeStatusCollapse")
+    val statusCollapse = if (statusMotion.canMove) animatedCollapse else chrome.progress
+    LightStatusBarIcons(
+        light = com.muyao.wanzaihyperos.ui.home.homeUsesLightStatusIcons(
+            look.lightIcons, chrome.sampledTopLuminance, statusCollapse,
+        ),
+        active = activeHome,
+    )
     val pageActive = LocalPageActive.current
     // ★ 第 9 轮审计必修 4：把"列表正在滚"报给玻璃层（滚动期降采样；见 `PageChrome.scrolling`）。
     //   只报滚动状态、不动进度 —— 进度那支仍然只由在场页写。
@@ -267,18 +309,21 @@ fun HomeSectionPage(
 
     // 「重新读取全部来源」：与首屏那一发同一批来源。抽成 lambda 是为了两处永远同步 ——
     // 以后加了新来源，只改这里一处，首屏与按钮都不会漏。只重取，不动偏好与登录态。
-    val refreshAll: () -> Unit = {
-        graph.fetch { graph.rollcall.refresh() }
-        graph.fetch { graph.todoBoard.refresh() }
-        graph.fetch { graph.schedule.refresh() }
+    val refreshSources: (Boolean) -> Unit = { force ->
+        graph.fetch { readHomeSource { graph.rollcall.refresh() } }
+        graph.fetch { readHomeSource { graph.todoBoard.refresh() } }
+        graph.fetch { readHomeSource { if (force) graph.schedule.refresh() else graph.schedule.refreshIfNeeded() } }
         graph.fetch { graph.szty.refresh() }
-        if (graph.jwEngine.isAttached) {
-            graph.fetch { graph.jwTimetable.refresh() }
+        if (graph.jwEngine.isAttached && (force || com.muyao.wanzaihyperos.data.schedule.shouldRefreshTimetable(jwTimetableState, System.currentTimeMillis()))) {
+            graph.fetch { readHomeSource { graph.jwTimetable.refresh() } }
         }
     }
 
-    LaunchedEffect(Unit) {
-        refreshAll()
+    val refreshAll: () -> Unit = { refreshSources(true) }
+    val entryGate = com.muyao.wanzaihyperos.ui.main.LocalPageEntryGate.current
+    val entryOwner = com.muyao.wanzaihyperos.ui.main.LocalPageEntryOwner.current
+    LaunchedEffect(pageActive, entryOwner, entryGate) {
+        if (pageActive && entryGate.claim("home", entryOwner)) refreshSources(false)
     }
 
     // ── 今天要用的那份課表 ────────────────────────────────────────
@@ -305,11 +350,12 @@ fun HomeSectionPage(
         now.toLocalDate().toEpochDay(),
     )
     val times = UiPrefs.periodTimes
+    val confirmedEmpty = slotPick.jwVerdict == JwVerdict.SETTLED_EMPTY
     val plan = if (daySlots.isNotEmpty()) {
         TodayPlan.of(slots = daySlots, week = week, now = now, times = times)
-    } else {
-        null
-    }
+    } else if (confirmedEmpty) {
+        TodayPlan("今天没有课", null, emptyList(), 0, clockKnown = true)
+    } else null
     val todaySlots = remember(daySlots, week, now.toLocalDate()) {
         if (week == null) {
             emptyList()
@@ -321,10 +367,33 @@ fun HomeSectionPage(
     }
     val openRollcall = (rollcallState as? ListState.Content)
         ?.items?.firstOrNull { !it.expired }
+    val homeObservation = HomeBallFacts.observe(
+        source = slotPick.source,
+        schedule = scheduleState,
+        jw = jwTimetableState,
+        todos = todoState,
+        rollcalls = rollcallState,
+        todoFacts = todoFacts,
+        rollcallFacts = rollcallFacts,
+        jwCrawling = graph.jwTimetable.isCrawling.value,
+        localRequests = activeHomeReads,
+        waiting = openRollcall?.let { it.unanswered && it.needsCamera } == true,
+    )
+    var homeBallSnapshot by remember(graph) { mutableStateOf(HomeBallSnapshot()) }
+    LaunchedEffect(homeObservation) {
+        homeBallSnapshot = homeBallSnapshot.observe(homeObservation)
+    }
+    // Publish the phase and its event revision together, before committing the remembered snapshot.
+    val currentBallSnapshot = homeBallSnapshot.observe(homeObservation)
+    val homeBallWork = AiBallWork(
+        phase = homeObservation.phase,
+        resultRevision = currentBallSnapshot.resultRevision,
+        errorRevision = currentBallSnapshot.errorRevision,
+    )
 
     // 「此刻」卡和時間線共用同一組状态 —— 两处各判一次，迟早一处说「正在取」、
     // 另一处说「今天没有课」，而后者是在替学校服务器撒谎。
-    val loading = daySlots.isEmpty() &&
+    val loading = !confirmedEmpty && daySlots.isEmpty() &&
         (slotPick.isWaiting || scheduleState is ListState.FirstLoad)
     // ★ 卡沿那圈流光只在「真有一笔请求在路上」时亮，而这件事必须是正面证据：
     //   教务那趟由 jwVerdictOf 认（它已经把 isCrawling 与 meta.refreshing 合起来了），
@@ -349,54 +418,21 @@ fun HomeSectionPage(
         else -> null
     }
     // 画得出课就不说"没取到"：同一屏不能一边说没取到、一边画出他下一节课。
-    val shownFailure = if (daySlots.isEmpty()) failure else null
+    val shownFailure = if (!confirmedEmpty && daySlots.isEmpty()) failure else null
     // 今天真没课时，时间线卡能说的只有「今天没有课」和「下一节：周一…」——
     // 这两句「此刻」卡已经说过了（2026-10-31 真机 dump 里两处逐字相同）。
     // 同一屏讲两遍同一件事，读起来像两个不同的结论；整周入口还在「看课表」和底栏课表页上。
     val timelineHasNothingToSay = !loading && shownFailure == null &&
         week != null && todaySlots.isEmpty()
 
+    val depthTopInset = iosHeaderInset() + 2.dp
+    var depthCardTop by remember { mutableStateOf(180f) }
+    var depthCardHeight by remember { mutableStateOf(200f) }
     GlasmioBackdropHost(
         modifier = modifier.fillMaxSize(),
         sampledContent = {
-            Box(Modifier.fillMaxSize().background(colors.background))
-            // 板 `.atmos{height:220px}` × 0.886 ⇒ **195dp**。
-            // ★ 这句以前写的是「浅色列**不做渐变收口**…硬切」—— **与实物相反**（第 6 轮必修 5）：
-            //   浅色档现在既有 `fadeStart = skyBottom − 0.10h` 那段 fade，也有 24dp+4px 的底边收口
-            //   （`HomeSky.kt:299` / `:441-450`）。板上确实只有 dark 那一支铺 ::after，
-            //   但我们这一版是照第 2/3 轮审计的接缝判据（切线 |ΔL| ≤0.12）加的，不是照板加的。
-            //   板上 `body.dark .atmos::after` 才铺一层
-            // 到 --phone 的渐变，浅色那版是**硬切**，切线正好藏在「此刻」卡的
-            // 上半身里（`.focus-wrap{margin-top:-40px}` ⇒ 卡往上压 35dp）。
-            // 山棱带（99dp）铺在切线上方，所以那条边读起来是「地平线」而不是一刀。
-            // 256dp 而不是板换算的 195dp。两个理由叠在一起：
-            //  ①（板 `.focus-wrap{margin-top:-40px}`）`HomeSky` 内部只画到 `skyBottom = 0.80h`，
-            //    要让天空真正的底边落在「此刻」卡（顶边 ≈167dp）之上，卡的玻璃底下才采得到天空
-            //    —— 没有这段重叠，垫的是纸面，`surfaceAlpha` 再对也没用
-            //    （复评 2026-10-21：「卡的玻璃底下必须是可采样的天空」）。
-            //  ②（业主 2026-10-25「首页壁纸的范围可以稍微靠下一点点，大概是卡片的上三分之一吧」）
-            //    真机 560dpi 实测：卡顶 y=505、卡高 586 ⇒ 上三分之一 = y≈700。
-            //    天空 alpha 收 0 的行 = `skyFadeStart + 0.9167 × band` = `0.78h`
-            //    （`0.9167` 来自 featherStops 的透明支在 t=0.88 处收 0，即第 11/12 站）。
-            //    250dp 时它 = 0.78×875 = **682px**；真机逐列剖面 x=20 到 y≈680 就完全淡成纸色，
-            //    对得上 —— 只压到卡高的 29%。
-            //    解 0.78h = 700 ⇒ h ≈ 897px ⇒ 当时取 256dp（896px），实际收 0 落 698px。
-            // ★ 业主 2026-11-01「壁纸的显示范围也可以大一点」⇒ 基线抬到 **288dp**（1008px）：
-            //   alpha 收 0 的行 = `0.78h` ≈ **785px**，「此刻」卡顶边 ≈737px ⇒ 卡的上半身仍压在
-            //   天空里（卡的玻璃采得到照片），照片可见面积比 256dp 多 112px。
-            //   三个比例 `0.80 / 0.24 / 0.9167` 一个没动 —— 改的只是画布高度。
-            // 「今日课程」开着时用 288dp；关着时这一屏没有那张卡，切线会从「要处理」那行中间            // 穿过去（复评 2026-10-21 量的就是这个），所以天空收到 hero 自己的底缘。
-            // 业主 2026-11-01 第 2 条：「壁纸做成实时模糊」+「壁纸的显示范围也可以大一点」+
-            // 「下拉过后就是一坨白色」。三件事在这里一起落：
-            //  ① 基线 256dp → **288dp**（1008px）：照片多露 112px，淡出带整体下移。
-            //  ② 下拉时盒高跟着 `dragOffset` 一起长，照片底边永远压在「此刻」卡的上面 ——
-            //     纸面不再从照片底下翻出来。盒变高不会拉伸照片：`drawCoverBitmap` 的 scale
-            //     由**宽度**定（1216/3024 = 0.402 远大于 1008/4032 = 0.25），加高只是多露下半部。
-            //  ③ 同一份下拉量驱动一层实时模糊：静止时半径 0，`Modifier.blur` 在 0dp 上不建 RenderEffect
-            //     ⇒ 不占 GPU；拉起来才模糊，松手自己回 0。
-            val skyBaseHeight = if ("courses" in UiPrefs.homeModules) 288.dp else 150.dp
-            // `0.80` 是 `skyBottomY` 的比例：画布长高 1px，照片底边只下移 0.8px，
-            // 所以补偿内容那一段位移要除以它（下拉 1px ⇒ 盒高 1/0.8 = 1.25px）。
+            com.muyao.wanzaihyperos.ui.home.ThemePageBackground(Modifier.fillMaxSize(), colors.background.luminance() < .5f)
+            val skyBaseHeight = homeDepthCanvasHeight(depthCardTop, depthCardHeight, preset == SkyPreset.ALBUM && wallpaper != null).dp
             val pullExtra = with(LocalDensity.current) {
                 (pullState.dragOffset * PULL_SKY_GAIN).toDp()
             }.coerceIn(0.dp, PULL_SKY_MAX_EXTRA)
@@ -423,29 +459,14 @@ fun HomeSectionPage(
             }
             // 容器背景两版：`Designed` 画页内天光；`Bare` 不画，把根上那层整页渐变直接透上来。
             // 注意只撤「天光这一层」，球、大日期、焦点卡一个都不动 —— 那是他要的上半屏。
-            val showSky = LocalContainerStyle.current == ContainerStyle.Designed
+            val showSky = LocalContainerStyle.current == ContainerStyle.Designed && !desktop
             if (showSky) {
                 Box(Modifier.fillMaxWidth().height(skyBaseHeight + pullExtra)) {
                     drawSky(Modifier.fillMaxSize())
                     if (skyBlur > 0.dp) {
                         drawSky(Modifier.fillMaxSize().blur(skyBlur, BlurredEdgeTreatment.Unbounded))
                     }
-                    if (colors.background.luminance() < 0.5f) {
-                        Box(
-                            Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .height(67.dp)
-                                .background(
-                                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                                        // 板 ::after：rgba(16,18,19,0) 0% → .55 46% → --phone 100%
-                                        0f to Color.Transparent,
-                                        0.46f to colors.background.copy(alpha = 0.55f),
-                                        1f to colors.background,
-                                    ),
-                                ),
-                        )
-                    }
+
                 }
             }
         },
@@ -463,7 +484,7 @@ fun HomeSectionPage(
         //  · urgentTodo：24 小时内到期、且**真的解析出截止时刻**的待办
         //    （TodoBoard.groups[].items[].sortTimeMillis，null 的不算）。
         //  · hour：now 已经是每 60s 自刷的那个时钟，不另取一次。
-        //  · fetching：graph.inFlight 的真实在途计数，不是「定时器在跑」。
+        //  · fetching：只看首页相关来源的实际读取，不借其他页面的全局忙碌。
         val ballState = AiBallStates.ofHome(
             plan = plan,
             loading = loading,
@@ -476,7 +497,9 @@ fun HomeSectionPage(
                 items = allTodos,
                 nowMillis = System.currentTimeMillis(),
             ),
-            fetching = inFlight > 0,
+            fetching = homeObservation.reading,
+            todoFacts = todoFacts,
+            rollcallFacts = rollcallFacts,
             // 在调用点就地算：这段统计在上面已经算过一遍，但 ballState 在这之前就要用。
             minutesToNextClass = todaySlots
                 .mapNotNull { parseClock(PeriodClock.startOf(times, it.periodStart)) }
@@ -502,15 +525,17 @@ fun HomeSectionPage(
             isRefreshing = refreshing,
             onRefresh = {
                 refreshing = true
-                scope.launch {
+                graph.fetch {
                     try {
                         // 教务那份要那只隐藏 WebView 在才发（同首刷的判据）；没挂载就不发，别白失败。
-                        if (graph.jwEngine.isAttached) { runCatching { graph.jwTimetable.refresh() } }
-                        runCatching { graph.schedule.refresh() }
-                        runCatching { graph.todoBoard.refresh() }
-                        runCatching { graph.rollcall.refresh() }
-                        runCatching { graph.szty.refresh() }
-                        runCatching { graph.unread.refresh(force = true) }
+                        readHomeSource {
+                            if (graph.jwEngine.isAttached) { com.muyao.wanzaihyperos.data.repo.catchingActive { graph.jwTimetable.refresh() } }
+                            com.muyao.wanzaihyperos.data.repo.catchingActive { graph.schedule.refresh() }
+                            com.muyao.wanzaihyperos.data.repo.catchingActive { graph.todoBoard.refresh() }
+                            com.muyao.wanzaihyperos.data.repo.catchingActive { graph.rollcall.refresh() }
+                        }
+                        com.muyao.wanzaihyperos.data.repo.catchingActive { graph.szty.refresh() }
+                        com.muyao.wanzaihyperos.data.repo.catchingActive { graph.unread.refresh(force = true) }
                     } finally {
                         refreshing = false
                     }
@@ -531,9 +556,10 @@ fun HomeSectionPage(
                     top = iosHeaderInset() + 2.dp,
                     bottom = pageBottomInsetDp(LocalNavBarVisible.current) + 24.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 20.dp),
+                verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 16.dp),
             ) {
                 item(key = "hero") {
+                    Box(Modifier.then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "hero")) {
                     HomeSkyHeader(
                         now = now,
                         look = look,
@@ -547,38 +573,51 @@ fun HomeSectionPage(
                         jwVerdict = slotPick.jwVerdict,
                         jwIsStale = (jwTimetableState as? ListState.Content)?.meta?.stale == true,
                         ballState = ballState,
+                        ballPresentation = AiBallPresentation.Home,
+                        ballWork = homeBallWork,
+                        taskFactText = AiBallStates.homeFactText(ballState, todoFacts, rollcallFacts),
+                        onCardGeometry = { top, height ->
+                            depthCardTop = depthTopInset.value + top
+                            depthCardHeight = height
+                        },
+                        courseEnabled = "courses" in UiPrefs.homeModules,
+                        courseContent = { status ->
+                            FocusGlassCard(
+                                backdrop = skyBackdrop,
+                                compact = compact,
+                                plan = plan,
+                                focus = focus,
+                                loading = loading,
+                                fetching = fetchingSchedule,
+                                shownFailure = shownFailure,
+                                week = week,
+                                now = now,
+                                look = look,
+                                skyIsPhoto = preset == SkyPreset.ALBUM,
+                                photoStats = if (preset == SkyPreset.ALBUM) photoStats else null,
+                                openRollcall = openRollcall,
+                                onClick = onOpenTimetable,
+                                onOpenRollcall = onOpenRollcall,
+                                statusText = status,
+                                ballState = ballState,
+                                taskFactText = AiBallStates.homeFactText(ballState, todoFacts, rollcallFacts),
+                            )
+                        },
                     )
-                }
-
-                if ("courses" in UiPrefs.homeModules) {
-                    item(key = "focus") {
-                        FocusGlassCard(
-                            backdrop = skyBackdrop,
-                            compact = compact,
-                            plan = plan,
-                            focus = focus,
-                            loading = loading,
-                            fetching = fetchingSchedule,
-                            // 同一条规矩：这一屏画得出课就不说「没取到」（三张卡共用 shownFailure）。
-                            shownFailure = shownFailure,
-                            week = week,
-                            now = now,
-                            // 字色按**卡面实际铺出来的亮度**算（天空 + 这一档的垫色），
-                            // 不再是"主题墨色 or 天空墨色"二选一 —— 见 `FocusGlassCard` 上面那段。
-                            look = look,
-                            skyIsPhoto = preset == SkyPreset.ALBUM,
-                            photoStats = if (preset == SkyPreset.ALBUM) photoStats else null,
-                            openRollcall = openRollcall,
-                            onClick = onOpenTimetable,
-                            onOpenRollcall = onOpenRollcall,
-                        )
                     }
-
                 }
 
+                if (homeStickersVisible) {
+                    item(key = "decorations") {
+                        com.muyao.wanzaihyperos.ui.home.HomeStickers(
+                            Modifier.fillMaxWidth().height(160.dp).then(if (statusMotion.canMove) Modifier.animateItem() else Modifier))
+                    }
+                }
                 item(key = "quick-actions") {
                     HomeQuickActions(
+                        backdrop = skyBackdrop,
                         compact = compact,
+                        modifier = Modifier.then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "quick-actions"),
                         onOpenTimetable = onOpenTimetable,
                         onOpenJw = onOpenJw,
                         onOpenMessages = onOpenMessages,
@@ -586,9 +625,62 @@ fun HomeSectionPage(
                     )
                 }
 
+                if ("todos" in UiPrefs.homeModules) {
+                    item(key = "todos") {
+                        HomeDashboardGroup(compact, modifier = Modifier.then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "todos")) {
+                        TodoSummaryCard(
+                            state = todoState,
+                            // 本页一进来就发了这一发（见上面那个 LaunchedEffect），所以：
+                            // 还没有任何结论 + 壳里真有一笔在途 ⇒ 这一栏确实在等。
+                            fetching = todoState is ListState.FirstLoad && inFlight > 0,
+                            onClick = onOpenTodos,
+                        )
+                        }
+                    }
+                }
+
+                if ("rollcall" in UiPrefs.homeModules || "szty" in UiPrefs.homeModules) {
+                    item(key = "services") {
+                        BoxWithConstraints(Modifier.fillMaxWidth().then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "services")) {
+                            val paired = "rollcall" in UiPrefs.homeModules && "szty" in UiPrefs.homeModules &&
+                                maxWidth >= 304.dp && LocalDensity.current.fontScale < 1.3f
+                            val services: @Composable (Boolean) -> Unit = { narrow ->
+                                if ("rollcall" in UiPrefs.homeModules) {
+                                    HomeDashboardGroup(compact, narrow = narrow) {
+                                        RollcallSection(open = openRollcall, onOpen = onOpenRollcall, narrow = narrow)
+                                    }
+                                }
+                                if ("szty" in UiPrefs.homeModules) {
+                                    HomeDashboardGroup(compact, narrow = narrow) {
+                                        RunSummaryCard(state = sztyState,
+                                            fetching = sztyState is ListState.FirstLoad && inFlight > 0,
+                                            onClick = onOpenSzty, narrow = narrow)
+                                    }
+                                }
+                            }
+                            if (paired) {
+                                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    HomeDashboardGroup(compact, modifier = Modifier.weight(1f).fillMaxHeight(), narrow = true, stretch = true) {
+                                        RollcallSection(open = openRollcall, onOpen = onOpenRollcall, narrow = true)
+                                    }
+                                    HomeDashboardGroup(compact, modifier = Modifier.weight(1f).fillMaxHeight(), narrow = true, stretch = true) {
+                                        RunSummaryCard(state = sztyState,
+                                            fetching = sztyState is ListState.FirstLoad && inFlight > 0,
+                                            onClick = onOpenSzty, narrow = true)
+                                    }
+                                }
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 16.dp)) {
+                                    services(false)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if ("courses" in UiPrefs.homeModules) {
                     if (!timelineHasNothingToSay) item(key = "timeline") {
-                        HomeDashboardGroup(compact) {
+                        HomeDashboardGroup(compact, modifier = Modifier.then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "timeline")) {
                             TodayTimelineCard(
                                 slots = todaySlots,
                                 week = week,
@@ -602,60 +694,6 @@ fun HomeSectionPage(
                     }
                 }
 
-                // 有课板块时「去签到」已经在「此刻」卡里，不再重复一张横幅；
-                // 只有他把「今日课程」模块关掉时，这里才单独兜住签到入口。
-                // 稿 `home` 在焦点卡下面单独有一格「课堂签到」+「进入」+ 一句说明。
-                // 原来这里只在「今日课程」模块关掉时才出现（当时怕和「此刻」卡里的签到重复）。
-                // 但两件事不是一件事：卡里那是「下一节课」，这里是「现在有没有要签的到」。
-                // 所以改成只要开着签到模块就有这一格；没有进行中的签到时如实说没有。
-                if ("rollcall" in UiPrefs.homeModules) {
-                    item(key = "rollcall-open") {
-                        HomeDashboardGroup(compact) {
-                        RollcallSection(
-                            open = openRollcall,
-                            onOpen = onOpenRollcall,
-                        )
-                        }
-                    }
-                }
-
-                if ("todos" in UiPrefs.homeModules) {
-                    item(key = "todos") {
-                        HomeDashboardGroup(compact) {
-                        TodoSummaryCard(
-                            state = todoState,
-                            // 本页一进来就发了这一发（见上面那个 LaunchedEffect），所以：
-                            // 还没有任何结论 + 壳里真有一笔在途 ⇒ 这一栏确实在等。
-                            fetching = todoState is ListState.FirstLoad && inFlight > 0,
-                            onClick = onOpenTodos,
-                        )
-                        }
-                    }
-                }
-
-                if ("szty" in UiPrefs.homeModules) {
-                    item(key = "szty") {
-                        HomeDashboardGroup(compact) {
-                        RunSummaryCard(
-                            state = sztyState,
-                            fetching = sztyState is ListState.FirstLoad && inFlight > 0,
-                            onClick = onOpenSzty,
-                        )
-                        }
-                    }
-                }
-
-                // 板子：课表 / 消息 / 应用交给底栏，首页不再重复一排快捷入口。
-                // 签到入口在「此刻」卡里（有签到才出现），待办在「要处理」里。
-
-                // 稿 `home` 页尾两个按钮：先给「去看消息」，再给「重取一遍」。
-                // 第二个不是下拉刷新的替代品 —— 下拉刷的是这一页，这个是四个来源都重取，
-                // 因为首页最常出的问题是「某一份没取到」，而那一份未必归这张卡管。
-                item(key = "bottom-actions") {
-                    WanzaiButton(onClick = refreshAll, modifier = Modifier.fillMaxWidth()) {
-                        androidx.compose.material3.Text("重新读取全部来源")
-                    }
-                }
                 item(key = "tail") { Spacer(Modifier.height(8.dp)) }
             }
         }
@@ -679,6 +717,14 @@ fun HomeSectionPage(
                     color = look.ink.copy(alpha = 0.82f),
                 )
                 Spacer(Modifier.weight(1f))
+                Text(
+                    text = "↻",
+                    fontSize = 25.sp,
+                    color = look.ink,
+                    modifier = Modifier.size(44.dp)
+                        .clickable(enabled = activeHomeReads == 0, onClickLabel = "刷新首页", onClick = refreshAll)
+                        .padding(start = 10.dp, top = 7.dp),
+                )
                 if (week != null) {
                     Text(
                         text = "第 $week 周",
@@ -707,10 +753,11 @@ fun HomeSectionPage(
  * 只在本頁活著時改，離場還原成它進來前的值（通常是主題給的那一份）。
  */
 @Composable
-private fun LightStatusBarIcons(light: Boolean) {
+private fun LightStatusBarIcons(light: Boolean, active: Boolean) {
     val context = LocalContext.current
     val window = (context as? Activity)?.window ?: return
-    DisposableEffect(light, window) {
+    DisposableEffect(light, window, active) {
+        if (!active) return@DisposableEffect onDispose { }
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         val previous = controller.isAppearanceLightStatusBars
         controller.isAppearanceLightStatusBars = !light
@@ -720,7 +767,7 @@ private fun LightStatusBarIcons(light: Boolean) {
 
 /** 「今天」大标题 + 星期/日期 + 一句真实的课程状态（不写问候语、不写每日一句）。 */
 @Composable
-private fun HomeSkyHeader(
+internal fun HomeSkyHeader(
     now: LocalDateTime,
     look: SkyLook,
     remainingCount: Int,
@@ -737,8 +784,14 @@ private fun HomeSkyHeader(
         com.muyao.wanzaihyperos.data.schedule.JwVerdict.NOT_STARTED,
     /** 画的是教务那份、但它是**上次存的**（首页自己不重取，N3）。 */
     jwIsStale: Boolean = false,
-    /** 标题右侧的状态球；状态仍与课程数据同源。 */
+    /** 跨卡边的状态球；状态仍与业务数据同源。 */
     ballState: com.muyao.wanzaihyperos.ui.design.ai.AiBallState,
+    onCardGeometry: (Float, Float) -> Unit,
+    courseEnabled: Boolean,
+    courseContent: @Composable (String) -> Unit,
+    taskFactText: String? = null,
+    ballPresentation: AiBallPresentation? = AiBallPresentation.Home,
+    ballWork: AiBallWork = AiBallWork(),
 ) {
     val weekLabel = WEEKDAYS.getOrElse(now.dayOfWeek.value - 1) { "" }
     val ink = look.ink
@@ -755,6 +808,10 @@ private fun HomeSkyHeader(
         //   稿 `docs/B4-12-BALL-AS-CORE.md` §4：「脸说情绪，字说事实，字不许重复脸说过的话」。
         //   所以这里写的是把那张脸反译成人话（`AiBall.lineOf`），与读屏念的同一句。
         //   课表统计并没有丢：下一节几点、还剩几节都在下面那张「此刻」卡里。
+        ballState == com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Focus && nextStart != null &&
+            java.time.Duration.between(now.toLocalTime(), nextStart).toMinutes() in 0..59 ->
+            "${java.time.Duration.between(now.toLocalTime(), nextStart).toMinutes()} 分钟后上课"
+        taskFactText != null -> taskFactText
         else -> com.muyao.wanzaihyperos.ui.design.ai.AiBall.lineOf(ballState)
     } + if (slotSource == com.muyao.wanzaihyperos.data.schedule.SlotSource.TRONCLASS) {
         // 来源标注仍然留着：它不是重复表情，而是在说「这份数据来自哪」，属事实补充。
@@ -770,44 +827,64 @@ private fun HomeSkyHeader(
     //   登录要走课表页藏着的 WebView）时，这里画的是学在城院那一份。
     //   独立审计 v3 #4 抓到的正是"首页一直画另一份却不说话"。
 
-    Column(
-        Modifier.fillMaxWidth().padding(top = if (compact) 8.dp else 16.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 16.dp),
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                androidx.compose.material3.Text(
-                    text = "今天 · $weekLabel",
-                    style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
-                    color = ink,
-                )
-                androidx.compose.material3.Text(
-                    text = "${now.monthValue} 月 ${now.dayOfMonth} 日",
-                    style = androidx.compose.material3.MaterialTheme.typography.displaySmall.copy(
-                        fontSize = if (compact) Type.homeDateCompact else Type.homeDate,
-                        lineHeight = if (compact) Type.lineHomeDateCompact else Type.lineHomeDate,
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    color = ink,
-                )
+    val density = LocalDensity.current
+    val ballDiameter = if (compact) 96.dp else 104.dp
+    val ballBox = ballDiameter + AiBall.HIT_SLOP * 2
+    var dateHeight by remember { mutableStateOf(0f) }
+    var cardHeight by remember { mutableStateOf(0f) }
+    LaunchedEffect(dateHeight, cardHeight, ballBox) {
+        if (dateHeight > 0f && cardHeight > 0f) {
+            onCardGeometry(dateHeight + ballBox.value / 2f, cardHeight)
+        }
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth()
+                .onSizeChanged { dateHeight = with(density) { it.height.toDp().value } }
+                .padding(top = 4.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            androidx.compose.material3.Text(
+                text = "${now.monthValue} 月 ${now.dayOfMonth} 日",
+                style = androidx.compose.material3.MaterialTheme.typography.displaySmall.copy(
+                    fontSize = if (compact) Type.homeDateCompact else Type.homeDate,
+                    lineHeight = if (compact) Type.lineHomeDateCompact else Type.lineHomeDate,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                color = ink,
+                modifier = Modifier.weight(1f),
+            )
+            Text(text = weekLabel, fontSize = Type.caption, color = ink,
+                modifier = Modifier.padding(start = 8.dp, bottom = 5.dp))
+        }
+        Box(Modifier.fillMaxWidth()) {
+            Box(Modifier.padding(top = ballBox / 2)) {
+                Column(Modifier.onSizeChanged { cardHeight = with(density) { it.height.toDp().value } }) {
+                if (courseEnabled) {
+                    courseContent(subline)
+                } else {
+                    Column(Modifier.fillMaxWidth()
+                        .background(MiuixTheme.colorScheme.surface, com.kyant.capsule.ContinuousRoundedRectangle(38.dp))
+                        .padding(start = 136.dp, end = 20.dp, top = 18.dp, bottom = 22.dp)
+                        .heightIn(min = 64.dp)) {
+                        Text(text = subline, color = MiuixTheme.colorScheme.onSurface,
+                            fontSize = Type.secondary)
+                    }
+                }
+                }
             }
             AiBall(
                 state = ballState,
-                diameter = if (compact) 64.dp else 76.dp,
-                modifier = Modifier.padding(start = 12.dp),
+                diameter = ballDiameter,
+                stateDescription = if (ballState == com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Focus &&
+                    nextStart != null && java.time.Duration.between(now.toLocalTime(), nextStart).toMinutes() in 0..59) {
+                    "${java.time.Duration.between(now.toLocalTime(), nextStart).toMinutes()} 分钟后上课"
+                } else if (failure != null || loading) subline else taskFactText,
+                modifier = Modifier.padding(start = 14.dp),
+                presentation = ballPresentation,
+                work = ballWork,
             )
         }
-        androidx.compose.material3.Text(
-            text = subline,
-            modifier = Modifier.fillMaxWidth()
-                .background(
-                    MiuixTheme.colorScheme.surface.copy(alpha = 1f),
-                    com.kyant.capsule.ContinuousRoundedRectangle(16.dp),
-                )
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-            color = MiuixTheme.colorScheme.onSurface,
-        )
     }
 }
 
@@ -819,7 +896,7 @@ private fun HomeSkyHeader(
  * 所以第一幀是實心、之後才成玻璃 —— 這正是我們要的「最壞只是不糊，不會出黑」。
  */
 @Composable
-private fun FocusGlassCard(
+internal fun FocusGlassCard(
     backdrop: io.github.neoruaa.glasmio.glass.render.backdrops.LayerBackdrop,
     compact: Boolean,
     plan: TodayPlan?,
@@ -840,48 +917,25 @@ private fun FocusGlassCard(
     openRollcall: TronRollcall?,
     onClick: () -> Unit,
     onOpenRollcall: () -> Unit,
+    statusText: String,
+    ballState: com.muyao.wanzaihyperos.ui.design.ai.AiBallState,
+    taskFactText: String? = null,
 ) {
     val colors = MiuixTheme.colorScheme
-    // ★ 不是 `LocalBarMaterial.current`：那是"他选了哪一档"，这是"这一面此刻**画得出**哪一档"。
-    //   采样层没活 / 减弱透明度 / 刚换上来的头两帧 ⇒ 画面是实心纸，字色就得按纸判。
-    //   两个数分开写就是"代码说液态、画面是纸"那类只能靠肉眼发现的错。
     val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
     val material = if (motion.glassIsTranslucent) LocalBarMaterial.current else BarMaterial.SOLID
     val isDark = colors.background.luminance() < 0.5f
-
-    // ★ v3 #12 的真根因（业主真机逐像素量到的那一轴）：
-    //   这张卡的垫色以前写死「浅色 0.94 / 深色 0.30」两个常数 —— **与档位无关**。
-    //   链路其实一通百通（SOLID ⇒ 不采样、FROSTED ⇒ 折射归零、LIQUID ⇒ 全开），
-    //   可 0.94 的白漆已经把身后的天空糊死了：模糊与折射只剩 6% 的像素可动，
-    //   于是真机上「磨砂 vs 液态 = 卡带 0.000 / 0px」—— "接线正确、画面不动"就是这么来的。
-    //   ⇒ 档位必须改**画面上那个数**（四个值逐条取自定稿板，见 `cardFaceAlpha`）。
-    val wantAlpha = (cardFaceAlpha(material, isDark) *
-        com.muyao.wanzaihyperos.ui.design.glass.glassOpacityFactor()).coerceIn(0f, 1f)
-    // ★ 卡身后**真的**会出现的那几层底（第 7 轮审计判死了"取带内最亮档"那条：
-    //   卡顶 ≈167dp 而天空只到 200dp ⇒ 八成高度压在已经淡成纸色的那一段，我采的那一段不是它）。
-    //   相册档 = 他自己的照片，亮度**未知** ⇒ 两端都算（黑与白），逼着垫色厚到两端都读得清；
-    //   这不是保守，是"不许拿猜出来的亮度决定字色"（工程红线：没有来源就照实说不知道）。
+    val faceAlpha = if (material == BarMaterial.SOLID) cardFaceAlpha(material, isDark) else
+        (cardFaceAlpha(material, isDark) *
+            com.muyao.wanzaihyperos.ui.design.glass.glassOpacityFactor()).coerceIn(0f, 1f)
     val backdrops = when {
-        // 量到了照片亮度 ⇒ 跟内置天空一样按**真值**判（这样液态/磨砂的厚度差能保住）
         skyIsPhoto && photoStats != null -> photoBackdrops(photoStats, colors.background)
-        // 真拿不到（位图读不出像素）才退回两端兜 —— 代价是三档厚度会被抬到一起，写在注释里
         skyIsPhoto -> listOf(Color.Black, Color.White)
         else -> look.cardBackdrops(colors.background)
     }
-    // 卡面落进「两套板色都不合格」的明度带时**加厚垫色**，而不是硬挑一个读不清的字色。
-    // ★★ B4 / #12（业主 2026-10-23 拍板）：**卡面厚度 = 档位自己的，不再为字色抬厚度**。
-    //   以前这里 `readableFaceAlpha(...)` 会把液态/磨砂一起抬到同一个 alpha（真机实测：夜档与照片上
-    //   两档在卡内**逐像素相同**、关闭档差 48 MAD ⇒ 三档退化成两态）。
-    //   现在可读性交给**文字块下面那层局部衬底**（`textBackingOver`）：卡面照档位透，
-    //   字只压在"卡面 + 衬底"那一小块上 ⇒ 两档厚度差回来了，字也照样读得清。
-    val faceAlpha = wantAlpha
-    val faces = backdrops.map { textBackingOver(it, colors.surfaceContainer, faceAlpha) }
-    val inks = cardInkWorstCase(faces)
-    val titleInk = inks.main
-    val quietInk = inks.quiet
-    // 那颗胶囊与倒计时环吃的是品牌绿：卡面抬到中间明度时它只有 1.46:1 ⇒ 读不清就让位给主墨
-    //（审计必修 2；"品牌色优先"在这里就是那条不该有的优先级）。
-    val accentOnFace = readableAccent(faces, colors.primary, titleInk)
+    val faces = backdrops.map { faceOverSky(it, colors.surfaceContainer, faceAlpha) }
+    val fallbackInk = cardInkWorstCase(faces)
+    val liquid = material == BarMaterial.LIQUID
 
     val slot = focus.slot
     val headline: String
@@ -889,6 +943,7 @@ private fun FocusGlassCard(
     if (slot != null) {
         headline = slot.courseName.ifBlank { "（未命名课程）" }
         subline = buildList {
+            add(slot.periodLabel)
             if (slot.room.isNotBlank()) add(slot.room)
             if (focus.ongoing) {
                 focus.end?.let { add("${it.format(TIME_HM)} 下课") }
@@ -916,174 +971,99 @@ private fun FocusGlassCard(
         if (it.endTime.isBlank()) "签到进行中" else "签到进行中 · 截止 ${it.endTime}"
     }
 
+    val headlineInStatus = slot == null && shownFailure == null && !loading &&
+        ballState == com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Done
+    val statusTitle = when {
+        shownFailure != null || loading ||
+            ballState == com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Waiting -> AiBall.lineOf(ballState)
+        focus.minutes != null && slot != null && (focus.ongoing || focus.minutes in 0..59) ->
+            if (focus.ongoing) "还有 ${focus.minutes} 分钟下课" else "${focus.minutes} 分钟后上课"
+        headlineInStatus -> headline
+        taskFactText != null -> taskFactText
+        else -> AiBall.lineOf(ballState)
+    }
+    val statusDetail = homeStatusDetail(homeStatusDetail(statusText,
+        if (headlineInStatus) AiBall.lineOf(ballState) else statusTitle),
+        if (focus.ongoing) AiBall.lineOf(ballState) else headline)
+    val inlineDetail = statusDetail.takeIf { shownFailure == null && it.length <= 24 }.orEmpty()
+    val statusCaption = listOf(chip, inlineDetail).filter { it.isNotBlank() }.joinToString(" · ")
+    val appearance = io.github.neoruaa.glasmio.core.LocalGlassAppearance.current
+    androidx.compose.runtime.CompositionLocalProvider(
+        io.github.neoruaa.glasmio.core.LocalGlassAppearance provides appearance.copy(adaptiveColorScheme = liquid),
+    ) {
     GlassSurface(
         backdrop = backdrop,
-        // 板 `.focus-card{box-shadow:0 18px 34px rgba(55,48,36,.14), inset 0 1px 0 rgba(255,255,255,.62)}`
-        // × 0.886 ⇒ **向下 16dp、模糊 30dp、14% 暖黑**。没有这团影，卡不「浮」在天空上，
-        // 读起来就是贴上去的一块浅米板（复评 2026-10-21）。
         modifier = Modifier
             .fillMaxWidth()
             .dropShadow(
-                shape = com.kyant.capsule.ContinuousRoundedRectangle(30.dp),
+                shape = com.kyant.capsule.ContinuousRoundedRectangle(38.dp),
                 shadow = androidx.compose.ui.graphics.shadow.Shadow(
-                    radius = 30.dp,
+                    radius = 24.dp,
                     // DpOffset，不是 IntOffset：这层 API 要的是 dp
-                    offset = androidx.compose.ui.unit.DpOffset(0.dp, 16.dp),
+                    offset = androidx.compose.ui.unit.DpOffset(0.dp, 10.dp),
                     color = Color(0xFF373024),
-                    alpha = 0.14f,
+                    alpha = 0.10f,
                 ),
             )
             .retrievalGlow(
                 active = fetching,
-                cornerRadius = 30.dp,
+                cornerRadius = 38.dp,
                 color = colors.primary,
             ),
-        shape = com.kyant.capsule.ContinuousRoundedRectangle(30.dp),
-        navigationSurfaceColor = colors.surfaceContainer.copy(alpha = faceAlpha),
+        shape = com.kyant.capsule.ContinuousRoundedRectangle(38.dp),
+        material = if (liquid) io.github.neoruaa.glasmio.glass.NavigationGlassMaterial.Clear else null,
+        navigationSurfaceColor = if (liquid) null else colors.surfaceContainer.copy(alpha = faceAlpha),
         navigationSurfaceAlphaMultiplier = 1f,
         sampleBackdrop = material != BarMaterial.SOLID,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClickLabel = "打开课表") { onClick() }
-                .padding(if (compact) 20.dp else 24.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "课程焦点 · " + now.format(TIME_HM),
-                    // 板 `.eyebrow{font-size:10px;letter-spacing:.10em;font-weight:700;color:var(--sub)}`
-                    fontSize = Type.caption,
-                    fontWeight = Type.weightTitle,
-                    letterSpacing = 0.10.em,
-                    color = quietInk,
-                    style = TextStyle(fontFeatureSettings = Type.tabular),
-                    modifier = Modifier.weight(1f),
-                )
-                if (chip.isNotEmpty()) {
-                    Text(
-                        text = chip,
-                        fontSize = Type.micro,
-                        fontWeight = Type.weightTitle,
-                        color = accentOnFace,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(Dims.chipCorner))
-                            .background(accentOnFace.copy(alpha = 0.11f))
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
-                }
+        val titleInk = if (liquid) androidx.compose.material3.LocalContentColor.current else fallbackInk.main
+        val quietInk = titleInk.copy(alpha = 0.82f)
+        val statusInk = if (liquid && !skyIsPhoto) look.ink else titleInk
+        val statusStyle = TextStyle(shadow = androidx.compose.ui.graphics.Shadow(
+            color = if (statusInk.luminance() > 0.5f) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f),
+            blurRadius = 2f,
+        ))
+        val bodyStyle = if (liquid) TextStyle(shadow = androidx.compose.ui.graphics.Shadow(
+            color = if (titleInk.luminance() > 0.5f) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f),
+            blurRadius = 2f,
+        )) else TextStyle.Default
+        Column(Modifier.fillMaxWidth().then(com.muyao.wanzaihyperos.ui.home.homeCardImageModifier()).padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Column(
+                Modifier.fillMaxWidth().padding(start = if (compact) 120.dp else 128.dp)
+                    .heightIn(min = if (compact) 44.dp else 48.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(text = statusTitle, fontSize = Type.bodyEmphasis, lineHeight = Type.lineHomeStatus,
+                    fontWeight = Type.weightTitle, color = statusInk, style = statusStyle)
+                if (statusCaption.isNotBlank()) Text(text = statusCaption,
+                    fontSize = Type.caption, lineHeight = Type.lineCaption, color = statusInk, style = statusStyle)
             }
-            Spacer(Modifier.height(if (compact) 14.dp else 20.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        // ★ B4 / #12：**字底衬底**（只在字块这一小块，外扩 8×6dp、圆角 10dp）。
-                        //   卡面厚度按档位给（液态/磨砂各自），可读性靠这一层 —— 业主 2026-10-23 定的口径。
-                        //   用 `drawBehind` 而不是 `background`：不改布局（不产生内边距/重测）。
-                        .drawBehind {
-                            val padX = 8.dp.toPx()
-                            val padY = 6.dp.toPx()
-                            drawRoundRect(
-                                color = colors.surfaceContainer.copy(alpha = TEXT_BACKING_ALPHA),
-                                topLeft = androidx.compose.ui.geometry.Offset(-padX, -padY),
-                                size = androidx.compose.ui.geometry.Size(
-                                    size.width + padX * 2,
-                                    size.height + padY * 2,
-                                ),
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(10.dp.toPx()),
-                            )
-                        },
-                ) {
-                    Text(
-                        text = headline,
-                        // 焦点课程独占一行；大字模式允许三行，不挤到计时读数旁。
-                        fontSize = if (compact) Type.homeFocusCompact else Type.homeFocus,
-                        fontWeight = Type.weightTitle,
-                        letterSpacing = (-0.025).em,
-                        lineHeight = if (compact) Type.lineHomeFocusCompact else Type.lineHomeFocus,
-                        color = titleInk,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    subline?.let {
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            text = it,
-                            fontSize = Type.summary,
-                            color = quietInk,
-                            maxLines = 2,
-                        )
-                    }
-                    signIn?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = it,
-                            fontSize = Type.caption,
-                            fontWeight = Type.weightBody,
-                            color = inks.warm,
-                        )
-                    }
-                }
-                val minutes = focus.minutes
-                if (slot != null && minutes != null) {
-                    val fraction = if (focus.ongoing && focus.totalMinutes != null &&
-                        focus.totalMinutes > 0
-                    ) {
-                        minutes.toFloat() / focus.totalMinutes
-                    } else {
-                        1f
-                    }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                text = if (focus.ongoing) "距离下课" else "距离上课",
-                                fontSize = Type.secondary,
-                                color = quietInk,
-                            )
-                            Text(
-                                text = "按当前节次时间计算",
-                                fontSize = Type.caption,
-                                color = quietInk,
-                            )
-                        }
-                    CountdownRing(
-                        minutes = minutes,
-                        // ★ 环只画**真的在走的那一段**：`fraction` 在「距下一节」那支是硬编码 1f，
-                        //   满圈 = 板上 conic 306°+54° 余量的反面，读起来是「已经上完」。
-                        //   没有分母就不画环，只留数字（复评 2026-10-22）。
-                        fraction = if (focus.ongoing) fraction else -1f,
-                        // 板 `.ring` 的空档是 --accent-soft（rgba(46,107,100,.11)）——
-                        // 它是**几乎看不见的一圈**，所以整个环读起来是「一段带缺口的弧」。
-                        // 原来给 0.18 的轨道，环就变成了一根完整的表盘，缺口没了。
-                        track = accentOnFace.copy(alpha = 0.11f),
-                        accent = accentOnFace,
-                    )
-                    }
-                }
+            Spacer(Modifier.height(6.dp))
+            Column(Modifier.fillMaxWidth().clickable(onClickLabel = "打开课表") { onClick() }) {
+                if (!headlineInStatus) Text(text = headline,
+                    fontSize = if (compact) Type.homeFocusCompact else Type.homeFocus,
+                    lineHeight = if (compact) Type.lineHomeFocusCompact else Type.lineHomeFocus,
+                    fontWeight = Type.weightTitle, color = titleInk, style = bodyStyle)
+                val courseMeta = listOfNotNull(subline, slot?.teacher?.takeIf { it.isNotBlank() }).joinToString(" · ")
+                if (courseMeta.isNotBlank()) Text(text = courseMeta,
+                    fontSize = Type.caption, lineHeight = Type.lineCaption, color = quietInk, style = bodyStyle)
+                signIn?.let { Text(text = it, fontSize = Type.caption, lineHeight = Type.lineCaption,
+                    color = titleInk, style = bodyStyle) }
             }
-            Spacer(Modifier.height(if (compact) 16.dp else 22.dp))
+            if (statusDetail.isNotBlank() && inlineDetail.isBlank()) Text(
+                text = statusDetail,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                fontSize = Type.caption, lineHeight = Type.lineCaption, color = titleInk, style = bodyStyle,
+            )
+            Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                // 板子上这两颗按钮是常驻的：去签到本身就是一个真页面（扫码/数字/自助），
-                // 没有「正在进行的签到」也应该能进去看。不要因为当前没签到就把它藏掉。
-                // 谁是主按钮看**有没有真签到可去**：有开着的签到 ⇒「去签到」填实底；
-                // 没有（比如今天的课都上完了）还让它当主按钮，就是推一个此刻无意义的动作。
-                FocusButton(
-                    label = "去签到",
-                    filled = openRollcall != null,
-                    onClick = onOpenRollcall,
-                    modifier = Modifier.weight(1f),
-                )
-                FocusButton(
-                    label = "看课表",
-                    filled = openRollcall == null,
-                    onClick = onClick,
-                    modifier = Modifier.weight(1f),
-                )
+                FocusButton(label = "看课表", filled = openRollcall == null,
+                    onClick = onClick, modifier = Modifier.weight(1f))
+                FocusButton(label = "去签到", filled = openRollcall != null,
+                    onClick = onOpenRollcall, modifier = Modifier.weight(1f))
             }
         }
-
-        // 同一状态只在日期标题旁显示一颗球，课程面板不重复。
+    }
     }
 }
 
@@ -1182,7 +1162,7 @@ private fun FocusButton(
     modifier: Modifier = Modifier,
 ) {
     WanzaiButton(onClick = onClick, prominent = filled, modifier = modifier) {
-        androidx.compose.material3.Text(label, fontSize = Type.bodyEmphasis, fontWeight = FontWeight.Medium)
+        androidx.compose.material3.Text(label, fontSize = Type.summary, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -1196,7 +1176,7 @@ private fun FocusButton(
  * 算不出就只寫節次 —— 不編一個「10:00」出來。
  */
 @Composable
-private fun TodayTimelineCard(
+internal fun TodayTimelineCard(
     slots: List<TronScheduleSlot>,
     week: Int?,
     now: LocalDateTime,
@@ -1456,9 +1436,10 @@ private fun RollcallBanner(title: String, deadline: String, onClick: () -> Unit)
  * （消失会让人以为是加载失败）。
  */
 @Composable
-private fun RollcallSection(
+internal fun RollcallSection(
     open: TronRollcall?,
     onOpen: () -> Unit,
+    narrow: Boolean = false,
 ) {
     val colors = MiuixTheme.colorScheme
     Column(
@@ -1474,21 +1455,22 @@ private fun RollcallSection(
                 modifier = Modifier.padding(end = 7.dp),
             )
             Text(
-                text = "课堂签到",
-                style = io.github.neoruaa.glasmio.core.IosTypography.title3,
+                text = if (narrow) "签到" else "课堂签到",
+                style = if (narrow) androidx.compose.ui.text.TextStyle(fontSize = Type.bodyEmphasis)
+                    else io.github.neoruaa.glasmio.core.IosTypography.title3,
                 fontWeight = Type.weightTitle,
                 color = colors.onBackground,
                 modifier = Modifier.weight(1f),
             )
-            Text(
-                text = "进入",
-                fontSize = Type.caption,
-                color = colors.primary,
-                modifier = Modifier
+            Box(
+                Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClickLabel = "进入签到站") { onOpen() }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(onClickLabel = "进入签到站") { onOpen() },
+                contentAlignment = androidx.compose.ui.Alignment.Center,
+            ) {
+                Text(text = "进入", fontSize = Type.caption, color = colors.primary)
+            }
         }
         Spacer(Modifier.height(6.dp))
         if (open == null) {
@@ -1497,6 +1479,13 @@ private fun RollcallSection(
                 fontSize = Type.secondary,
                 color = colors.onSurfaceVariantSummary,
             )
+        } else if (narrow) {
+            Column(Modifier.fillMaxWidth().clickable(onClickLabel = "进入签到站", onClick = onOpen)) {
+                Text(text = open.title.ifBlank { "现在可以签到" }, fontSize = Type.secondary,
+                    color = colors.onBackground)
+                Text(text = if (open.endTime.isBlank()) "点一下去签到" else "截止 ${open.endTime}",
+                    fontSize = Type.caption, color = colors.primary)
+            }
         } else {
             RollcallBanner(
                 title = open.title,
@@ -1505,12 +1494,7 @@ private fun RollcallSection(
             )
         }
         Spacer(Modifier.height(6.dp))
-        // 稿原文。它说的是一件**产品承诺**（这一页不会替你签到），所以逐字照抄。
-        Text(
-            text = "进入签到站查看最新状态；本页不自动发起签到。",
-            fontSize = Type.micro,
-            color = colors.onSurfaceVariantSummary,
-        )
+
     }
 }
 
@@ -1548,7 +1532,7 @@ private fun BottomActionButton(
 
 /** 要处理：只列前三件，剩下的去待办页。 */
 @Composable
-private fun TodoSummaryCard(
+internal fun TodoSummaryCard(
     state: ListState<TodoBoard>,
     /** 这一刻真的在等一场取数（由调用点按「没有结论 + 有一笔在途」算好）。 */
     fetching: Boolean,
@@ -1725,11 +1709,12 @@ private fun TodoSummaryCard(
  * 红线不变（`data/ListState.kt`）：取不到就写「—」，不画 0.0 公里、不画空进度条当真。
  */
 @Composable
-private fun RunSummaryCard(
+internal fun RunSummaryCard(
     state: ListState<SztySnapshot>,
     /** 这一刻真的在等一场取数（由调用点按「没有结论 + 有一笔在途」算好）。 */
     fetching: Boolean,
     onClick: () -> Unit,
+    narrow: Boolean = false,
 ) {
     val colors = MiuixTheme.colorScheme
     val snapshot = (state as? ListState.Content)?.items?.firstOrNull()
@@ -1767,7 +1752,8 @@ private fun RunSummaryCard(
             )
             Text(
                 text = "校园跑",
-                style = io.github.neoruaa.glasmio.core.IosTypography.title3,
+                style = if (narrow) androidx.compose.ui.text.TextStyle(fontSize = Type.bodyEmphasis)
+                    else io.github.neoruaa.glasmio.core.IosTypography.title3,
                 fontWeight = Type.weightTitle,
                 color = colors.onBackground,
                 modifier = Modifier.weight(1f),
@@ -1776,9 +1762,18 @@ private fun RunSummaryCard(
                 text = "记录 ›",
                 fontSize = Type.caption,
                 color = colors.primary,
+                modifier = Modifier.heightIn(min = 48.dp).padding(top = 15.dp),
             )
         }
         Spacer(Modifier.height(6.dp))
+        if (narrow) {
+            Text(text = "本学期累计", fontSize = Type.caption, color = colors.onBackground)
+            OdometerText(text = if (km == null) "—" else kmText(km), fontSize = Type.homeFocusCompact,
+                fontWeight = Type.weightTitle, color = colors.primary,
+                style = TextStyle(fontFeatureSettings = Type.tabular))
+            Text(text = if (target == null) "公里 · 仅查看记录" else "/ ${kmText(target)} km · 仅查看记录",
+                fontSize = Type.micro, color = colors.onSurfaceVariantSummary)
+        } else {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "本学期累计",
@@ -1812,6 +1807,7 @@ private fun RunSummaryCard(
                 modifier = Modifier.padding(start = 6.dp, bottom = 4.dp),
             )
         }
+        }
         Spacer(Modifier.height(6.dp))
         // 进度条：只在**两个数都真取到**时才画。缺一个就画不出来 ——
         // 用 0 长度冒充「还没跑」与用满格冒充「已达标」都是编。
@@ -1842,8 +1838,8 @@ private fun RunSummaryCard(
             // 首字是「还」不是「数」，前缀又加了一遍（2026-11-08 12:26 大字号截图复现）。
             // 判「是否已经提到来源」要看 contains，不是 startsWith。
             text = if (status.contains("数智体育")) status else "数智体育 · " + status,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+            fontSize = if (narrow) Type.micro else Type.body,
+            color = colors.onSurfaceVariantSummary,
         )
     }
 }
@@ -1862,7 +1858,7 @@ private fun runRequirementText(run: SztyRun): String {
 }
 
 /** 「此刻」要讲的那一节课：正在上（含剩余时间）或下一节（含距上课时间）。 */
-private data class FocusNow(
+internal data class FocusNow(
     val slot: TronScheduleSlot?,
     val ongoing: Boolean,
     val start: LocalTime?,
@@ -1873,7 +1869,7 @@ private data class FocusNow(
     val totalMinutes: Long?,
 )
 
-private fun focusNowOf(
+internal fun focusNowOf(
     slots: List<TronScheduleSlot>,
     now: LocalTime,
     times: List<Pair<String, String>>,

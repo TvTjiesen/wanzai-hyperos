@@ -21,6 +21,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
+import com.muyao.wanzaihyperos.data.ListMeta
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.NotifyLocalFullTextSheet
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyBroadcastItems
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyFreshnessLabel
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyGroupCountLabel
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyHeroLabel
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyMessageDateLabel
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,12 +41,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.muyao.wanzaihyperos.ui.design.BodyMark
 import com.muyao.wanzaihyperos.ui.design.MarkIcon
-import com.muyao.wanzaihyperos.ui.design.RevealGate
-import com.muyao.wanzaihyperos.ui.design.rememberRevealGate
-import com.muyao.wanzaihyperos.ui.design.revealIn
+import com.muyao.wanzaihyperos.ui.design.rememberSpringListEntrance
+import com.muyao.wanzaihyperos.ui.design.springListEntrance
+import com.muyao.wanzaihyperos.ui.design.springPress
+import com.muyao.wanzaihyperos.ui.design.rememberMotion
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import com.muyao.wanzaihyperos.ui.home.collectAsVisibleStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -43,18 +56,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -66,6 +78,7 @@ import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.portal.PortalMessageGroup
 import com.muyao.wanzaihyperos.data.portal.PortalMessageItem
 import com.muyao.wanzaihyperos.data.portal.PortalNewsItem
+import com.muyao.wanzaihyperos.data.portal.opensPortalTextFirst
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.Type
 import kotlinx.coroutines.launch
@@ -99,65 +112,93 @@ fun NotifySectionPage(
     onOpenTodos: () -> Unit = {},
     /** 點開一條消息：把它的 openurl 交給外部（真頁面接 Route.Web）。 */
     onOpenUrl: (String) -> Unit = {},
-    /** 点开一条之后标已读。写在页面里而不是行里，行就仍然只认一个「怎么显示」。 */
+    /** 保留宿主回调兼容；打开详情不自动标已读。 */
     onRead: (String) -> Unit = {},
     /** 把当前分组整个标已读。失败要能从外面给一句实话，所以也提到页面外面。 */
     onReadAll: (String) -> Unit = {},
     modifier: Modifier = Modifier,
+    onOpenAccounts: () -> Unit = {},
+    selectedFilter: Int? = null,
+    onFilterChange: (Int) -> Unit = {},
+    listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
+    listPositions: MutableMap<String, Pair<Int, Int>> = remember { mutableMapOf() },
 ) {
-    val msgState by graph.messages.messages.collectAsState()
-    val newsState by graph.news.news.collectAsState()
-    val rollState by graph.rollcall.state.collectAsState()
-    val todoState by graph.todoBoard.state.collectAsState()
+    val msgState by graph.messages.messages.collectAsVisibleStateWithLifecycle()
+    val newsState by graph.news.news.collectAsVisibleStateWithLifecycle()
+    val broadcastState by graph.broadcasts.state.collectAsVisibleStateWithLifecycle()
+    val broadcastDetail by graph.broadcasts.detail.collectAsVisibleStateWithLifecycle()
+    val rollState by graph.rollcall.state.collectAsVisibleStateWithLifecycle()
+    val todoState by graph.todoBoard.state.collectAsVisibleStateWithLifecycle()
 
-    // 板子顶部是四颗小胶囊：全部 / 待处理 / 门户 / 新闻。
-    var filter by remember { mutableStateOf(0) }
-    // v2.1 稿在筛选胶囊上面还有一行搜索框（`.searchbox`，「搜索已加载消息」）。
-    // 它只筛**已经取到内存里的这些条**，不向学校服务发任何请求 ——
-    // 门户接口没有搜索参数，假装能全网搜会让人以为搜不到就是没有。
-    var query by remember { mutableStateOf("") }
-    // 下拉刷新只重取「当前这一组的第一页」，仓库走 startRefresh，列表不清空。
+    // The shell owns selection across detail routes; standalone previews retain a local fallback.
+    var localFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(4) }
+    val filter = selectedFilter ?: localFilter
+    // 当前组刷新已加载页，成功后整体替换；请求期间保留原列表。
     var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // 「全部已读」是批量写，按下就先问一句 —— 一百多条一次性变已读，没有撤销。
     var confirmReadAll by remember { mutableStateOf<PortalMessageGroup?>(null) }
+    val broadcastOwner = com.muyao.wanzaihyperos.ui.main.LocalPageEntryOwner.current
+    var localFullText by remember(graph, broadcastOwner) { mutableStateOf<PortalMessageItem?>(null) }
+    var selectedBroadcast by remember(broadcastOwner) {
+        mutableStateOf<com.muyao.wanzaihyperos.data.portal.PortalBroadcastItem?>(null)
+    }
+    var broadcastJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    androidx.compose.runtime.DisposableEffect(graph.broadcasts, broadcastOwner) {
+        onDispose {
+            broadcastJob?.cancel()
+            graph.broadcasts.closeDetail()
+        }
+    }
 
-    // ★ 這裡原本有個競態 bug（真機表現：兩個板塊永遠卡在「正在取得…」）。
-    //
-    // 錯在哪：`refreshGroups()` 回來後**立刻**讀 `groups.value`，
-    // 但 StateFlow 的值可能還沒更新（或被自己的 collectAsState 搶先），
-    // 於是 `groups` 是空的 → `selectGroup()` 不會被呼叫 →
-    // `messages` 永遠停在 FirstLoad。
-    //
-    // 正解（照既有 MessagesPage 的寫法）：**響應式** ——
-    // 訂閱 groups，值到了再選分組。這樣不依賴任何時序假設。
-    val msgGroupsState by graph.messages.groups.collectAsState()
-    val msgSelected by graph.messages.selectedGroup.collectAsState()
-    val newsGroupsState by graph.news.groups.collectAsState()
-    val newsSelected by graph.news.selectedGroup.collectAsState()
+    // 消息仓库在更新分组时同步选择；UI不再额外触发首组读取。
+    val msgGroupsState by graph.messages.groups.collectAsVisibleStateWithLifecycle()
+    val msgSelected by graph.messages.selectedGroup.collectAsVisibleStateWithLifecycle()
+    val newsGroupsState by graph.news.groups.collectAsVisibleStateWithLifecycle()
+    val newsSelected by graph.news.selectedGroup.collectAsVisibleStateWithLifecycle()
     // 门户的消息分组（服务端的 `listmessagegroup`，标识是名字）。
     // 没有它，页面只能停在「仓库自己选中的第一个分组」上。
     val msgGroups: List<PortalMessageGroup> =
         (msgGroupsState as? ListState.Content)?.items.orEmpty()
 
-    LaunchedEffect(Unit) {
-        // ★ 取数交给 `AppGraph.fetch`（应用级作用域）。原因见 `AppGraph.ioScope` 的注释：
-        //   挂在组合生命周期上时，切走页面会取消请求，
-        //   取消被仓库当成「取不到」永久写进仓库状态，回来就一直报错或一直转圈。
-        graph.fetch { graph.messages.refreshGroups() }
-        graph.fetch { graph.news.refreshGroups() }
-        graph.fetch { graph.rollcall.refresh() }
-        graph.fetch { graph.todoBoard.refresh() }
-    }
-
-    // groups 到了、且還沒選分組 → 選第一個
-    LaunchedEffect(msgGroupsState, msgSelected) {
-        val groups = (msgGroupsState as? ListState.Content)?.items.orEmpty()
-        if (msgSelected == null) {
-            groups.firstOrNull()?.let { g -> graph.fetch { graph.messages.selectGroup(g) } }
+    val pageActive = com.muyao.wanzaihyperos.ui.design.liquid.LocalPageActive.current
+    val entryGate = com.muyao.wanzaihyperos.ui.main.LocalPageEntryGate.current
+    val entryOwner = com.muyao.wanzaihyperos.ui.main.LocalPageEntryOwner.current
+    val refreshGate = remember(entryOwner) { com.muyao.wanzaihyperos.data.portal.NoticeRefreshGate() }
+    LaunchedEffect(pageActive, entryOwner, entryGate, refreshGate) {
+        if (!pageActive) return@LaunchedEffect
+        if (entryGate.claim("notify", entryOwner)) {
+            graph.fetch { graph.rollcall.refresh() }
+            graph.fetch { graph.todoBoard.refresh() }
+        }
+        while (true) {
+            val now = System.currentTimeMillis()
+            if (refreshGate.claim("message-groups", graph.messages.groups.value, now)) {
+                graph.fetch { graph.messages.refreshGroups() }
+            }
+            if (refreshGate.claim("news-groups", graph.news.groups.value, now)) {
+                graph.fetch { graph.news.refreshGroups() }
+            }
+            graph.messages.selectedGroup.value?.let { group ->
+                if (refreshGate.claim("messages:${group.name}", graph.messages.messages.value, now)) {
+                    graph.fetch { graph.messages.refreshKeepingContent() }
+                }
+            }
+            graph.news.selectedGroup.value?.let { group ->
+                if (group.dataId != null && refreshGate.claim("news:${group.id}", graph.news.news.value, now)) {
+                    graph.fetch { graph.news.refreshKeepingContent() }
+                }
+            }
+            if (refreshGate.claim("system-announcements", graph.broadcasts.state.value, now)) {
+                graph.fetch { graph.broadcasts.refresh() }
+            }
+            graph.fetch { graph.unread.refresh() }
+            kotlinx.coroutines.delay(60_000)
         }
     }
-    LaunchedEffect(newsGroupsState, newsSelected) {
+
+    LaunchedEffect(newsGroupsState, newsSelected, pageActive, entryOwner) {
+        if (!pageActive) return@LaunchedEffect
         val groups = (newsGroupsState as? ListState.Content)?.items.orEmpty()
         if (newsSelected == null) {
             groups.firstOrNull()?.let { g -> graph.fetch { graph.news.selectGroup(g) } }
@@ -168,15 +209,24 @@ fun NotifySectionPage(
     // 跟著內容一起滾，滾出去之後由頂欄接手小標題。
     // 原本這一頁自己畫了一個「消息/應用/設定」的大字 —— 那就是雙標題的來源：
     // 頂欄已經會顯示板塊名，頁內再畫一個，兩處的字體/位置遲早不一致。
-    val pilot = rememberPageChromePilot()
-    // 交错入场只在**页面打开后头 700ms** 内生效（见 revealIn 的 KDoc）：
-    // Lazy 里滚出视野的行会被丢弃、滚回来重新组合，只按序号算延迟会每滑一下重放整排。
-    val revealGate = rememberRevealGate()
+    val pilot = rememberPageChromePilot(listState)
+    val entrance = rememberSpringListEntrance(pilot.listState)
+    val positionKey = when (filter) {
+        2 -> "messages:${msgSelected?.name.orEmpty()}"
+        3 -> "news:${newsSelected?.id.orEmpty()}:${newsSelected?.dataId}"
+        else -> "section:$filter"
+    }
+    LaunchedEffect(positionKey, listState, listPositions) {
+        val saved = listPositions[positionKey] ?: (0 to 0)
+        androidx.compose.runtime.withFrameNanos { }
+        listState.scrollToItem(saved.first, saved.second)
+        androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { listPositions[positionKey] = it }
+    }
 
     val openRollcalls = (rollState as? ListState.Content)
         ?.items?.filter { !it.expired }.orEmpty()
-    val todos = (todoState as? ListState.Content)
-        ?.items?.firstOrNull()?.groups?.flatMap { it.items }.orEmpty()
+    val todoGroups = (todoState as? ListState.Content)?.items?.firstOrNull()?.groups.orEmpty()
     // 未知不得当成 0（data/ListState.kt 的红线）：只有拿到结论的两种状态才敢给数字。
     // 原来这里把非 Content 一律 `?: 0`，于是「没取到」在筛选条和分组头上都长成「0」。
     // 委托属性（by collectAsState）不能智能转型，所以先落成局部 val 再判。
@@ -208,27 +258,57 @@ fun NotifySectionPage(
         is ListState.Empty -> 0
         else -> null
     }
+    val broadcastCount: Int? = when (val current = broadcastState) {
+        is ListState.Content -> current.items.size
+        is ListState.Empty -> 0
+        else -> null
+    }
     val pendingCount: Int? =
         if (rollCount != null && todoCount != null) rollCount + todoCount else null
-    val totalCount: Int? =
-        if (pendingCount != null && msgCount != null && newsCount != null) {
-            pendingCount + msgCount + newsCount
-        } else {
-            null
+    val sourceLabel = when (filter) { 1 -> "待处理"; 3 -> "校园新闻"; 4 -> "学校公告"; else -> "门户通知" }
+    val currentStates: List<ListState<*>> = when (filter) {
+        1 -> listOf(rollState, todoState)
+        3 -> listOf(newsGroupsState, newsState)
+        4 -> listOf(broadcastState)
+        else -> listOf(msgGroupsState, msgState)
+    }
+    val sourceLoading = refreshing || currentStates.any { it is ListState.FirstLoad || (it as? ListState.Content)?.meta?.refreshing == true }
+    val sourceError = currentStates.any { it is ListState.Failed || it is ListState.SessionExpired ||
+        (it as? ListState.Content)?.meta?.hasRefreshProblem == true || (it as? ListState.Empty)?.meta?.hasRefreshProblem == true }
+    val ballState = when {
+        sourceError -> com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Error
+        sourceLoading -> com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Loading
+        filter == 1 -> AiBallStates.ofCount(pendingCount)
+        else -> com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Idle
+    }
+    val sourceDescription = when (filter) {
+        1 -> com.muyao.wanzaihyperos.ui.common.listStateDescription("签到", rollState) + "\n" +
+            com.muyao.wanzaihyperos.ui.common.listStateDescription("待办", todoState)
+        3 -> com.muyao.wanzaihyperos.ui.common.listStateDescription("新闻", newsState)
+        4 -> com.muyao.wanzaihyperos.ui.common.listStateDescription("公告", broadcastState)
+        else -> com.muyao.wanzaihyperos.ui.common.listStateDescription(msgSelected?.name ?: "通知", msgState)
+    }
+    fun refreshCurrent() {
+        if (refreshing) return
+        refreshing = true
+        graph.fetch {
+            try {
+                when (filter) {
+                    1 -> { graph.rollcall.refresh(); graph.todoBoard.refresh() }
+                    3 -> { graph.news.refreshGroups(); if (graph.news.selectedGroup.value != null) graph.news.refreshKeepingContent() }
+                    4 -> graph.broadcasts.refresh()
+                    else -> { graph.messages.refreshGroups(); if (graph.messages.selectedGroup.value != null) graph.messages.refreshKeepingContent() }
+                }
+                graph.unread.refresh(force = true)
+            } finally { refreshing = false }
         }
-
-    // 小球跟着内容走（业主 2026-10-25「小球不要单独一个图层，要与其他内容同层」）：
-    // 它挂在大标题左边，随列表一起滚出屏幕，不再是钉在顶栏上的徽章。
-    // 脸色口径不变：「待处理还没取到」→ Loading（眼睛扫一次），**不是** Idle ——
-    // 那会把「不知道」说成「没有」。
-    val inFlight by graph.inFlight.collectAsState()
-    val ballState = AiBallStates.ofCount(pendingCount, fetching = inFlight > 0)
+    }
 
     // ── 英雄区副行（设计稿 v2.1：「未读 8 · 09:40」）──────────────────────
     // 两个数都必须是**真数据**，任何一个取不到就把那一半省掉（`data/ListState.kt` 红线：
     // 未知不得当成 0，更不得编一个像样的数字）。两组都拿不到时整行不画 ——
     // 空字符串走 [LargeTitle] 的 `subtitle.isEmpty()` 分支，副行自然消失。
-    val unreadState by graph.unread.state.collectAsState()
+    val unreadState by graph.unread.state.collectAsVisibleStateWithLifecycle()
     val heroUnread = (unreadState.value as? CountValue.Known)?.value
     // 「这一份是什么时候的」：取**这一次成功取数**的时间（ListState.Content.updatedAtMillis），
     // 不是「现在」。取不到就只写未读，不编一个像样的钟点（同一条红线）。
@@ -238,32 +318,14 @@ fun NotifySectionPage(
             .toLocalTime()
             .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
     }.orEmpty()
-    val heroSubtitle = buildString {
-        if (heroUnread != null) append("未读 $heroUnread")
-        if (heroClock.isNotEmpty()) {
-            if (isNotEmpty()) append(" · ")
-            append(heroClock)
-        }
-    }
+    val heroSubtitle = notifyHeroLabel(heroUnread, unreadState.stale, heroClock)
 
-    // 下拉刷新：重取两个列表的第一页（仓库走 startRefresh，内容原地不动、不闪白）。
+    // 下拉只更新当前分类，通知保留已加载窗口，内容原地不动。
     // ⚠️ contentPadding 只影响下拉指示器的位置，不给内容加 padding ——
     // 内容的 inset 仍由里面那个 LazyColumn 自己消费（见 Miuix PullToRefresh 源码）。
     PullToRefresh(
         isRefreshing = refreshing,
-        onRefresh = {
-            refreshing = true
-            scope.launch {
-                try {
-                    runCatching { graph.messages.refreshKeepingContent() }
-                    runCatching { graph.news.refreshKeepingContent() }
-                    // 未读数是服务端口径（总未读 304 ≠ 各组之和 302），只能重取，不许本地减一。
-                    runCatching { graph.unread.refresh(force = true) }
-                } finally {
-                    refreshing = false
-                }
-            }
-        },
+        onRefresh = ::refreshCurrent,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = statusBarTopPadding()),
         // 四句气泡文案的默认值是英文（Pull down to refresh / Release to refresh /
@@ -286,87 +348,111 @@ fun NotifySectionPage(
         ) {
             largeTitleItem(
                 pilot = pilot,
-                leading = { AiBall(state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP, announceArrival = true) },
+                leading = { AiBall(
+                    state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP,
+                    stateDescription = sourceLabel + "。" + sourceDescription,
+                    presentation = com.muyao.wanzaihyperos.ui.design.ai.AiBallPresentation.Home,
+                    work = com.muyao.wanzaihyperos.ui.design.ai.AiBallWork(
+                        phase = when {
+                            sourceError -> com.muyao.wanzaihyperos.ui.design.ai.AiBallWorkPhase.Error
+                            sourceLoading -> com.muyao.wanzaihyperos.ui.design.ai.AiBallWorkPhase.Reading
+                            else -> com.muyao.wanzaihyperos.ui.design.ai.AiBallWorkPhase.Ready
+                        },
+                    ),
+                ) },
                 // 2026-11-07 按设计稿 v2.1 复刻首屏英雄区：
                 // 「校园消息 / 消息与动态 / 未读 8 · 09:40」三行 + 一条分隔线。
                 // 副行是**服务端口径的未读数 + 这一份的时间**，取不到就整行不画（不编）。
-                kicker = "校园消息",
+                kicker = "通知 · 待办 · 动态",
                 // 设计稿里顶栏小标题与首屏大字**不是同一句话**：顶栏「消息」、首屏「消息与动态」。
                 // 折叠后顶栏接的仍是 `LocalLargeTitle`（板块名），这里只换首屏那颗大字。
-                heroTitle = "消息与动态",
+                heroTitle = "校园消息",
                 subtitle = heroSubtitle,
                 divider = true,
             )
 
-            // 顺序照 v2.1 稿：搜索框在筛选胶囊**上面**
-            // （`prototype/app.js` 的 messages 路由就是 hero → searchbox → subnav）。
-            item(key = "search") {
-                MessageSearchBox(query = query, onQuery = { query = it })
-            }
-
             item(key = "tabs") {
                 NotifyFilters(
                     selected = filter,
-                    total = totalCount,
-                    pending = pendingCount,
-                    portal = msgCount,
-                    news = newsCount,
-                    onSelect = { filter = it },
+                    onSelect = {
+                        if (it != filter) {
+                            localFilter = it
+                            onFilterChange(it)
+                        }
+                    },
                 )
             }
 
-            if (filter == 0 || filter == 1) {
+            if (filter == 1) {
                 item(key = "todo-header") {
                     SectionHeader(text = "需要处理", trailing = pendingCount?.toString() ?: "—")
                 }
-                // 取不到 ≠ 没有：只有两个来源都拿到结论、且都为空时，才敢说这句话；
-                // 任一来源还没结论时只能承认「还没取到」。
-                if (rollCount == 0 && todoCount == 0) {
-                    item(key = "todo-empty") { StatusHint("没有需要处理的事。") }
-                } else if (openRollcalls.isEmpty() && todos.isEmpty()) {
-                    item(key = "todo-unknown") {
-                        StatusHint(
-                            if (rollCount == null || todoCount == null) {
-                                "待处理还没取到。"
-                            } else {
-                                "没有需要处理的事。"
-                            },
-                        )
+                item(key = "roll-state") {
+                    when (val s = rollState) {
+                        is ListState.Content -> Column {
+                            ListFreshness(s.meta) { graph.fetch { graph.rollcall.refresh() } }
+                            if (openRollcalls.isEmpty()) StatusHint("当前没有可签到的课程。")
+                            openRollcalls.forEach { r ->
+                                PendingRow(
+                                    title = r.title.ifBlank { "现在可以签到" },
+                                    subtitle = if (r.endTime.isBlank()) r.sourceLabel else "截止 ${r.endTime} · ${r.sourceLabel}",
+                                    action = "去签到",
+                                    onClick = onOpenRollcall,
+                                )
+                                ThinDivider()
+                            }
+                        }
+                        is ListState.Empty -> Column {
+                            ListFreshness(s.meta) { graph.fetch { graph.rollcall.refresh() } }
+                            StatusHint("当前没有可签到的课程。")
+                        }
+                        is ListState.SessionExpired -> StatusError("学在城院登录已失效", "签到暂时无法取得。", "管理账号", onOpenAccounts)
+                        is ListState.Failed -> StatusError("签到还没取到", s.error.userText, "查看签到", onOpenRollcall)
+                        is ListState.FirstLoad -> StatusHint("正在取得签到…")
                     }
-                } else {
-                    item(key = "todo-card") {
-                        Column(Modifier.fillMaxWidth()) {
-                                var first = true
-                                openRollcalls.forEach { r ->
-                                    if (!first) ThinDivider()
-                                    first = false
-                                    PendingRow(
-                                        title = r.title.ifBlank { "现在可以签到" },
-                                        subtitle = if (r.endTime.isBlank()) r.sourceLabel
-                                        else "截止 ${r.endTime} · ${r.sourceLabel}",
-                                        action = "去签到",
-                                        onClick = onOpenRollcall,
-                                    )
+                }
+                item(key = "todo-card") {
+                    when (val s = todoState) {
+                        is ListState.Content -> Column(Modifier.fillMaxWidth()) {
+                            ListFreshness(s.meta) { graph.fetch { graph.todoBoard.refresh() } }
+                            todoGroups.forEach { group ->
+                                GroupHead(
+                                    name = group.source.label,
+                                    count = group.items.size,
+                                    note = "总数 " + (if (group.failed || group.total == null) "—" else group.countText) +
+                                        " · 已加载 " + group.items.size + " 条",
+                                )
+                                if (group.failed) {
+                                    StatusError("这一来源还没取到", group.error.orEmpty(), "查看待办", onOpenTodos)
+                                } else if (group.items.isEmpty()) {
+                                    StatusHint(if (group.total == 0) "这个来源没有待办。" else "这个来源当前未加载到待办，总数尚不确定。")
                                 }
-                                todos.take(2).forEach { t ->
-                                    if (!first) ThinDivider()
-                                    first = false
+                                group.items.take(2).forEach { t ->
                                     PendingRow(
                                         title = t.title,
-                                        subtitle = listOfNotNull(
-                                            t.subtitle.takeIf { it.isNotBlank() },
-                                            t.timeText.takeIf { it.isNotBlank() },
-                                        ).joinToString(" · "),
+                                        subtitle = listOfNotNull(t.subtitle.takeIf { it.isNotBlank() }, t.timeText.takeIf { it.isNotBlank() }).joinToString(" · "),
                                         action = "查看",
                                         onClick = onOpenTodos,
                                     )
+                                    ThinDivider()
                                 }
+                                if (group.items.size > 2 || group.hasMore) {
+                                    TextButton("查看这一来源的更多待办", onClick = onOpenTodos, modifier = Modifier.heightIn(min = 48.dp))
+                                }
+                            }
                         }
+                        is ListState.Empty -> Column {
+                            ListFreshness(s.meta) { graph.fetch { graph.todoBoard.refresh() } }
+                            StatusHint("没有待办。")
+                        }
+                        is ListState.SessionExpired -> StatusError("待办来源登录已失效", "请在账号管理检查门户与学在城院。", "管理账号", onOpenAccounts)
+                        is ListState.Failed -> StatusError("待办还没取到", s.error.userText, "查看待办", onOpenTodos)
+                        is ListState.FirstLoad -> StatusHint("正在取得双源待办…")
                     }
                 }
             }
 
-            if (filter == 0 || filter == 2) {
+            if (filter == 2 || filter == 0) {
 
             // ══════════ 消息 ══════════
             item(key = "msg-header") {
@@ -385,14 +471,9 @@ fun NotifySectionPage(
                 GroupHead(
                     name = "门户通知",
                     count = msgCount ?: 0,
-                    // 门户一个分组有 189 条未读，而列表一次只取 10 条（rows=10 是门户写死的）。
-                    // 只写「10 条」会让人以为这一组只有 10 条 —— 剩下 179 条等于不存在。
                     note = when {
-                        msgCount == null -> "—"
-                        // 稿 v2.1：「未读 N · 服务端总数」。这个数来自 libmessagegroup 的 noread，
-                        // 是服务端口径（不等于列表长度，列表只有一页）；说清「服务端总数」
-                        // 才不会让人把「这一页 10 条」当成「这一组 10 条」。
-                        else -> "未读 " + msgCount + " · 服务端总数"
+                        msgCount == null -> notifyGroupCountLabel(null, openGroup?.unread, false)
+                        else -> notifyGroupCountLabel(msgCount, openGroup?.unread, msgMeta?.hasMore == true)
                     },
                 ) {
                     if (openGroup != null && openGroup.unread > 0) {
@@ -412,47 +493,94 @@ fun NotifySectionPage(
                 )
             }
 
-            when (val s = msgState) {
-                is ListState.FirstLoad -> item(key = "msg-loading") { StatusHint("正在取得消息…") }
-
-                is ListState.Failed -> item(key = "msg-failed") {
-                    StatusError(title = "取不到消息", detail = s.error.userText)
+            when (val s = msgGroupsState) {
+                is ListState.SessionExpired -> item(key = "msg-groups-expired") {
+                    StatusError("门户登录已失效", "请到账号管理重新连接门户。", "管理账号", onOpenAccounts)
                 }
-
-                is ListState.Content -> {
-                    val items = s.items.filter { m ->
-                        query.isBlank() ||
-                            m.title.contains(query, ignoreCase = true) ||
-                            m.message.contains(query, ignoreCase = true) ||
-                            m.group.contains(query, ignoreCase = true)
+                is ListState.Failed -> item(key = "msg-groups-failed") {
+                    StatusError("取不到消息分组", s.error.userText, "重试消息分组") {
+                        graph.fetch { graph.messages.refreshGroups() }
                     }
-                    if (items.isEmpty()) {
-                        item(key = "msg-empty") {
-                            StatusHint(if (s.items.isEmpty()) "没有消息。" else "没有匹配的消息。")
+                }
+                is ListState.Empty -> item(key = "msg-groups-empty") { StatusHint("门户未返回消息分组。") }
+                is ListState.Content -> if (s.meta.hasRefreshProblem) item(key = "msg-groups-freshness") {
+                    ListFreshness(s.meta) { graph.fetch { graph.messages.refreshGroups() } }
+                }
+                else -> Unit
+            }
+            if (msgSelected != null || msgState is ListState.SessionExpired || msgState is ListState.Failed) when (val s = msgState) {
+                is ListState.FirstLoad -> item(key = "msg-loading") { StatusHint("正在取得消息…") }
+                is ListState.SessionExpired -> item(key = "msg-expired") {
+                    StatusError("门户登录已失效", "请到账号管理重新连接门户。", "管理账号", onOpenAccounts)
+                }
+                is ListState.Failed -> item(key = "msg-failed") {
+                    StatusError("取不到消息", s.error.userText, "重试通知") {
+                        graph.fetch {
+                            if (msgSelected == null) graph.messages.refreshGroups()
+                            else graph.messages.refreshKeepingContent()
                         }
+                    }
+                }
+                is ListState.Content -> {
+                    item(key = "msg-freshness") {
+                        Column {
+                            ListFreshness(s.meta) { graph.fetch { graph.messages.refreshKeepingContent() } }
+                            StatusHint(notifyMessageDateLabel(s.items, s.meta.hasMore))
+                        }
+                    }
+                    val items = s.items
+                    if (items.isEmpty()) {
+                        item(key = "msg-empty") { StatusHint("暂无通知") }
                     } else {
-                        // 一條一張卡會讓同一個板塊看起來像十個獨立入口；
-                        // 收成一張分組卡，掃讀時眼睛只需認一次邊界。
-                        // 全部列出（不再 take(5)）：既然沒有「全部」頁，少畫的那幾條就真丢了。
-                        item(key = "msg-card") { MessageGroup(items, onOpenUrl, onRead, revealGate) }
-                        // 门户一次只回 10 条（rows 写死），没有这个入口，第 11 条之后
-                        // 在界面上根本走不到 —— 而那一组有一百多条未读。
-                        if (msgMeta?.hasMore == true) {
-                            item(key = "msg-more") {
-                                MoreRow(
-                                    loading = msgMeta.loadingMore,
-                                    onClick = { graph.fetch { graph.messages.loadMore() } },
-                                )
+                        items.forEachIndexed { index, message ->
+                            val itemKey = "message-${msgSelected?.name}-$index-${message.id}"
+                            item(key = itemKey) {
+                                Column(Modifier.springListEntrance(entrance, itemKey)) {
+                                    MessageRow(
+                                        message, onOpenUrl,
+                                        opensPortalTextFirst = message.opensPortalTextFirst(msgSelected?.name),
+                                        onOpenLocal = { localFullText = it },
+                                    )
+                                    if (index != items.lastIndex) ThinDivider()
+                                }
                             }
                         }
                     }
+                    // 后页入口不依赖当前过滤是否命中。
+                    if (msgMeta?.hasMore == true) {
+                        item(key = "msg-more") {
+                            MoreRow(
+                                loading = msgMeta.loadingMore || msgMeta.refreshing,
+                                onClick = { graph.fetch { graph.messages.loadMore() } },
+                            )
+                        }
+                    }
                 }
-
-                else -> item(key = "msg-none") { StatusHint("没有消息。") }
+                is ListState.Empty -> item(key = "msg-none") {
+                    Column {
+                        ListFreshness(s.meta) { graph.fetch { graph.messages.refreshKeepingContent() } }
+                        StatusHint("当前组没有消息。")
+                    }
+                }
+            } else if (msgGroupsState is ListState.FirstLoad || msgGroupsState is ListState.Content) {
+                item(key = "msg-await-group") { StatusHint("正在取得消息分组…") }
             }
             }
 
-            if (filter == 0 || filter == 3) {
+            if (filter == 4) {
+                notifyBroadcastItems(
+                    state = broadcastState,
+                    onRefresh = { graph.fetch { graph.broadcasts.refresh() } },
+                    onOpen = { announcement ->
+                        broadcastJob?.cancel()
+                        selectedBroadcast = announcement
+                        broadcastJob = graph.fetch { graph.broadcasts.open(announcement) }
+                    },
+                    onAccounts = onOpenAccounts,
+                )
+            }
+
+            if (filter == 3) {
 
             // ══════════ 新聞 ══════════
             item(key = "news-header") {
@@ -463,45 +591,105 @@ fun NotifySectionPage(
                     count = newsCount ?: 0,
                     // 新闻一次取 8 条（门户 NEWS_PAGE_SIZE）。只报 8 会让人以为校园新闻只有 8 条。
                     note = when {
-                        newsCount == null -> "—"
-                        newsMeta?.hasMore == true -> "$newsCount 条 · 还有更多"
-                        else -> ""
+                        newsCount == null -> "已加载 — 条"
+                        newsMeta?.hasMore == true -> "已加载 $newsCount 条 · 还有更多"
+                        else -> "已加载 $newsCount 条"
                     },
                 )
             }
 
-            when (val s = newsState) {
+            when (val s = newsGroupsState) {
+                is ListState.SessionExpired -> item(key = "news-groups-expired") {
+                    StatusError("门户登录已失效", "请到账号管理重新连接门户。", "管理账号", onOpenAccounts)
+                }
+                is ListState.Failed -> item(key = "news-groups-failed") {
+                    StatusError("取不到新闻分组", s.error.userText, "重试新闻分组") {
+                        graph.fetch { graph.news.refreshGroups() }
+                    }
+                }
+                is ListState.Empty -> item(key = "news-groups-empty") { StatusHint("门户未返回新闻分组。") }
+                is ListState.Content -> if (s.meta.hasRefreshProblem) item(key = "news-groups-freshness") {
+                    ListFreshness(s.meta) { graph.fetch { graph.news.refreshGroups() } }
+                }
+                else -> Unit
+            }
+            if (newsSelected != null || newsState is ListState.SessionExpired || newsState is ListState.Failed) when (val s = newsState) {
                 is ListState.FirstLoad -> item(key = "news-loading") { StatusHint("正在取得新闻…") }
-
+                is ListState.SessionExpired -> item(key = "news-expired") {
+                    StatusError("门户登录已失效", "请到账号管理重新连接门户。", "管理账号", onOpenAccounts)
+                }
                 is ListState.Failed -> item(key = "news-failed") {
-                    StatusError(title = "取不到新闻", detail = s.error.userText)
+                    StatusError("取不到新闻", s.error.userText, "重试新闻") {
+                        graph.fetch {
+                            if (newsSelected == null) graph.news.refreshGroups()
+                            else graph.news.refreshKeepingContent()
+                        }
+                    }
                 }
-
                 is ListState.Content -> {
-                    val items = s.items.filter { n ->
-                        query.isBlank() || n.title.contains(query, ignoreCase = true)
+                    item(key = "news-freshness") {
+                        ListFreshness(s.meta) { graph.fetch { graph.news.refreshKeepingContent() } }
                     }
+                    val items = s.items
                     if (items.isEmpty()) {
-                        item(key = "news-empty") {
-                            StatusHint(if (s.items.isEmpty()) "暂时没有新闻。" else "没有匹配的新闻。")
-                        }
+                        item(key = "news-empty") { StatusHint("暂无新闻") }
                     } else {
-                        item(key = "news-card") { NewsGroup(items, onOpenUrl) }
-                        if (newsMeta?.hasMore == true) {
-                            item(key = "news-more") {
-                                MoreRow(
-                                    loading = newsMeta.loadingMore,
-                                    onClick = { graph.fetch { graph.news.loadMore() } },
-                                )
-                            }
+                        items.forEachIndexed { index, news ->
+                            val itemKey = "news-${newsSelected?.id}-$index-${news.id}"
+                            item(key = itemKey) { Box(Modifier.springListEntrance(entrance, itemKey)) { NewsRow(news, onOpenUrl) } }
+                        }
+                    }
+                    if (newsMeta?.hasMore == true) {
+                        item(key = "news-more") {
+                            MoreRow(
+                                loading = newsMeta.loadingMore,
+                                onClick = { graph.fetch { graph.news.loadMore() } },
+                            )
                         }
                     }
                 }
-
-                else -> item(key = "news-none") { StatusHint("暂时没有新闻。") }
+                is ListState.Empty -> item(key = "news-none") {
+                    Column {
+                        ListFreshness(s.meta) { graph.fetch { graph.news.refreshKeepingContent() } }
+                        StatusHint("当前新闻分组暂时没有新闻。")
+                    }
+                }
+            } else if (newsGroupsState is ListState.FirstLoad || newsGroupsState is ListState.Content) {
+                item(key = "news-await-group") { StatusHint("正在取得新闻分组…") }
             }
             }
         }
+    }
+
+    localFullText?.let { message ->
+        val detailUrl = com.muyao.wanzaihyperos.net.HzcuEndpoints.portalOpenUrl(message.openUrl)?.takeIf {
+            com.muyao.wanzaihyperos.nav.WebTarget.fromUrl(it).kind != com.muyao.wanzaihyperos.nav.WebTarget.Kind.BLOCKED
+        }
+        NotifyLocalFullTextSheet(
+            message = message,
+            onDismiss = { localFullText = null },
+            onOpenDetail = detailUrl?.let { url ->
+                { localFullText = null; onOpenUrl(url) }
+            },
+        )
+    }
+
+    selectedBroadcast?.let { announcement ->
+        com.muyao.wanzaihyperos.ui.main.pages.redesign.NotifyBroadcastSheet(
+            selected = announcement,
+            state = broadcastDetail,
+            onRetry = {
+                broadcastJob?.cancel()
+                broadcastJob = graph.fetch { graph.broadcasts.open(announcement) }
+            },
+            onAccounts = onOpenAccounts,
+            onDismiss = {
+                selectedBroadcast = null
+                broadcastJob?.cancel()
+                broadcastJob = null
+                graph.broadcasts.closeDetail()
+            },
+        )
     }
 
     val pendingGroup = confirmReadAll
@@ -520,7 +708,7 @@ fun NotifySectionPage(
             TextButton(
                 text = "取消",
                 onClick = { confirmReadAll = null },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
             )
             top.yukonga.miuix.kmp.basic.Button(
                 onClick = {
@@ -528,7 +716,7 @@ fun NotifySectionPage(
                     confirmReadAll = null
                     g?.let { onReadAll(it.name) }
                 },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
             ) {
                 Text(text = "全部已读")
             }
@@ -539,21 +727,20 @@ fun NotifySectionPage(
 @Composable
 private fun NotifyFilters(
     selected: Int,
-    total: Int?,
-    pending: Int?,
-    portal: Int?,
-    news: Int?,
     onSelect: (Int) -> Unit,
 ) {
-    // 计数为 null = 那一栏还没取到。写「—」而不是 0（data/ListState.kt 的红线）。
-    // 计数单独成一个 Text：板上 .chip .n 带 opacity:.62，数字比标签淡一档。
-    fun pillCount(n: Int?): String = n?.toString() ?: "—"
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        FilterPill("全部", pillCount(total), selected == 0) { onSelect(0) }
-        FilterPill("待处理", pillCount(pending), selected == 1) { onSelect(1) }
-        FilterPill("门户", pillCount(portal), selected == 2) { onSelect(2) }
-        FilterPill("新闻", pillCount(news), selected == 3) { onSelect(3) }
-    }
+    val filters = listOf(2, 4, 1, 3)
+    val labels = listOf("通知", "公告", "待处理", "新闻")
+    com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
+        labels = labels,
+        stableKeys = filters.map { it.toString() },
+        selectedIndex = filters.indexOf(if (selected == 0) 2 else selected),
+        onSelect = { onSelect(filters[it]) },
+        modifier = Modifier.fillMaxWidth(),
+        itemContent = { index, isSelected ->
+            FilterPill(labels[index], "—", isSelected)
+        },
+    )
 }
 
 /**
@@ -574,74 +761,29 @@ private fun MsgGroupChips(
 ) {
     // 只有一个分组时这排胶囊不提供任何选择，白占一行高度。
     if (groups.size < 2) return
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // 门户实测 9 个分组，一屏放不下；横滑而不是折行，免得把消息列表顶出屏幕。
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        groups.forEach { g ->
-            key(g.name) {
-                FilterPill(
-                    label = g.name,
-                    count = g.unread.toString(),
-                    selected = selected?.name == g.name,
-                    onClick = { onSelect(g) },
-                )
-            }
+    com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
+        labels = groups.map { g -> "${g.name} ${g.unread}" },
+        stableKeys = groups.map { it.name },
+        selectedIndex = groups.indexOfFirst { g -> selected?.name == g.name },
+        onSelect = { onSelect(groups[it]) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun FilterPill(label: String, count: String, selected: Boolean) {
+    val colors = MiuixTheme.colorScheme
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = Type.bodyEmphasis, fontWeight = Type.weightBody,
+            color = if (selected) colors.primary else colors.onSurface, maxLines = 1)
+        if (count.isNotBlank()) {
+            Spacer(Modifier.width(4.dp))
+            Text(text = count, modifier = Modifier.alpha(0.62f), fontSize = Type.caption,
+                color = if (selected) colors.primary else colors.onSurface, maxLines = 1)
         }
     }
 }
 
-@Composable
-private fun FilterPill(label: String, count: String, selected: Boolean, onClick: () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    val shape = RoundedCornerShape(50)
-    // 板 `.chip{padding:10px 12px;min-height:50px;border-radius:99px;border:1px solid var(--divider);
-    //   color:var(--quiet);font-size:12.42px}`、`.chip.selected{background:var(--container);
-    //   color:var(--primary);border-color:var(--primary)}`。
-    //
-    // ★ 2026-11-07 改选中态：原来是 `background(onBackground)` = 黑底白字，
-    //   而 v2.1 稿（`screens/messages.png`）里「全部」那颗是**主色描边 + 主色字 + 淡容器底**。
-    //   黑底那版在真机上看着像「切成深色模式的一小块」，与整页纸面打架。
-    // **字重不随选中变**（硬规则 1：加粗让文字变宽，四条并排时整行会横抖一下）。
-    val ink = if (selected) colors.primary else colors.onSurfaceVariantSummary
-    Row(
-        modifier = Modifier
-            .clip(shape)
-            .background(if (selected) colors.primaryContainer else Color.Transparent)
-            .border(
-                1.dp,
-                if (selected) colors.primary else colors.dividerLine,
-                shape,
-            )
-            .clickable(onClickLabel = "筛选" + label) { onClick() }
-            .padding(horizontal = 9.7.dp, vertical = 6.2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.5.dp),
-    ) {
-        Text(
-            text = label,
-            fontSize = Type.caption,
-            fontWeight = Type.weightBody,
-            color = ink,
-            maxLines = 1,
-        )
-        // 板 `.chip .n{opacity:.62;margin-left:4px}` —— 数字比标签淡一档是板上的信息层级，
-        // 不是装饰：数字会变、标签不变。实测板选中胶囊里标签 238.7、数字 157.0（= 0.62）。
-        Text(
-            text = count,
-            fontSize = Type.caption,
-            fontWeight = Type.weightBody,
-            color = ink.copy(alpha = 0.62f),
-            maxLines = 1,
-            style = TextStyle(fontFeatureSettings = Type.tabular),
-        )
-    }
-}
-
-/** 待处理的一行：标题 / 时间，右侧一个真入口（去签到、查看待办）。 */
 @Composable
 private fun PendingRow(
     title: String,
@@ -653,7 +795,8 @@ private fun PendingRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClickLabel = action) { onClick() }
+            .clickable(role = Role.Button, onClickLabel = action) { onClick() }
+            .heightIn(min = 48.dp)
             // 板 `.action-row{padding:9px 0}` ⇒ 8dp；
             // 原来 8dp 上下 + 行内间距把整行撑到 53 CSS（板 45.8）。
             .padding(vertical = 6.5.dp),
@@ -683,19 +826,19 @@ private fun PendingRow(
             Text(
                 text = title,
                 // 板 `.action-row .t{font-size:12px;font-weight:640}` × 0.886 ⇒ 10.6sp
-                fontSize = Type.summary,
+                fontSize = 16.sp,
                 fontWeight = Type.weightBody,
                 color = colors.onBackground,
                 // 板 `.action-row .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`
                 // ⇒ **一行**。折成两行会把右边的按钮顶偏、行高逐行漂移（复评 2026-10-21）。
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             if (subtitle.isNotBlank()) {
                 Spacer(Modifier.height(3.dp))
                 Text(
                     text = subtitle,
-                    fontSize = Type.micro,
+                    fontSize = 12.sp,
                     color = colors.onSurfaceVariantSummary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -765,80 +908,6 @@ private fun SectionHeader(text: String, trailing: String? = null) {
 }
 
 /**
- * 搜索框（v2.1 稿 `.searchbox`）。
- *
- * 板：`border:1px solid var(--divider)` + `background:rgba(var(--tint),.82)` +
- * `border-radius:99px` + `min-height:52px` + `padding:0 14px`；
- * 左侧放大镜、占位「搜索已加载消息」、右侧主色小字「搜索」。
- * × 0.886 ⇒ **46dp 高、全圆、1dp 描边、12.4dp 图标**。
- *
- * 它只筛**已经取到内存里的这些条**（门户接口没有搜索参数）。
- * 所以占位文案写「已加载」而不是「消息」—— 一句话说清这一框能搜到哪一层，
- * 免得「搜不到」被读成「学校没有这条」。
- */
-@Composable
-private fun MessageSearchBox(query: String, onQuery: (String) -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    val shape = RoundedCornerShape(50)
-    var focused by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(46.dp)
-            .clip(shape)
-            .background(colors.surface.copy(alpha = 0.82f))
-            .border(1.dp, if (focused) colors.primary else colors.dividerLine, shape)
-            .padding(start = 13.dp, end = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = ImageVector.vectorResource(R.drawable.ic_board_search),
-            contentDescription = null,
-            tint = colors.onSurfaceVariantSummary,
-            modifier = Modifier.size(14.dp),
-        )
-        Spacer(Modifier.size(9.dp))
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-            if (query.isEmpty()) {
-                Text(
-                    text = "搜索已加载消息",
-                    fontSize = Type.summary,
-                    color = colors.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            BasicTextField(
-                value = query,
-                onValueChange = onQuery,
-                singleLine = true,
-                cursorBrush = SolidColor(colors.primary),
-                textStyle = TextStyle(fontSize = Type.summary, color = colors.onBackground),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                // 清空也走同一个入口：右侧那颗在「有字」时变成「清除」，
-                // 免得为了改一个错字要把整串退格删掉（小屏上尤其烦）。
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged { focused = it.isFocused },
-            )
-        }
-        if (query.isNotEmpty()) {
-            Text(
-                text = "清除",
-                fontSize = Type.summary,
-                fontWeight = Type.weightBody,
-                color = colors.primary,
-                maxLines = 1,
-                modifier = Modifier
-                    .clip(shape)
-                    .clickable(onClickLabel = "清除搜索") { onQuery("") }
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-            )
-        }
-    }
-}
-
-/**
  * 加載 / 空的共用說明。
  *
  * 以前這些狀態各包一張卡片，空頁面反而比有內容時更重；
@@ -849,7 +918,8 @@ private fun StatusHint(text: String) {
     Text(
         text = text,
         fontSize = Type.caption,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        lineHeight = Type.caption * 1.45f,
+        color = if (rememberMotion().highContrast) MiuixTheme.colorScheme.onBackground else MiuixTheme.colorScheme.onSurfaceVariantSummary,
         modifier = Modifier.padding(horizontal = Dims.cardPadding, vertical = Dims.tight),
     )
 }
@@ -860,57 +930,32 @@ private fun StatusHint(text: String) {
  * 錯誤不能藏：標題保留 error 色，下面照舊給 `userText` 的具體原因。
  */
 @Composable
-private fun StatusError(title: String, detail: String) {
+private fun StatusError(
+    title: String,
+    detail: String,
+    action: String,
+    onAction: () -> Unit,
+) {
     val colors = MiuixTheme.colorScheme
     Column(Modifier.padding(horizontal = Dims.cardPadding, vertical = Dims.tight)) {
-        Text(text = title, fontSize = Type.body, color = colors.error)
+        Text(text = title, fontSize = Type.body, lineHeight = Type.body * 1.4f, color = if (rememberMotion().highContrast) colors.onBackground else colors.error)
         if (detail.isNotBlank()) {
             Spacer(Modifier.height(3.dp))
-            Text(text = detail, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
+            Text(text = detail, fontSize = Type.caption, lineHeight = Type.caption * 1.45f, color = if (rememberMotion().highContrast) colors.onBackground else colors.onSurfaceVariantSummary)
         }
+        TextButton(action, onClick = onAction, modifier = Modifier.heightIn(min = 48.dp))
     }
 }
 
-/**
- * 消息分組卡。
- *
- * 未讀只用圓點標（規範紅線：不用字重，避免字寬變化造成行內抖動）。
- */
 @Composable
-private fun MessageGroup(
-    items: List<PortalMessageItem>,
-    onOpenUrl: (String) -> Unit,
-    onRead: (String) -> Unit,
-    gate: RevealGate,
-) {
-    // 板子：消息直接铺在纸上，只有行与行之间的发丝线，没有一整张白卡。
-    //
-    // **按来源分组**（板 `.group-head`）：门户每条消息自带 `group` 字段，
-    // 那是学校给的原文分类，不是我编的。以前把十几条平铺成一根长列表，
-    // 复评判「板块内部没有层级」；板上的层级就是这一行小灰点 + 组名 + 条数 + 发丝线。
-    val groups = items.groupBy { it.group }.values
+private fun ListFreshness(meta: ListMeta, onRetry: () -> Unit) {
     Column(Modifier.fillMaxWidth()) {
-        // 只有一个来源组时**不画内层组头**：外层已经写了「门户通知 N 条」，
-        // 再顶一个小灰点组头就是两个头之间零行，中间空出一条带（复评 2026-10-21）。
-        val showInnerHeads = groups.size > 1
-        groups.forEachIndexed { gi, grp ->
-            val name = grp.first().group.ifBlank { "其它通知" }
-            key("grp-$gi-$name") {
-                if (showInnerHeads) {
-                    GroupHead(name = name, count = grp.size)
-                }
-                grp.forEachIndexed { idx, m ->
-                    key("msg-$gi-$idx-${m.id}") {
-                        MessageRow(
-                            m = m,
-                            onOpenUrl = onOpenUrl,
-                            onRead = onRead,
-                            modifier = Modifier.revealIn(gate, gi * 4 + idx),
-                        )
-                        if (idx != grp.lastIndex) ThinDivider()
-                    }
-                }
-            }
+        com.muyao.wanzaihyperos.ui.design.RefreshStatusCapsule(meta, notifyFreshnessLabel(meta))
+        meta.lastRefreshError?.let { error ->
+            StatusError("本次更新失败", error.userText, "重试更新", onRetry)
+        }
+        if (meta.stale && meta.lastRefreshError == null && !meta.refreshing) {
+            TextButton("更新这一来源", onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp))
         }
     }
 }
@@ -939,7 +984,7 @@ private fun MoreRow(loading: Boolean, onClick: () -> Unit) {
             TextButton(
                 text = "加载更多",
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             )
         }
     }
@@ -953,40 +998,29 @@ private fun GroupHead(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val colors = MiuixTheme.colorScheme
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(5.3.dp)
-                .clip(CircleShape)
-                .background(colors.onSurfaceVariantSummary.copy(alpha = 0.55f)),
-        )
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.size(5.3.dp).clip(CircleShape).background(colors.onSurfaceVariantSummary.copy(alpha = 0.55f)))
+            Text(
+                text = name,
+                fontSize = Type.caption,
+                fontWeight = Type.weightTitle,
+                letterSpacing = 0.02.em,
+                color = colors.onSurfaceVariantSummary,
+                modifier = Modifier.weight(1f),
+            )
+        }
         Text(
-            text = name,
+            text = if (note.isNotBlank()) note else "已加载 $count 条",
             fontSize = Type.caption,
-            fontWeight = Type.weightTitle,
-            letterSpacing = 0.02.em,
             color = colors.onSurfaceVariantSummary,
-        )
-        Text(
-            text = if (note.isNotBlank()) note else count.toString() + " 条",
-            fontSize = Type.micro,
-            color = colors.onSurfaceVariantSummary.copy(alpha = 0.75f),
             style = TextStyle(fontFeatureSettings = Type.tabular),
+            modifier = Modifier.padding(top = 4.dp),
         )
-        Spacer(Modifier.width(4.dp))
-        Box(
-            Modifier
-                .weight(1f)
-                .height(0.7.dp)
-                .background(colors.dividerLine),
-        )
-        trailing?.invoke()
+        trailing?.let { action ->
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { action() }
+        }
+        ThinDivider()
     }
 }
 
@@ -1009,8 +1043,9 @@ private fun ReadAllAction(onClick: () -> Unit) {
         color = colors.primary,
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .clickable(onClickLabel = "把这一组全部标成已读") { onClick() }
-            .padding(horizontal = 7.dp, vertical = 3.dp),
+            .clickable(role = Role.Button, onClickLabel = "把这一组全部标成已读") { onClick() }
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
     )
 }
 
@@ -1018,29 +1053,27 @@ private fun ReadAllAction(onClick: () -> Unit) {
 private fun MessageRow(
     m: PortalMessageItem,
     onOpenUrl: (String) -> Unit,
-    onRead: (String) -> Unit,
+    opensPortalTextFirst: Boolean,
+    onOpenLocal: (PortalMessageItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
-    // 門戶自己對 openurl 為空的行不給點也不畫箭頭，只 toast 一句
-    // 「未獲取到消息通知地址」。我們照同一條界線來（docs/API-PORTAL.md §1.3）。
-    // 以前整行可點但點下去只是把「消息」tab 再選一次 —— 那是死入口（審查 2026-10-21）。
-    val openUrl = m.openUrl?.takeIf { it.isNotBlank() }
+    val openUrl = m.openUrl?.takeIf { it.isNotBlank() && !opensPortalTextFirst }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .then(modifier)
             .then(
                 if (openUrl == null) {
-                    Modifier
+                    Modifier.clickable(role = Role.Button, onClickLabel = "查看本地全文，只读不标已读") { onOpenLocal(m) }
                 } else {
-                    Modifier.clickable(onClickLabel = "打开这条通知") {
-                        // 先跳转再标已读：跳转是用户看得见的反馈，不能被一次网络往返挡住。
+                    Modifier.clickable(role = Role.Button, onClickLabel = "打开这条通知") {
+                        // Opening a link is not proof that its detail loaded successfully.
                         onOpenUrl(openUrl)
-                        if (!m.isRead) onRead(m.id)
                     }
                 }
             )
+            .heightIn(min = 48.dp)
             .padding(horizontal = 0.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(Dims.loose),
         // 頂對齊是為了標題折成兩行時，日期仍停在第一行。
@@ -1057,37 +1090,29 @@ private fun MessageRow(
                     text = m.title.ifBlank { "（无标题）" },
                     // 板 `.mrow .t{font-size:12px;font-weight:620}` × 0.886 ⇒ 10.6sp / 620
                     //    未读 = --ink，已读 = --sub（板上已读是**整条变淡**，不是同号同色）
-                    fontSize = Type.summary,
+                    fontSize = 16.sp,
                     fontWeight = if (m.isRead) FontWeight.Normal else Type.weightBody,
                     color = if (m.isRead) colors.onSurfaceVariantSummary else colors.onBackground,
-                    maxLines = 2,
+                    maxLines = 3,
+                    lineHeight = 23.sp,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (m.createdDate.isNotBlank()) {
-                    Text(
-                        // 只留日期：門戶給的是「2025-11-06 18:00:00」，
-                        // 96dp 裡放不下，真機上會被截成「2025-11-06 18:…」。
-                        // 清單裡日期就夠定位，精確到分沒有用。
-                        text = boardShortDate(m.createdDate),
-                        fontSize = Type.micro,
-                        color = colors.onSurfaceVariantSummary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        // 日期只是時間戳，不能長到把標題壓成一兩個字一行。
-                        modifier = Modifier.widthIn(max = 96.dp),
-                    )
-                }
             }
+            if (m.createdDate.isNotBlank()) Text(boardShortDate(m.createdDate), fontSize = 12.sp,
+                color = colors.onSurfaceVariantSummary, modifier = Modifier.padding(top = 5.dp))
             if (m.message.isNotBlank()) {
                 Spacer(Modifier.height(3.dp))
                 Text(
                     text = m.message,
-                    fontSize = Type.caption,
+                    fontSize = 13.sp,
                     color = colors.onSurfaceVariantSummary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            if (openUrl == null) {
+                Text("查看原文 ›", fontSize = 12.sp, color = colors.primary, modifier = Modifier.padding(top = 6.dp))
             }
         }
         if (openUrl != null) {
@@ -1121,76 +1146,21 @@ private fun UnreadMark(unread: Boolean) {
     )
 }
 
-/**
- * 新聞分組卡。
- *
- * 不配縮略圖：門戶沒有穩定圖源，外鏈圖只會帶來加載失敗與版權風險。
- */
-@Composable
-private fun NewsGroup(items: List<PortalNewsItem>, onOpenUrl: (String) -> Unit) {
-    // 板上 `.newsrow` 之间**没有分隔线**（只有 6px 行距）：
-    // 画上线就把「一列新闻」变成一张表格，和上面消息那种 hairline 列表撞成一类。
-    Column(Modifier.fillMaxWidth()) {
-        items.forEachIndexed { idx, n ->
-            key("news-$idx-${n.id}") {
-                NewsRow(n, onOpenUrl)
-            }
-        }
-    }
-}
-
 @Composable
 private fun NewsRow(n: PortalNewsItem, onOpenUrl: (String) -> Unit) {
     val colors = MiuixTheme.colorScheme
-    // ★ 新闻以前整行不可点（`PortalNewsItem` 里根本没有地址）。服务端一直有 `blink`
-    //   （校网正文页）与 `linktitle`（公众号版），只是解析时丢掉了 —— 2026-11-01 从
-    //   真机落盘的 listnewslist 原文核出（docs 里 A3 的表也早写着这两个字段）。
-    //   现在有地址的行给点也给 `›`；没有地址的行仍然什么都不给（不画死箭头）。
     val openUrl = n.openUrl?.takeIf { it.isNotBlank() }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (openUrl == null) {
-                    Modifier
-                } else {
-                    Modifier.clickable(onClickLabel = "打开这条新闻") { onOpenUrl(openUrl) }
-                }
-            )
-            .padding(horizontal = 0.dp, vertical = 5.3.dp),
-        horizontalArrangement = Arrangement.spacedBy(Dims.normal),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Text(
-            text = n.title.ifBlank { "（无标题）" },
-            // 板 `.newsrow{font-size:10.5px;color:var(--sub)}` × 0.886 ⇒ 9.3sp / --sub。
-            // 新聞比消息低半級（板上就是這個意思），不該吃 13sp 的主行檔。
-            fontSize = Type.summary,
-            color = colors.onSurfaceVariantSummary,
-            // 板 `.newsrow .nt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`
-            // 是**一行**：真机上折成两行时右侧日期会跟着掉，整排对不齐（17:04 截图）。
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (n.createdDate.isNotBlank()) {
-            Text(
-                // 同消息行：只留日期，別讓時間把日期截成省略號。
-                text = boardShortDate(n.createdDate),
-                fontSize = Type.micro,
-                color = colors.onSurfaceVariantSummary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 96.dp),
-            )
+    Row(Modifier.fillMaxWidth()
+        .then(if (openUrl == null) Modifier else Modifier.clickable(role = Role.Button) { onOpenUrl(openUrl) })
+        .heightIn(min = 56.dp).padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(n.title.ifBlank { "（无标题）" }, fontSize = 16.sp, lineHeight = 23.sp,
+                color = colors.onBackground, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (n.createdDate.isNotBlank()) Text(boardShortDate(n.createdDate), fontSize = 12.sp,
+                color = colors.onSurfaceVariantSummary)
         }
-        if (openUrl != null) {
-            Text(
-                text = "›",
-                fontSize = Type.summary,
-                color = colors.onSurfaceVariantSummary,
-            )
-        }
+        if (openUrl != null) Text("›", fontSize = 20.sp, color = colors.onSurfaceVariantSummary)
     }
 }
 

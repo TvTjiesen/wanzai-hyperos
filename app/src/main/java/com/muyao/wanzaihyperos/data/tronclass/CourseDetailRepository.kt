@@ -1,40 +1,25 @@
 package com.muyao.wanzaihyperos.data.tronclass
 
+import com.muyao.wanzaihyperos.data.ListMeta
 import com.muyao.wanzaihyperos.data.ListState
-import com.muyao.wanzaihyperos.data.failWith
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
-import com.muyao.wanzaihyperos.data.settleFirstPage
-import com.muyao.wanzaihyperos.data.startRefresh
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.net.HzcuException
 import com.muyao.wanzaihyperos.net.TronclassClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/**
- * 一門課的**詳情**要顯示的一包資料。
- *
- * ### 為什麼是「一包」而不是五個倉庫
- *
- * 這一頁的五塊（詳情／成績／出勤彙總／出勤記錄／作業）**只在這一頁用**，
- * 而且是同時被需要的。做成五個倉庫會得到五個 `ListState`、五個 `FirstLoad`、
- * 五處各自判斷「這一塊該顯示載入中還是空」—— 那是介面上「一塊轉圈、一塊空白、
- * 一塊顯示錯誤」的來源。
- *
- * ### 每一塊可為 null / 空，且**互不影響**
- *
- * 學在城院這幾支端點彼此獨立（實測：公告與考試對八門課全空，成績與出勤有資料）。
- * 一塊掛掉不該讓整頁變成錯誤頁 —— 所以各自 `runCatching`，
- * 全部失敗才當整頁失敗（照 [LiveTronHomeRepository] 的先例）。
- *
- * ### ★ [course] 是「進來時手上有的那門課」
- *
- * 詳情接口回來之前，頁首就已經要顯示課名與上課時間（那些在課程清單裡就有）。
- * 所以把 [TronCourse] 一起帶進來 —— 這也是為什麼 [load] 收的是
- * [TronCourse] 而不是一個 id。
- */
+enum class CourseDetailPart(val label: String) {
+    DETAIL("课程信息"), SCORE("成绩"), ROLLCALL("出勤统计"), ATTENDANCE("出勤记录"),
+    HOMEWORK("作业"), BULLETINS("课程公告"), EXAMS("考试"), TOPICS("讨论目录"),
+}
+
+/** Independent sections retain their last result while an owner-scoped refresh progresses. */
 data class TronCourseDetailBundle(
     val course: TronCourse,
     val detail: TronCourseDetail?,
@@ -42,28 +27,23 @@ data class TronCourseDetailBundle(
     val rollcallScore: TronRollcallScore?,
     val attendance: List<TronAttendance>,
     val homeworks: List<TronHomework>,
-    /** 課程公告（B14 補上 —— 先前以為全空，實測有課有）。 */
     val bulletins: List<TronBulletin> = emptyList(),
-    /** 考試（B14 補上）。 */
     val exams: List<TronExam> = emptyList(),
-    /** 討論區主題（B14 補上，只讀）。 */
     val topics: List<TronTopicCategory> = emptyList(),
+    val pendingParts: Set<CourseDetailPart> = emptySet(),
+    val partErrors: Map<CourseDetailPart, HzcuException> = emptyMap(),
 ) {
-    /**
-     * 有沒有任何一塊取到了。
-     *
-     * 只用來區分「真的沒東西」與「全部取數失敗」——
-     * 沒有它就會出現「這門課什麼都沒有」這種**替服務端撒謊**的畫面。
-     */
     val hasAnyData: Boolean
         get() = detail != null || score != null || rollcallScore != null ||
             attendance.isNotEmpty() || homeworks.isNotEmpty() ||
             bulletins.isNotEmpty() || exams.isNotEmpty() || topics.isNotEmpty()
+
+    fun isUnconfirmed(part: CourseDetailPart): Boolean = part in pendingParts || part in partErrors
 }
 
 interface CourseDetailRepository {
     val state: StateFlow<ListState<TronCourseDetailBundle>>
-    /** 進入某一門課（會清掉上一門課的資料）。 */
+    /** Show this course's summary or cached sections before reading its remaining details. */
     suspend fun load(course: TronCourse)
     suspend fun refresh()
 }
@@ -71,109 +51,145 @@ interface CourseDetailRepository {
 class LiveCourseDetailRepository(
     private val client: TronclassClient,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : CourseDetailRepository {
-
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<TronCourseDetailBundle>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<TronCourseDetailBundle>> = _state.asStateFlow()
-
     private val inFlight = Mutex()
-
-    @Volatile
     private var current: TronCourse? = null
-
-    /**
-     * 自己的 user id（`/api/profile` 的 `id`），**帶記憶**。
-     *
-     * 出勤記錄那支端點必須帶學號。與 [LiveRollcallRepository] 同一套做法：
-     * 只有真的取到了才記住，取不到下次再試（一次網絡抖動不該讓出勤永遠是空的）。
-     */
-    @Volatile
+    private var activeReadToken: Long? = null
     private var cachedMyId: Int? = null
-    @Volatile
-    private var myIdResolved = false
+    private data class CourseKey(val owner: Long, val courseId: Int)
+    private val snapshots = linkedMapOf<CourseKey, ListState.Content<TronCourseDetailBundle>>()
 
-    private suspend fun myStudentId(): Int? {
-        if (myIdResolved) return cachedMyId
-        val id = runCatching { client.profileUserId() }.getOrNull()
-        cachedMyId = id
-        myIdResolved = id != null
-        return id
+    init {
+        epoch.registerReset {
+            guard.invalidate()
+            current = null
+            activeReadToken = null
+            cachedMyId = null
+            snapshots.clear()
+            _state.value = ListState.FirstLoad
+        }
+    }
+
+    private fun rememberCurrent() {
+        val content = _state.value as? ListState.Content ?: return
+        val course = content.items.firstOrNull()?.course ?: return
+        val key = CourseKey(epoch.token(), course.id)
+        snapshots.remove(key)
+        snapshots[key] = content.copy(meta = content.meta.copy(refreshing = false, loadingMore = false))
+        while (snapshots.size > 6) snapshots.remove(snapshots.keys.first())
     }
 
     override suspend fun load(course: TronCourse) {
-        current = course
-        // 換課就清空：留著上一門課的成績比空白更糟（會被當成這門課的成績）。
-        _state.value = ListState.FirstLoad
-        refresh()
+        if (course.id <= 0) return
+        var requestToken: Long? = null
+        if (!epoch.publishData(epoch.token()) {
+            if (current?.id == course.id && activeReadToken == guard.current) return@publishData
+            val token = guard.begin()
+            current = course
+            activeReadToken = null
+            val cached = snapshots[CourseKey(epoch.token(), course.id)]
+            val bundle = cached?.items?.firstOrNull()?.copy(course = course) ?: TronCourseDetailBundle(
+                course, null, null, null, emptyList(), emptyList(),
+                pendingParts = CourseDetailPart.values().toSet(),
+            )
+            _state.value = ListState.Content(listOf(bundle), cached?.meta ?: ListMeta())
+            val updated = cached?.meta?.updatedAtMillis
+            val fresh = updated != null && clock() - updated in 0L until 60_000L &&
+                cached?.meta?.stale == false && bundle.pendingParts.isEmpty() && bundle.partErrors.isEmpty()
+            if (!fresh) {
+                activeReadToken = token
+                requestToken = token
+            }
+        }) return
+        refresh(requestToken ?: return, forceRefresh = false)
     }
 
     override suspend fun refresh() {
-        val course = current ?: return
-        inFlight.withLock {
-            val token = guard.begin()
-            _state.value = _state.value.startRefresh()
+        var requestToken: Long? = null
+        if (!epoch.publishData(epoch.token()) {
+            if (current == null || activeReadToken == guard.current) return@publishData
+            requestToken = guard.begin()
+            activeReadToken = requestToken
+        }) return
+        refresh(requestToken ?: return, forceRefresh = true)
+    }
 
-            val result = runCatching {
-                val id = course.id
-                // 學號取不到時出勤那塊就是空的（**不是「沒缺勤」**）——
-                // 這裡不丟錯，讓其餘四塊照常顯示。
-                val me = myStudentId()
+    private suspend fun myStudentId(token: Long, forceRefresh: Boolean): Int? {
+        cachedMyId?.let { return it }
+        val id = client.profileUserId(forceRefresh)
+        if (!guard.publish(token) { cachedMyId = id }) throw CancellationException("Course changed")
+        return id
+    }
 
-                // 每一塊各自 runCatching，**並留住失敗原因**：
-                // 全空時要靠它說明「是取數失敗」而不是「這門課什麼都沒有」。
-                val detailR = runCatching { client.courseDetail(id) }
-                val scoreR = runCatching { client.courseScore(id) }
-                val rollcallR = runCatching { client.courseRollcallScore(id) }
-                val attendanceR = if (me == null) {
-                    Result.success(emptyList())
-                } else {
-                    runCatching { client.courseAttendance(id, me) }
-                }
-                val homeworksR = runCatching { client.homeworks(id) }
-                // B14 補的三塊。**注意請求數**：一堂課要打 8 支，
-                // 而全域限流是 QPS ≤ 1 —— 它們是序列發出的（runCatching 是同步的），
-                // 所以最壞情況這一頁要 ~8 秒。可接受（比顯示錯誤好），
-                // 但**不要再往這裡加端點**：那是使用者真的會等到的秒數。
-                val bulletinsR = runCatching { client.courseBulletins(id) }
-                val examsR = runCatching { client.courseExams(id) }
-                val topicsR = runCatching { client.courseTopicCategories(id) }
-
-                val bundle = TronCourseDetailBundle(
-                    course = course,
-                    detail = detailR.getOrNull(),
-                    score = scoreR.getOrNull(),
-                    rollcallScore = rollcallR.getOrNull(),
-                    attendance = attendanceR.getOrDefault(emptyList()),
-                    homeworks = homeworksR.getOrDefault(emptyList()),
-                    bulletins = bulletinsR.getOrDefault(emptyList()),
-                    exams = examsR.getOrDefault(emptyList()),
-                    topics = topicsR.getOrDefault(emptyList()),
-                )
-                if (!bundle.hasAnyData) {
-                    // 有異常 → 整頁失敗（把最能說明原因的那個上拋）。
-                    // 全部成功卻都空 → 那是**事實**，照樣顯示（頁首仍有課名）。
-                    val err = listOf(
-                        detailR, scoreR, rollcallR, attendanceR, homeworksR,
-                        bulletinsR, examsR, topicsR,
-                    ).firstNotNullOfOrNull { it.exceptionOrNull() }
-                    if (err != null) throw err
-                }
-                bundle
-            }
-
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = {
-                    _state.value.settleFirstPage(listOf(it), clock()) { b -> b.course.id }
-                },
-                onFailure = {
-                    _state.value.failWith(
-                        if (it is HzcuException) it
-                        else HzcuException.Parse("课程详情解析失败", cause = it),
+    private suspend fun refresh(token: Long, forceRefresh: Boolean) {
+        try {
+            inFlight.withLock {
+                if (!guard.isCurrent(token)) return
+                val course = current ?: return
+                if (!guard.publish(token) {
+                    val content = _state.value as? ListState.Content ?: return@publish
+                    val bundle = content.items.firstOrNull() ?: return@publish
+                    _state.value = content.copy(
+                        items = listOf(bundle.copy(pendingParts = CourseDetailPart.values().toSet(), partErrors = emptyMap())),
+                        meta = content.meta.copy(refreshing = true),
                     )
-                },
-            )
+                }) return
+
+                suspend fun <T> readPart(
+                    part: CourseDetailPart,
+                    read: suspend () -> T,
+                    merge: (TronCourseDetailBundle, T) -> TronCourseDetailBundle,
+                ) {
+                    if (!guard.isCurrent(token)) throw CancellationException("Course changed")
+                    val result = catchingActive { read() }
+                    if (!guard.publish(token) {
+                        val content = _state.value as? ListState.Content ?: return@publish
+                        val previous = content.items.firstOrNull() ?: return@publish
+                        val error = result.exceptionOrNull()?.tronPartFailure()
+                        val merged = result.fold(onSuccess = { merge(previous, it) }, onFailure = { previous })
+                        val errors = if (error == null) previous.partErrors - part else previous.partErrors + (part to error)
+                        _state.value = content.copy(items = listOf(merged.copy(
+                            pendingParts = previous.pendingParts - part, partErrors = errors,
+                        )))
+                        rememberCurrent()
+                    }) throw CancellationException("Course changed")
+                }
+
+                val id = course.id
+                // Preserve the shared QPS gate; publish each result instead of waiting for all endpoints.
+                readPart(CourseDetailPart.DETAIL, { client.courseDetail(id, forceRefresh) }) { b, v -> b.copy(detail = v) }
+                readPart(CourseDetailPart.SCORE, { client.courseScore(id, forceRefresh) }) { b, v -> b.copy(score = v) }
+                readPart(CourseDetailPart.ROLLCALL, { client.courseRollcallScore(id, forceRefresh) }) { b, v -> b.copy(rollcallScore = v) }
+                readPart(CourseDetailPart.ATTENDANCE, {
+                    val me = myStudentId(token, forceRefresh)
+                        ?: throw HzcuException.Parse("尚未确认出勤记录所需的个人资料")
+                    client.courseAttendance(id, me, forceRefresh)
+                }) { b, v -> b.copy(attendance = v) }
+                readPart(CourseDetailPart.HOMEWORK, { client.homeworks(id, forceRefresh = forceRefresh) }) { b, v -> b.copy(homeworks = v) }
+                readPart(CourseDetailPart.BULLETINS, { client.courseBulletins(id, forceRefresh = forceRefresh) }) { b, v -> b.copy(bulletins = v) }
+                readPart(CourseDetailPart.EXAMS, { client.courseExams(id, forceRefresh) }) { b, v -> b.copy(exams = v) }
+                readPart(CourseDetailPart.TOPICS, { client.courseTopicCategories(id, forceRefresh) }) { b, v -> b.copy(topics = v) }
+                guard.publish(token) {
+                    val content = _state.value as? ListState.Content ?: return@publish
+                    val bundle = content.items.firstOrNull() ?: return@publish
+                    val error = bundle.partErrors.values.firstOrNull()
+                    _state.value = content.copy(meta = content.meta.copy(
+                        refreshing = false, stale = error != null, lastRefreshError = error,
+                        updatedAtMillis = if (error == null) clock() else content.meta.updatedAtMillis,
+                    ))
+                }
+            }
+        } finally {
+            guard.publish(token) {
+                activeReadToken = null
+                val content = _state.value as? ListState.Content
+                if (content != null) _state.value = content.copy(meta = content.meta.copy(refreshing = false))
+                rememberCurrent()
+            }
         }
     }
 }

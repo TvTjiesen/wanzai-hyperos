@@ -1,5 +1,7 @@
 package com.muyao.wanzaihyperos.ui.home
 
+import androidx.compose.ui.graphics.graphicsLayer
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -36,6 +38,21 @@ import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlinx.coroutines.delay
 import kotlin.math.sin
+import androidx.compose.runtime.State
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import com.muyao.wanzaihyperos.ui.design.liquid.LocalPageActive
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
+
+@Composable
+internal fun <T> StateFlow<T>.collectAsVisibleStateWithLifecycle(): State<T> {
+    val active = LocalPageActive.current
+    val visibleFlow = remember(this, active) { if (active) this else emptyFlow<T>() }
+    return visibleFlow.collectAsStateWithLifecycle(initialValue = value, minActiveState = Lifecycle.State.STARTED)
+}
 
 /**
  * 首頁的**天空層**（v2）。
@@ -471,35 +488,46 @@ fun HomeSky(
     panX: Float = 0f,
     panY: Float = 0f,
     zoom: Float = 1f,
+    hourOverride: Int? = null,
+    backgroundPreset: com.muyao.wanzaihyperos.ui.design.BackgroundPreset = com.muyao.wanzaihyperos.ui.design.AppColors.background,
 ) {
     val pageBg = MiuixTheme.colorScheme.background
     val veil = MiuixTheme.colorScheme.surface
-    // 每 10 分鐘對一次時鐘；只有真的換了小時才寫狀態（避免無意義重組）。
-    var hour by remember { mutableIntStateOf(java.time.LocalTime.now().hour) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(10 * 60 * 1000L)
-            val h = java.time.LocalTime.now().hour
-            if (h != hour) hour = h
+    val customization = com.muyao.wanzaihyperos.ui.design.LocalThemeCustomization.current
+    val rotation = customization.wallpaperRotation
+    var liveHour by remember { mutableIntStateOf(java.time.LocalTime.now().hour) }
+    val pageActive = LocalPageActive.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(hourOverride, pageActive, lifecycleOwner) {
+        if (hourOverride != null || !pageActive) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            liveHour = java.time.LocalTime.now().hour
+            while (true) {
+                delay(10 * 60 * 1000L)
+                liveHour = java.time.LocalTime.now().hour
+            }
         }
     }
+    val hour = hourOverride ?: liveHour
     val look = skyLookOf(preset, hour)
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
     // 页面底色那支**对角渐变**：天空最后那一段要淡进"同一支"，否则画布底边会留一条
     // 实色 ↔ 渐变的台阶（B4-02 560dpi 实测 y=875 处 2.71、30 行均值差 2.27 = 持续位移）。
-    val pageGradient = com.muyao.wanzaihyperos.ui.design.AppColors.pageBrush(isDark)
+    val pageGradient = com.muyao.wanzaihyperos.ui.design.AppColors.pageBrush(isDark, backgroundPreset)
     val config = androidx.compose.ui.platform.LocalConfiguration.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val pageHeightPx = with(density) { config.screenHeightDp.dp.toPx() }
     // ★ B4-02：相册档的 `drawCoverBitmap` 会**平移+放大**，而 `drawBehind` 默认**不裁剪** ——
     //   实测照片溢出画布底边 79px（y=656..735 那条蓝带），在相册壁纸下就是业主说的「割裂线」。
     //   这里把整块天空裁回它自己的框：溢出到框外的一律不画。
-    Canvas(modifier = modifier.fillMaxSize().clipToBounds()) {
+    val backgroundModifier = if (customization.wallpaperBlur > 0) modifier.then(androidx.compose.ui.Modifier.blurBackground(customization.wallpaperBlur)) else modifier
+    Canvas(modifier = backgroundModifier.fillMaxSize().clipToBounds()) {
         drawSkyScene(
             look = look,
             preset = preset,
             hour = hour,
             wallpaper = wallpaper,
+            rotation = rotation.toFloat(),
             dim = dim,
             soft = soft,
             veil = veil,
@@ -510,6 +538,9 @@ fun HomeSky(
             panY = panY,
             zoom = zoom,
         )
+        if (customization.wallpaperLightness != 0) drawRect(
+            (if (customization.wallpaperLightness > 0) Color.White else Color.Black)
+                .copy(alpha = kotlin.math.abs(customization.wallpaperLightness) / 100f))
     }
 }
 
@@ -685,6 +716,7 @@ private fun DrawScope.drawSkyScene(
     panY: Float = 0f,
     zoom: Float = 1f,
     compact: Boolean = false,
+    rotation: Float = 0f,
 ) {
     val w = size.width
     val h = size.height
@@ -710,7 +742,7 @@ private fun DrawScope.drawSkyScene(
     val fadeEnd = skyBottom
 
     if (wallpaper != null && preset == SkyPreset.ALBUM) {
-        drawCoverBitmap(wallpaper, panX = panX, panY = panY, zoom = zoom)
+        drawCoverBitmap(wallpaper, panX = panX, panY = panY, zoom = zoom, rotation = rotation)
         // 相冊圖不確定明暗：先壓一層可讀性底座，白字才站得住。
         drawRect(
             // ★ 第 6 轮独立审计必修 2：这第三支**也**漏了 startY/endY（第 5 轮那两条只补了
@@ -823,9 +855,6 @@ private fun DrawScope.drawSkyScene(
         //   同位置内置天空档只掉 4.33，两代 APK 完全一样 ⇒ 是既有缺陷，与 B4-03 抬白无关）。
         //   ⇒ 相册档改成「纸色淡入」：featherStops(fadeTo)（不带 transparent）是 alpha 0→1，
         //   带顶照片原样、带底纸色，两端都接得上，不再有台阶。
-        clipRect(left = 0f, top = fadeEnd, right = w, bottom = h) {
-            drawRect(brush = pageGradient, size = Size(w, pageHeightPx))
-        }
         // ★ 2026-10-25 第 40 轮：淡入的**底色不能是平涂的 pageBg**，必须就是下面那支页面渐变。
         //   实测（verify/b4-02/r5_album_4034d05f_a.png，模拟器 560dpi）：上一版 fadeTo 是
         //   MiuixTheme.colorScheme.background 这个**单一颜色**，而 y>=fadeEnd 是 pageGradient
@@ -834,8 +863,10 @@ private fun DrawScope.drawSkyScene(
         //   暗 1.78 灰阶（判据 STEP_MAX 0.5）。两帧各自内部水平极平（max|dq| 0.22/0.25）⇒ 是边界不是噪声。
         //   做法：把 pageGradient 铺进一层离屏层，再用纵向 alpha 0→1 的 **DstIn** 蒙版削出斜坡 ——
         //   带顶 alpha=0 照片原样、带底 alpha=1 恰好等于带下第一行 ⇒ 两侧都接得上。
+        // 遮罩覆盖整块天空：带外也明确写入 alpha 0/1，避免窄带边界在玻璃降采样时露出亮线。
+        // 保持页面渐变的整屏坐标，不在 fadeEnd 再拼接另一块填充。
         drawIntoCanvas { canvas ->
-            canvas.saveLayer(Rect(0f, fadeStart, w, fadeEnd), Paint())
+            canvas.saveLayer(Rect(0f, 0f, w, h), Paint())
             drawRect(brush = pageGradient, size = Size(w, pageHeightPx))
             drawRect(
                 brush = Brush.verticalGradient(
@@ -843,8 +874,7 @@ private fun DrawScope.drawSkyScene(
                     startY = fadeStart,
                     endY = fadeEnd,
                 ),
-                topLeft = Offset(0f, fadeStart),
-                size = Size(w, (fadeEnd - fadeStart).coerceAtLeast(0f)),
+                size = Size(w, h),
                 blendMode = BlendMode.DstIn,
             )
             canvas.restore()
@@ -1252,18 +1282,8 @@ fun coverSlackPx(
     boxH: Float,
     zoom: Float,
 ): Pair<Float, Float> {
-    val z = zoom.coerceAtLeast(1f)
-    if (imgW <= 0 || imgH <= 0 || boxW <= 0f || boxH <= 0f) return 0f to 0f
-    val scale = maxOf(boxW / imgW, boxH / imgH) * 1.06f * z
-    // ★★★ 独立审计（v3 #2 第 6 轮 P0#2，同时命中 #10）：**被除数写错了**。
-    //   slack 是「**放大后的图**比框多出来多少」⇒ 必须是 `(imgW * scale − boxW)/2`，
-    //   原来写的是 `(boxW * scale − boxW)/2`（拿框的宽去乘缩放比）。
-    //   实算 4032×3024 → 1080×656：scale=0.284 ⇒ slackX = **−386.7**、slackY = **−234.9**
-    //   ⇒ 图被画到 x[387,1531]/y[235,1093]：**左 147dp、上 89dp 露出页面底色**；
-    //   而且 `AppearancePage.kt:1438` 那句 `if (sx > 0f)` 因此恒假 ⇒ **相册壁纸档拖动完全失灵**。
-    //   修后同一组数：slackX = +32.5、slackY = +32.6（cover 的 1.06 余量），恒 ≥ 0。
-    //   数值判据在 `HomeSkyTest`（四种输入 + `slack >= 0`），不留给录屏。
-    return (imgW * scale - boxW) / 2f to (imgH * scale - boxH) / 2f
+    val geometry = wallpaperGeometry(imgW, imgH, boxW, boxH, zoom, 0f)
+    return geometry.slackX to geometry.slackY
 }
 
 /**
@@ -1278,16 +1298,15 @@ internal fun DrawScope.drawCoverBitmap(
     panX: Float = 0f,
     panY: Float = 0f,
     zoom: Float = 1f,
+    rotation: Float = 0f,
 ) {
-    val z = zoom.coerceAtLeast(1f)
-    val scale = maxOf(size.width / img.width, size.height / img.height) * 1.06f * z
-    val (slackX, slackY) = coverSlackPx(img.width, img.height, size.width, size.height, z)
+    val geometry = wallpaperGeometry(img.width, img.height, size.width, size.height, zoom, rotation)
     withTransform({
-        translate(
-            left = -slackX + slackX * panX.coerceIn(-1f, 1f),
-            top = -slackY + slackY * panY.coerceIn(-1f, 1f),
-        )
-        scale(scale, scale, pivot = Offset.Zero)
+        translate(size.width / 2f, size.height / 2f)
+        rotate(rotation, pivot = Offset.Zero)
+        translate(-img.width * geometry.scale / 2f + geometry.slackX * panX.coerceIn(-1f, 1f),
+            -img.height * geometry.scale / 2f + geometry.slackY * panY.coerceIn(-1f, 1f))
+        scale(geometry.scale, geometry.scale, pivot = Offset.Zero)
     }) {
         drawImage(img)
     }
@@ -1304,3 +1323,8 @@ internal fun DrawScope.previewHairline(color: Color) {
         style = Stroke(width = 1f),
     )
 }
+
+private fun androidx.compose.ui.Modifier.blurBackground(radius: Int): androidx.compose.ui.Modifier =
+    this.then(androidx.compose.ui.Modifier.graphicsLayer {
+        renderEffect = androidx.compose.ui.graphics.BlurEffect(radius.toFloat() * density, radius.toFloat() * density, androidx.compose.ui.graphics.TileMode.Clamp)
+    })

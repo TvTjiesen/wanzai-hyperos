@@ -1,8 +1,11 @@
 package com.muyao.wanzaihyperos.data.jw
 
 import com.muyao.wanzaihyperos.data.ListState
-import com.muyao.wanzaihyperos.data.failWith
-import com.muyao.wanzaihyperos.data.repo.StaleGuard
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
+import com.muyao.wanzaihyperos.data.repo.SecondaryGuard
+import com.muyao.wanzaihyperos.data.repo.finishRefresh
+import com.muyao.wanzaihyperos.data.repo.retainCachedOnFailure
 import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startRefresh
 import com.muyao.wanzaihyperos.net.HzcuException
@@ -157,65 +160,99 @@ class LiveJwRepository(
     private val engine: JwEngine,
     private val session: JwSession,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : JwRepository {
 
-    private val guard = StaleGuard()
     private val inFlight = Mutex()
 
     /** 每個功能一份狀態。 */
     private val states = mutableMapOf<JwFeature, MutableStateFlow<ListState<JwRawPage>>>()
+    private val refreshingTokens = mutableMapOf<JwFeature, Long>()
+    private val guard = SecondaryGuard(epoch, session) {
+        synchronized(states) { states.values.forEach { it.value = ListState.FirstLoad } }
+        refreshingTokens.clear()
+    }
 
     /** 兩段登入的協調者（課表那一支共用同一個，見 [JwLoginCoordinator]）。 */
-    private val login = JwLoginCoordinator(engine, session, clock)
+    private val login = JwLoginCoordinator(engine, session, clock, epoch)
 
-    override fun state(feature: JwFeature): StateFlow<ListState<JwRawPage>> =
-        states.getOrPut(feature) { MutableStateFlow(ListState.FirstLoad) }.asStateFlow()
+    init {
+        epoch.registerReset {
+            guard.invalidate()
+            synchronized(states) { states.values.forEach { it.value = ListState.FirstLoad } }
+            refreshingTokens.clear()
+        }
+    }
 
-    private fun stateOf(feature: JwFeature): MutableStateFlow<ListState<JwRawPage>> =
+    override fun state(feature: JwFeature): StateFlow<ListState<JwRawPage>> = stateOf(feature).asStateFlow()
+
+    private fun stateOf(feature: JwFeature): MutableStateFlow<ListState<JwRawPage>> = synchronized(states) {
         states.getOrPut(feature) { MutableStateFlow(ListState.FirstLoad) }
+    }
 
     override suspend fun load(feature: JwFeature, force: Boolean) {
+        val ownerToken = epoch.token()
+        val token = guard.begin()
         inFlight.withLock {
+            if (!epoch.isCurrent(ownerToken) || !guard.isCurrent(token)) return
             val flow = stateOf(feature)
-            val token = guard.begin()
-            flow.value = flow.value.startRefresh()
+            var revision = -1L
+            if (!guard.publish(token) {
+                    revision = session.credentialRevision()
+                    refreshingTokens[feature] = token
+                    flow.value = flow.value.startRefresh()
+                }) return
 
-            val result = runCatching {
-                login.ensureLoggedIn()
-                fetch(feature)
+            val result = try {
+                engine.run {
+                    catchingActive {
+                        login.ensureLoggedIn(ownerToken)
+                        fetch(feature)
+                    }
+                }
+            } finally {
+                epoch.publishData(ownerToken) {
+                    session.publishCredential(revision) {
+                        if (refreshingTokens[feature] == token) {
+                            flow.value = flow.value.finishRefresh()
+                            refreshingTokens.remove(feature)
+                        }
+                    }
+                }
             }
 
-            if (!guard.isCurrent(token)) return
-            flow.value = result.fold(
-                onSuccess = { page ->
-                    // ★ 三種「不是正常資料」的情況要**分開且說實話**：
-                    //   1) 服務端回 HTML（通常是被導去登入頁）→ 登入失效
-                    //   2) 明確的失敗原因（回應不是預期信封）→ 照實顯示
-                    //   3) 正常 JSON 但 items 真的空 → 才是「沒有資料」
-                    // 第一版把 2) 混進 3)，界面就顯示「沒有查到考試安排」——
-                    // **那是替服務端撒謊**（學校明明有 22 筆）。真機踩過。
-                    when {
-                        page.looksLikeHtml -> {
-                            login.clear()
-                            flow.value.failWith(JwFailure.SessionExpired.toHzcuException())
-                        }
+            guard.publish(token) {
+                flow.value = result.fold(
+                    onSuccess = { page ->
+                        // ★ 三種「不是正常資料」的情況要**分開且說實話**：
+                        //   1) 服務端回 HTML（通常是被導去登入頁）→ 登入失效
+                        //   2) 明確的失敗原因（回應不是預期信封）→ 照實顯示
+                        //   3) 正常 JSON 但 items 真的空 → 才是「沒有資料」
+                        // 第一版把 2) 混進 3)，界面就顯示「沒有查到考試安排」——
+                        // **那是替服務端撒謊**（學校明明有 22 筆）。真機踩過。
+                        when {
+                            page.looksLikeHtml -> {
+                                login.clear()
+                                retainCachedOnFailure(flow.value, JwFailure.SessionExpired.toHzcuException())
+                            }
 
-                        page.failure != null -> {
-                            flow.value.failWith(page.failure.toHzcuException())
-                        }
+                            page.failure != null -> {
+                                retainCachedOnFailure(flow.value, page.failure.toHzcuException())
+                            }
 
-                        else -> flow.value.settleFirstPage(listOf(page), clock()) { it.feature }
-                    }
-                },
-                onFailure = { e ->
-                    // 帶原因的用原因；其餘當 Other。
-                    // **消息會顯示在界面上** —— 這台機器上 App 的 Log 拿不到，
-                    // 界面就是唯一的排查窗口。
-                    val failure: JwFailure = (e as? JwDomainFailure)?.failure
-                        ?: JwFailure.Other(e.message ?: "取数失败")
-                    flow.value.failWith(failure.toHzcuException())
-                },
-            )
+                            else -> flow.value.settleFirstPage(listOf(page), clock()) { it.feature }
+                        }
+                    },
+                    onFailure = { e ->
+                        // 帶原因的用原因；其餘當 Other。
+                        // **消息會顯示在界面上** —— 這台機器上 App 的 Log 拿不到，
+                        // 界面就是唯一的排查窗口。
+                        val failure: JwFailure = (e as? JwDomainFailure)?.failure
+                            ?: JwFailure.Other(e.message ?: "取数失败")
+                        retainCachedOnFailure(flow.value, failure.toHzcuException())
+                    },
+                )
+            }
         }
     }
 
@@ -250,7 +287,7 @@ class LiveJwRepository(
             // 被導去登入頁（或別的頁面）→ 由呼叫方當成登入失效處理。
             return JwRawPage(feature, null, text.length, looksLikeHtml = true)
         }
-        val root = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+        val root = catchingActive { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
         // ★ 解析不出 JSON 物件 → 這是**解析失敗**，不是「沒有資料」。
         if (root == null) {
             return JwRawPage(
@@ -304,13 +341,22 @@ class JwLoginCoordinator(
     private val engine: JwEngine,
     private val session: JwSession,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) {
     /** 這次啟動已經登入成功的上下文。 */
     private val loggedIn = mutableSetOf<String>()
 
+    private var contextRevision = engine.contextRevision
+    private val guard = SecondaryGuard(epoch, session) { synchronized(loggedIn) { loggedIn.clear() } }
+
+    init {
+        engine.bind(session)
+        epoch.registerReset { guard.invalidate(); synchronized(loggedIn) { loggedIn.clear() } }
+    }
+
     /** 取數被導回登入頁時要清掉快取，下次重登（不清就會一路 302 到重啟）。 */
     fun clear() {
-        loggedIn.clear()
+        epoch.publish(epoch.token()) { synchronized(loggedIn) { loggedIn.clear() } }
     }
 
     /**
@@ -320,9 +366,17 @@ class JwLoginCoordinator(
      * **不要**默默回空資料 —— 那會讓界面顯示「沒有考試」「本週沒課」，
      * 而其實是沒登入。
      */
-    suspend fun ensureLoggedIn() {
-        val account = session.account()
-        val password = session.password()
+    suspend fun ensureLoggedIn(token: Long = epoch.token()) {
+        if (!epoch.isCurrent(token)) throw kotlinx.coroutines.CancellationException("Account changed")
+        val ticket = guard.begin()
+        var account: String? = null
+        var password: String? = null
+        var revision = -1L
+        if (!guard.publish(ticket) {
+                account = session.account(); password = session.password(); revision = session.credentialRevision()
+            }) {
+            throw kotlinx.coroutines.CancellationException("JW account changed")
+        }
         if (account.isNullOrBlank() || password.isNullOrBlank()) {
             throw JwDomainFailure(JwFailure.SessionExpired)
         }
@@ -333,16 +387,26 @@ class JwLoginCoordinator(
             throw JwDomainFailure(JwFailure.EngineNotReady)
         }
 
+        engine.prepareCredential(revision)
+        if (contextRevision != engine.contextRevision) {
+            synchronized(loggedIn) { loggedIn.clear() }
+            contextRevision = engine.contextRevision
+        }
         for (path in listOf("/xtgl/login_slogin.html", JwEngine.JWGLXT_LOGIN_PATH)) {
-            if (loggedIn.contains(path)) continue
-            val failure = engine.login(account, password, path)
+            if (!epoch.isCurrent(token) || !guard.isCurrent(ticket)) throw kotlinx.coroutines.CancellationException("Account changed")
+            if (synchronized(loggedIn) { loggedIn.contains(path) }) continue
+            val failure = engine.login(account!!, password!!, path)
             if (failure != null) {
                 // ★ 把**具體原因**帶到界面 —— 少了它，「WebView 沒就緒」和
                 //   「密碼錯」在使用者眼裡一模一樣（真機踩過）。
                 throw JwDomainFailure(failure)
             }
-            loggedIn.add(path)
+            if (!guard.publish(ticket) { synchronized(loggedIn) { loggedIn.add(path) } }) {
+                throw kotlinx.coroutines.CancellationException("Account changed")
+            }
         }
-        session.markLogin(clock())
+        if (!guard.publish(ticket) { session.markLogin(clock()) }) {
+            throw kotlinx.coroutines.CancellationException("Account changed")
+        }
     }
 }

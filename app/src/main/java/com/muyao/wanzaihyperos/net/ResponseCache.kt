@@ -36,6 +36,29 @@ class ResponseCache(
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
     private val root = File(dir, "http_cache").apply { runCatching { mkdirs() } }
+    private var clearGeneration = 0L
+
+    @Synchronized
+    internal fun writeGeneration(): Long = clearGeneration
+
+    @Synchronized
+    internal fun putIfCurrent(
+        source: String,
+        identity: RequestIdentity,
+        path: String,
+        body: String,
+        generation: Long,
+        isCurrent: () -> Boolean,
+    ): Boolean {
+        if (clearGeneration != generation || !isCurrent()) return false
+        val key = scopedKey(source, identity, path)
+        putEntry(key, path.substringBefore('?'), body)
+        if (!isCurrent()) {
+            invalidateEntry(key)
+            return false
+        }
+        return true
+    }
 
     /** 一条 GET 响应能不能缓存。 */
     fun cacheable(path: String, method: String): Boolean {
@@ -49,18 +72,44 @@ class ResponseCache(
      * @param maxAgeMs 超过这个年龄就当没有（**不做后台静默更新**：
      *   那样界面会显示一份他看不出新旧的数据，这个工程不接受这种"看起来很快"）。
      */
-    fun get(path: String, maxAgeMs: Long): String? {
-        val f = file(path)
+    private fun getEntry(key: String, maxAgeMs: Long): String? {
+        val f = file(key)
         if (!f.isFile) return null
         val age = nowMs() - f.lastModified()
         if (age < 0 || age > maxAgeMs) return null      // 时钟被改过 ⇒ 当没有
         return runCatching { f.readText() }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
-    fun put(path: String, body: String) {
+    /** Identity-scoped entries never fall back to the old path-only cache. */
+    @Synchronized
+    fun get(source: String, identity: RequestIdentity, path: String, maxAgeMs: Long): String? =
+        getEntry(scopedKey(source, identity, path), maxAgeMs)
+
+    @Synchronized
+    fun put(source: String, identity: RequestIdentity, path: String, body: String) {
+        putEntry(scopedKey(source, identity, path), path.substringBefore('?'), body)
+    }
+
+    @Synchronized
+    fun invalidate(source: String, identity: RequestIdentity, path: String) {
+        invalidateEntry(scopedKey(source, identity, path))
+    }
+
+    private fun scopedKey(source: String, identity: RequestIdentity, path: String): String =
+        "v2:${source.length}:$source:${identity.ownerKey.length}:${identity.ownerKey}:${identity.generation}:$path"
+
+    private fun putEntry(key: String, displayPath: String, body: String) {
         if (body.length > MAX_BODY) return               // 异常大的响应不存（别把他手机塞满）
         runCatching {
-            file(path).writeText(body)
+            val target = file(key)
+            val temp = File.createTempFile("cache-", ".tmp", root)
+            try {
+                temp.writeText(body)
+                check(temp.renameTo(target))
+                target.setLastModified(nowMs())
+            } finally {
+                temp.delete()
+            }
             // 侧车文件：把**原始路径**留下来。
             //
             // 为什么非存不可：正文文件名是 path 的 SHA-1（[file] 的注释解释了为什么不能
@@ -69,26 +118,30 @@ class ResponseCache(
             // 也就谈不上按领域清理。
             //
             // 侧车里只有路径：没有正文、没有 cookie、没有 token。
-            meta(path).writeText(path)
+            meta(key).writeText(displayPath)
         }
     }
 
-    fun invalidate(path: String) {
-        runCatching { file(path).delete() }
-        runCatching { meta(path).delete() }
+    private fun invalidateEntry(key: String) {
+        runCatching { file(key).delete() }
+        runCatching { meta(key).delete() }
     }
 
     /** 占了多少字节（設定页那一行显示用）。侧车不算 —— 它只有几十字节，算进去只是噪声。 */
+    @Synchronized
     fun usedBytes(): Long = runCatching {
-        root.listFiles()?.filter { it.isFile && !it.name.endsWith(META) }?.sumOf { it.length() } ?: 0L
+        root.listFiles()?.filter { it.isFile && it.name.endsWith(".json") }?.sumOf { it.length() } ?: 0L
     }.getOrDefault(0L)
 
+    @Synchronized
     fun entries(): Int = runCatching {
-        root.listFiles()?.count { it.isFile && !it.name.endsWith(META) } ?: 0
+        root.listFiles()?.count { it.isFile && it.name.endsWith(".json") } ?: 0
     }.getOrDefault(0)
 
     /** @return 清掉的字节数（让界面能说「已清除 240 KB」，而不是只说「已清除」）。 */
+    @Synchronized
     fun clearAll(): Long {
+        clearGeneration++
         val n = usedBytes()
         runCatching { root.listFiles()?.forEach { it.delete() } }
         return n
@@ -103,9 +156,10 @@ class ResponseCache(
      * 没有侧车的旧条目统一归到 [UNKNOWN_DOMAIN]，界面上照实写「旧版未分类」，
      * 而不是把它算进某一类里假装分得清。
      */
+    @Synchronized
     fun domains(): List<CacheDomain> {
         val files = runCatching {
-            root.listFiles()?.filter { it.isFile && !it.name.endsWith(META) }
+            root.listFiles()?.filter { it.isFile && it.name.endsWith(".json") }
         }.getOrNull().orEmpty()
         if (files.isEmpty()) return emptyList()
         val bucket = HashMap<String, MutableList<File>>()
@@ -123,7 +177,9 @@ class ResponseCache(
     }
 
     /** 清掉某一领域。@return 清掉的字节数。 */
+    @Synchronized
     fun clearDomain(name: String): Long {
+        clearGeneration++
         var freed = 0L
         runCatching {
             root.listFiles()?.forEach { f ->
@@ -134,6 +190,7 @@ class ResponseCache(
                     if (!File(root, key + ".json").isFile) f.delete()
                     return@forEach
                 }
+                if (!f.name.endsWith(".json")) return@forEach
                 val key = f.name.removeSuffix(".json")
                 val path = runCatching {
                     File(root, key + META).takeIf { it.isFile }?.readText()

@@ -211,7 +211,7 @@ class RetrievalGlowTest {
     @Test
     fun `首页两张小卡不再拿 FirstLoad 单独当正在取`() {
         val home = code("ui/main/pages/HomeSectionPage.kt")
-        listOf("private fun TodoSummaryCard(", "private fun RunSummaryCard(").forEach { head ->
+        listOf("internal fun TodoSummaryCard(", "internal fun RunSummaryCard(").forEach { head ->
             val body = home.substringAfter(head).substringBefore("\n@Composable")
             assertFalse(
                 "$head 里又出现了 state is ListState.FirstLoad —— " +

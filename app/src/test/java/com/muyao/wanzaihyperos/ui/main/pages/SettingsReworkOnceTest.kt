@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.main.pages
 
+import com.muyao.wanzaihyperos.ui.SourceScan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,7 +17,38 @@ class SettingsReworkOnceTest {
     private val prefs = File("src/main/java/com/muyao/wanzaihyperos/data/UiPrefs.kt")
     private val theme = File("src/main/java/com/muyao/wanzaihyperos/ui/AppTheme.kt")
     private val settings = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/SettingsSectionPage.kt")
+    private val preferences = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/PreferencesPage.kt")
     private val reminders = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/RemindersPage.kt")
+
+    private fun compact(text: String) = text.replace(Regex("\\s+"), "")
+
+    private fun block(text: String, marker: String): String {
+        val markerStart = text.indexOf(marker)
+        assertTrue("找不到实际代码区段: $marker", markerStart >= 0)
+        val start = text.indexOf('{', markerStart)
+        assertTrue("代码区段没有起始括号: $marker", start >= 0)
+        var depth = 0
+        var quote: Char? = null
+        var escaped = false
+        for (index in start until text.length) {
+            val char = text[index]
+            if (quote != null) {
+                when {
+                    escaped -> escaped = false
+                    char == '\\' -> escaped = true
+                    char == quote -> quote = null
+                }
+            } else when (char) {
+                '"', '\'' -> quote = char
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return text.substring(start + 1, index)
+                }
+            }
+        }
+        error("代码区段未闭合: $marker")
+    }
 
     private fun read(f: File): String {
         assertTrue("找不到 ${f.absolutePath}", f.isFile)
@@ -88,25 +120,37 @@ class SettingsReworkOnceTest {
         val codeLines = fn.lines().filterNot { it.trimStart().startsWith("//") }
         assertTrue("syncUiStateFromPrefs 不许用 AppThemeMode.entries（那条纪律是硬性的）",
             codeLines.none { "AppThemeMode.entries" in it })
-        // 调用点：导入成功之后必须调它
-        val settingsText = read(settings)
-        val afterImport = settingsText.substringAfter("syncUiStateFromPrefs")
-        assertTrue("设置页没有调用 syncUiStateFromPrefs，导入后要重启才生效", afterImport.isNotEmpty())
+        // 导入已迁到偏好页；验证确认后的实际调用，不把注释或旧位置当证据。
+        val preferencesText = SourceScan.stripComments(read(preferences))
+        val preview = block(preferencesText, "preview?.let { pending ->")
+        val restore = compact(block(preview, "AppearanceChoice(\"确认恢复这份偏好备份\""))
+        assertTrue("确认恢复后必须在 IO 写入偏好",
+            "withContext(Dispatchers.IO){PrefsBackup.apply(pending)}" in restore)
+        assertTrue("导入成功后必须同步运行期状态，失败不得伪装成功",
+            "if(count>=0){com.muyao.wanzaihyperos.ui.syncUiStateFromPrefs(uiState)" in restore)
     }
 
     @Test
     fun `C6 导出的数据流拿不到时必须报错，不许静默成功`() {
         // 原来的 `openOutputStream(uri)?.use { … }`：拿不到流就整段跳过，
         // 界面还提示「已导出」，而文件根本没写出来。
-        val text = read(settings)
-        // 从真正的写入语句起算，到 onSuccess 为止：注释里写着旧代码 `?.use`，
-        // 从 "openOutputStream" 起算会把注释也吞进来，判据就废了。
-        val export = text.substringAfter("val out = context.contentResolver.openOutputStream")
-            .substringBefore("}.onSuccess")
+        val text = SourceScan.stripComments(read(preferences))
+        val code = compact(text)
+        assertTrue("偏好页缺实际导出 launcher", "valexport=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(" in code)
+        val export = compact(block(text, "val export = rememberLauncherForActivityResult("))
         assertTrue("导出仍然用 `?.use` 静默跳过（拿不到流就当写成功）", "?.use" !in export)
-        assertTrue("导出拿不到流时没有抛错", "error(" in export)
-        assertTrue("导出失败必须给用户一句能看懂的话",
-            "系统没有给出可写的数据流" in export)
+        val io = compact(block(export, "withContext(Dispatchers.IO)"))
+        assertTrue("导出拿不到流时必须直接抛错",
+            "openOutputStream(uri)?:error(\"系统没有给出可写的数据流\")" in io)
+        assertTrue("输出流必须在 IO 中写入并关闭",
+            "output.use{it.write(text.toByteArray(Charsets.UTF_8))}" in io)
+        assertTrue("只有 IO 写入与关闭成功后才允许报告已导出",
+            "withContext(Dispatchers.IO){$io}result=\"偏好已导出\"" in export)
+        assertTrue("导出取消必须继续抛出，不能误报成功",
+            "catch(cancel:CancellationException){throwcancel}" in export)
+        assertTrue("导出空流失败必须给用户一句能看懂的话",
+            "导出未完成：系统没有给出可写的数据流，请重新选择保存位置" in export)
+        assertTrue("导出其他失败不得报告成功", "else\"导出未完成，请重试\"" in export)
     }
 
     @Test
@@ -174,16 +218,34 @@ class SettingsReworkOnceTest {
     }
 
     @Test
-    fun `C5 从外观进辅助显示，返回必须落回外观而不是关掉它`() {
-        // 原来 onOpenAccessibility 里顺手写了 showAppearance = false，
-        // 结果关掉上层辅助显示时，下层的「外观」也一起没了 —— 返回落到错误的层级。
+    fun `C5 辅助显示并入外观后，展开与调整不得关闭外观层`() {
         val shell = File("src/main/java/com/muyao/wanzaihyperos/ui/main/WanzaiMainShell.kt")
-        assertTrue("WanzaiMainShell.kt 不见了", shell.isFile)
-        val text = shell.readText(Charsets.UTF_8)
-        val block = text.substringAfter("onOpenAccessibility = {").substringBefore("}")
-        assertTrue("从外观进辅助显示时又顺手关掉了外观层（返回会落到错误的层）",
-            "showAppearance = false" !in block)
-        assertTrue("onOpenAccessibility 没有真的打开辅助显示层",
-            "showAccessibility = true" in block)
+        val appearance = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/AppearancePage.kt")
+        val shellText = SourceScan.stripComments(read(shell))
+        val shellCode = compact(shellText)
+        val settingsCode = compact(SourceScan.stripComments(read(settings)))
+        assertTrue("设置页必须仍能打开外观", "onClick=onOpenAppearance" in settingsCode)
+        val settingsEntry = shellText.substringAfter("MainSection.Settings -> SettingsSectionPage(", "")
+        val openAppearance = compact(block(settingsEntry, "onOpenAppearance ="))
+        assertEquals("设置入口必须真的打开外观且不关掉其它层", "showAppearance=true", openAppearance)
+        assertTrue("外观必须由同一可见层承载", "visible=showAppearance" in shellCode)
+        assertTrue("关闭外观时才退出外观层", "AppearancePage(onClose={showAppearance=false}," in shellCode)
+        val appearanceText = SourceScan.stripComments(read(appearance))
+        val text = compact(appearanceText)
+        val interaction = compact(block(appearanceText, "item(key = \"section-interaction\")"))
+        assertTrue("辅助显示必须仍在外观页实际可展开区段内",
+            "ThemeExpandableSection(\"动画与显示\"" in interaction && "toggleSection(\"interaction\")" in interaction)
+        listOf(
+            "减少动态" to "reduceMotion", "高对比显示" to "highContrast", "减弱透明度" to "reduceTransparency",
+        ).forEach { (label, field) ->
+            assertTrue("$label 必须仍有实际开关", "AppearanceToggle(\"$label\"" in interaction)
+            assertTrue("$label 必须更新真实偏好", "current=current.copy($field=!current.$field)" in interaction)
+        }
+        assertTrue("辅助显示开关必须走落盘链",
+            "varcurrentbyLiveAppearanceState(onThemeMode)" in text && "UiPrefs.applyAppearance(next)" in text)
+        val toggle = compact(block(appearanceText, "fun toggleSection("))
+        listOf("onClose(", "close(", "closePage(", "showAppearance=false", "onOpenAccessibility", "showAccessibility").forEach { token ->
+            assertTrue("展开/调整辅助显示不许关闭或切走外观层: $token", token !in interaction && token !in toggle)
+        }
     }
 }

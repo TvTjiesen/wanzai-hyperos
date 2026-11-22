@@ -1,5 +1,10 @@
 package com.muyao.wanzaihyperos.net
 
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -227,7 +232,32 @@ class HzcuCasService private constructor(
     private val tronclassAuthUrlBuilder: (String) -> String,
     /** TronClass token 端点。生产是 [HzcuEndpoints.TRONCLASS_OIDC_TOKEN_URL]。 */
     private val tronclassTokenUrl: String,
+    private val epoch: AccountEpoch?,
 ) {
+
+    var beforeLogin: (suspend (String) -> Unit)? = null
+    var beforeLoginForOwner: (suspend (String) -> Long?)? = null
+    var afterLogin: (suspend (String) -> Unit)? = null
+    var afterLoginForOwner: (suspend (String, Long?) -> Unit)? = null
+
+    private fun requireCurrent(token: Long?) {
+        if (epoch != null && (token == null || !epoch.isCurrent(token))) throw CancellationException("Account changed")
+    }
+
+    private suspend fun sendForOwner(
+        token: Long?, request: HzcuRequest, context: String, maxAttempts: Int? = null,
+    ): HzcuRawResponse {
+        currentCoroutineContext().ensureActive()
+        requireCurrent(token)
+        return client.send(request, context, maxAttempts, ownerToken = token).also { requireCurrent(token) }
+    }
+
+    private suspend fun publish(token: Long?, action: () -> Unit) {
+        currentCoroutineContext().ensureActive()
+        if (epoch == null) action()
+        else if (token == null || !epoch.publish(token, action)) throw CancellationException("Account changed")
+        requireCurrent(token)
+    }
 
     companion object {
         const val DEFAULT_MAX_HOPS = 5
@@ -240,6 +270,7 @@ class HzcuCasService private constructor(
             pageUriBuilder: (String) -> String = HzcuEndpoints::casLogin,
             tronclassAuthUrlBuilder: (String) -> String = HzcuEndpoints::tronclassMobileAuthUrl,
             tronclassTokenUrl: String = HzcuEndpoints.TRONCLASS_OIDC_TOKEN_URL,
+            epoch: AccountEpoch? = null,
         ): HzcuCasService = HzcuCasService(
             client,
             session,
@@ -248,6 +279,7 @@ class HzcuCasService private constructor(
             pageUriBuilder,
             tronclassAuthUrlBuilder,
             tronclassTokenUrl,
+            epoch,
         )
 
         // ---------------------------------------------------------------------
@@ -304,6 +336,7 @@ class HzcuCasService private constructor(
          * 宁可让业主看到英文原文，也不要瞎翻译成错误的诊断方向。
          */
         private fun localizeAuthFailure(sentence: String): String {
+            val sentence = safeRequestText(sentence, 160)
             val lower = sentence.lowercase()
             if (lower.contains("cannot be determined to be authentic") ||
                 lower.contains("credentials you provided")
@@ -313,7 +346,7 @@ class HzcuCasService private constructor(
             if (lower.contains("locked")) {
                 return "账号已被锁定，请联系学校信息化办（学校返回原文：$sentence）"
             }
-            return sentence
+            return safeRequestText(sentence, 160)
         }
 
         /**
@@ -336,8 +369,8 @@ class HzcuCasService private constructor(
                 // 去掉开头的 `"> 之类
                 .replace(Regex("^[^\\u4e00-\\u9fa5A-Za-z0-9]+"), "")
                 .trim()
-            if (text.isEmpty() || text.length > 120) return null
-            return text
+            if (text.isEmpty()) return null
+            return safeRequestText(text, 120)
         }
     }
 
@@ -364,11 +397,19 @@ class HzcuCasService private constructor(
             throw HzcuException.AuthenticationRejected("密码不能为空")
         }
 
+        currentCoroutineContext().ensureActive()
+        val ownedBefore = beforeLoginForOwner
+        val ownerToken = if (ownedBefore != null) ownedBefore(trimmedAccount) else {
+            beforeLogin?.invoke(trimmedAccount)
+            epoch?.token()
+        }
+        currentCoroutineContext().ensureActive()
+        requireCurrent(ownerToken)
         val chain = mutableListOf<HzcuHopDiagnosis>()
 
         // 一次登录 = 一个全新的会话。清掉上一次可能残留的 cookie，
         // 避免「登录失败但旧会话还在」这种最难查的中间态。
-        client.cookieJar.clear()
+        publish(ownerToken) { client.cookieJar.clear() }
 
         // 门户域 = 常量那个 iappdd + 本次 service 的 host。
         // 带上 service 是因为「CAS 认证成功后该回到的地方」按定义就是这次流程的门户；
@@ -381,7 +422,7 @@ class HzcuCasService private constructor(
 
         // ---- 第 1 步：取登录页，读 fm1 隐藏域 --------------------------------
         val pageUri = pageUriBuilder(service)
-        val page = client.send(HzcuRequest.url(pageUri), context = "CAS 登录页")
+        val page = sendForOwner(ownerToken, HzcuRequest.url(pageUri), context = "CAS 登录页")
         chain += diagnose(1, "GET", page, pageUri)
 
         val form = try {
@@ -403,7 +444,7 @@ class HzcuCasService private constructor(
             encryptedPassword = HzcuCasCrypto.encryptPassword(password),
         )
 
-        var current = client.send(
+        var current = sendForOwner(ownerToken,
             HzcuRequest.url(submitUri, method = "POST", fields = fields),
             context = "CAS 表单提交",
             // ★ 带凭据的 POST **只发一次**，理由见类注释与 [HzcuClient.send]。
@@ -415,7 +456,7 @@ class HzcuCasService private constructor(
         // ---- 第 3 步：跑探针 → 跟跳 → 再跑探针 -------------------------------
         for (hop in 3..maxHops) {
             runProbes(current, currentUri, portalHosts)?.let { hit ->
-                return finish(chain, hit.token, hit.probeName, trimmedAccount)
+                return finish(chain, hit.token, hit.probeName, trimmedAccount, ownerToken)
             }
 
             // 认证失败的判定必须在「跟下一跳」之前：
@@ -446,17 +487,17 @@ class HzcuCasService private constructor(
                     isPortalHost = portalHosts.contains(HzcuEndpoints.hostOf(nextUri)?.lowercase() ?: ""),
                 ),
             )?.let { hit ->
-                return finish(chain, hit.token, hit.probeName, trimmedAccount)
+                return finish(chain, hit.token, hit.probeName, trimmedAccount, ownerToken)
             }
 
-            current = client.send(HzcuRequest.url(nextUri), context = "CAS 跳转链 第 $hop 跳")
+            current = sendForOwner(ownerToken, HzcuRequest.url(nextUri), context = "CAS 跳转链 第 $hop 跳")
             currentUri = nextUri
             chain += diagnose(hop, "GET", current, nextUri)
         }
 
         // 最后一条响应也要跑一遍探针（循环是「先探后跟」，尾巴没探）。
         runProbes(current, currentUri, portalHosts)?.let { hit ->
-            return finish(chain, hit.token, hit.probeName, trimmedAccount)
+            return finish(chain, hit.token, hit.probeName, trimmedAccount, ownerToken)
         }
         // 尾巴也要做失败判定：落地页若带回错误文案，报「认证失败」比报
         // 「token 来源未证实」准确得多。
@@ -481,9 +522,13 @@ class HzcuCasService private constructor(
         token: String,
         probeName: String,
         account: String,
+        ownerToken: Long?,
     ): HzcuCasLoginResult {
-        client.persistCookieJar()
-        session.saveAccessToken(token, account)
+        publish(ownerToken) { session.savePortalSession(token, account, client.cookieJar.toJson()) }
+        val ownedHook = afterLoginForOwner
+        if (ownedHook != null) ownedHook(account, ownerToken) else afterLogin?.invoke(account)
+        currentCoroutineContext().ensureActive()
+        requireCurrent(ownerToken)
         return HzcuCasLoginResult(
             accessToken = token,
             userCode = account,
@@ -526,7 +571,10 @@ class HzcuCasService private constructor(
 
     suspend fun renewWithExistingSession(
         service: String = HzcuEndpoints.PORTAL_BASE_URL,
+        ownerToken: Long? = epoch?.token(),
     ): String? {
+        currentCoroutineContext().ensureActive()
+        requireCurrent(ownerToken)
         val chain = mutableListOf<HzcuHopDiagnosis>()
         val serviceHost = HzcuEndpoints.hostOf(service)
         val portalHosts = buildSet {
@@ -536,7 +584,7 @@ class HzcuCasService private constructor(
 
         var currentUri = pageUriBuilder(service)
         var current = try {
-            client.send(HzcuRequest.url(currentUri), context = "CAS 会话重放 第 1 跳")
+            sendForOwner(ownerToken, HzcuRequest.url(currentUri), context = "CAS 会话重放 第 1 跳")
         } catch (error: HzcuException) {
             // 网络层失败 ≠ 会话失效：这里一律当"续不上"处理，让调用方保留原有错误。
             renewLog("重放首跳失败（${error.javaClass.simpleName}）")
@@ -546,7 +594,7 @@ class HzcuCasService private constructor(
 
         for (hop in 2..maxHops) {
             runProbes(current, currentUri, portalHosts)?.let { hit ->
-                return acceptRenewedToken(hit.token, chain, hit.probeName)
+                return acceptRenewedToken(hit.token, chain, hit.probeName, ownerToken)
             }
             if (!current.isRedirect) break
             val location = current.location?.trim()
@@ -563,11 +611,11 @@ class HzcuCasService private constructor(
                     isPortalHost = portalHosts.contains(HzcuEndpoints.hostOf(nextUri)?.lowercase() ?: ""),
                 ),
             )?.let { hit ->
-                return acceptRenewedToken(hit.token, chain, hit.probeName)
+                return acceptRenewedToken(hit.token, chain, hit.probeName, ownerToken)
             }
 
             current = try {
-                client.send(HzcuRequest.url(nextUri), context = "CAS 会话重放 第 $hop 跳")
+                sendForOwner(ownerToken, HzcuRequest.url(nextUri), context = "CAS 会话重放 第 $hop 跳")
             } catch (error: HzcuException) {
                 renewLog("第 $hop 跳失败（${error.javaClass.simpleName}）")
                 return null
@@ -577,7 +625,7 @@ class HzcuCasService private constructor(
         }
 
         runProbes(current, currentUri, portalHosts)?.let { hit ->
-            return acceptRenewedToken(hit.token, chain, hit.probeName)
+            return acceptRenewedToken(hit.token, chain, hit.probeName, ownerToken)
         }
         // 走到底没探到 token ⇒ cookie 已经不能免密换票。回 null，**不假装成功**。
         renewLog("重放落空（跳数=${chain.size}），需要使用者重新登录一次")
@@ -589,17 +637,20 @@ class HzcuCasService private constructor(
         token: String,
         chain: List<HzcuHopDiagnosis>,
         probeName: String,
+        ownerToken: Long?,
     ): String {
-        client.persistCookieJar()
-        session.saveAccessToken(token, session.userCode())
+        publish(ownerToken) { session.savePortalSession(token, session.userCode(), client.cookieJar.toJson()) }
         renewLog("免密续期成功 探针=$probeName 跳数=${chain.size}")
         return token
     }
 
     /** 退出登录：清 ACCESS_TOKEN 与会话 cookie。 */
     suspend fun logout() {
-        client.cookieJar.clear()
-        session.clear()
+        val ownerToken = epoch?.token()
+        publish(ownerToken) {
+            client.cookieJar.clear()
+            session.clear()
+        }
     }
 
     /**
@@ -649,6 +700,9 @@ class HzcuCasService private constructor(
             throw HzcuException.AuthenticationRejected("密码不能为空")
         }
 
+        val ownerToken = epoch?.token()
+        currentCoroutineContext().ensureActive()
+        requireCurrent(ownerToken)
         val chain = mutableListOf<HzcuHopDiagnosis>()
         val redirectUri = HzcuEndpoints.TRONCLASS_MOBILE_CALLBACK
 
@@ -660,7 +714,7 @@ class HzcuCasService private constructor(
         // （Keycloak 对 redirect_uri 是逐字比对，多一个参数就拒。）
         val authUrlString = tronclassAuthUrlBuilder(state)
         val authUri = authUrlString
-        val page = client.send(HzcuRequest.url(authUri), context = "OIDC 授权页")
+        val page = sendForOwner(ownerToken, HzcuRequest.url(authUri), context = "OIDC 授权页")
         var current = page
         var currentUri = authUri
         chain += diagnose(1, "GET", current, currentUri)
@@ -723,7 +777,7 @@ class HzcuCasService private constructor(
                     encryptedPassword = HzcuCasCrypto.encryptPassword(password),
                 )
                 step += 1
-                current = client.send(
+                current = sendForOwner(ownerToken,
                     HzcuRequest.url(submitUri, method = "POST", fields = fields),
                     context = "CAS 表单提交（OIDC）",
                     maxAttempts = 1,
@@ -745,7 +799,7 @@ class HzcuCasService private constructor(
                 )
             }
             val next = resolveLocation(currentUri, location)
-            current = client.send(HzcuRequest.url(next), context = "OIDC 授权跳转")
+            current = sendForOwner(ownerToken, HzcuRequest.url(next), context = "OIDC 授权跳转")
             currentUri = next
             step += 1
             chain += diagnose(step, "GET", current, next)
@@ -766,7 +820,7 @@ class HzcuCasService private constructor(
         }
 
         // ---- 4) 授权码 → token ----
-        val tokenResponse = client.send(
+        val tokenResponse = sendForOwner(ownerToken,
             HzcuRequest.url(
                 tronclassTokenUrl,
                 method = "POST",
@@ -806,6 +860,8 @@ class HzcuCasService private constructor(
         }
         // refresh_token 可能缺席（服务端没给时只能重新走整条链），不算失败。
         val refreshToken = decoded["refresh_token"].asStringOrNull()
+        currentCoroutineContext().ensureActive()
+        requireCurrent(ownerToken)
         return HzcuTronclassTokens(
             accessToken = accessToken,
             refreshToken = refreshToken,
@@ -837,12 +893,17 @@ class HzcuCasService private constructor(
      * - 響應裡的 refresh_token **可能輪換**（Keycloak 的 reuse-refresh-token 策略），
      *   所以拿到新的就存新的，拿不到就保留舊的 —— 丟了 refresh 等於把續期能力丟了。
      */
-    suspend fun refreshTronclassTokens(refreshToken: String): HzcuTronclassTokens {
+    suspend fun refreshTronclassTokens(
+        refreshToken: String,
+        ownerToken: Long? = epoch?.token(),
+    ): HzcuTronclassTokens {
         if (refreshToken.isBlank()) {
             throw HzcuException.AuthenticationRejected("refresh_token 为空，无法续期")
         }
+        currentCoroutineContext().ensureActive()
+        requireCurrent(ownerToken)
         val chain = mutableListOf<HzcuHopDiagnosis>()
-        val response = client.send(
+        val response = sendForOwner(ownerToken,
             HzcuRequest.url(
                 tronclassTokenUrl,
                 method = "POST",
@@ -873,6 +934,8 @@ class HzcuCasService private constructor(
         if (accessToken.isNullOrEmpty()) {
             throw HzcuException.Parse("Keycloak 续期响应里没有 access_token", details = chainText(chain))
         }
+        currentCoroutineContext().ensureActive()
+        requireCurrent(ownerToken)
         return HzcuTronclassTokens(
             accessToken = accessToken,
             // 輪換就換新，沒給就沿用傳進來的那份 —— 丟了它等於丟了續期能力。

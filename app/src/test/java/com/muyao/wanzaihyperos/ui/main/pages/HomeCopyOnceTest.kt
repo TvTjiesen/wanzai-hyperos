@@ -72,7 +72,7 @@ class HomeCopyOnceTest {
         //   现在按稿的口径换成**球的话**（AiBall.lineOf）——「字不许重复脸说过的话」。
         //   原来那条「今天没课 vs 都上完了」的区别没有丢，它搬到了脸上：
         //   前者是 Idle/Sleep，后者是 Done，两张脸的台词不同（见下一条断言）。
-        val body = bodyOf(source(), "private fun HomeSkyHeader(")
+        val body = bodyOf(source(), "internal fun HomeSkyHeader(")
         assertTrue("副行没有用球的话 —— 又退回纯统计了",
             body.contains("AiBall.lineOf(ballState)"))
         assertFalse("副行还在画课表统计（应该只在「此刻」卡里说）",
@@ -93,7 +93,7 @@ class HomeCopyOnceTest {
 
     @Test
     fun `时间线卡不再复述 plan`() {
-        val body = bodyOf(source(), "private fun TodayTimelineCard(")
+        val body = bodyOf(source(), "internal fun TodayTimelineCard(")
         assertFalse("时间线卡又吃回 plan 了 —— 它复述的就是 plan.detail，会和「此刻」卡逐字重复",
             body.contains("plan: TodayPlan?"))
         assertFalse("时间线卡里还在画 plan.detail",
@@ -109,7 +109,7 @@ class HomeCopyOnceTest {
         assertTrue("时间线卡的 item 没套上闸门", gate >= 0)
         // 闸门必须在「此刻」卡之后 —— 副行那句「今天没有课」得先画出来，
         // 否则这一屏关于今天一个字都没有。位置判据比字符串更结实。
-        val focus = src.indexOf("item(key = \"focus\")")
+        val focus = src.indexOf("FocusGlassCard(")
         assertTrue("闸门排到「此刻」卡前面去了", focus in 0 until gate)
     }
 
@@ -117,7 +117,7 @@ class HomeCopyOnceTest {
     fun `删掉的是那一句，不是诚实的三句`() {
         // 时间线卡里那三句「还在取 / 没取到 / 不知道第几周」是**不许被顺手删掉**的：
         // 它们各自对应一种「现在还不能下结论」，删掉就只剩一句假装确定的空话。
-        val body = bodyOf(source(), "private fun TodayTimelineCard(")
+        val body = bodyOf(source(), "internal fun TodayTimelineCard(")
         assertTrue("「正在取得课表…」没了", body.contains("正在取得课表…"))
         assertTrue("「课表没取到…」没了", body.contains("课表没取到，暂时画不出今天的时间线。"))
         assertTrue("「还不知道目前是第几教学周…」没了", body.contains("还不知道目前是第几教学周"))

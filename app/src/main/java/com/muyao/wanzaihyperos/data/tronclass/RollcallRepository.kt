@@ -2,6 +2,8 @@ package com.muyao.wanzaihyperos.data.tronclass
 
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.failWith
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
 import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startRefresh
@@ -62,9 +64,10 @@ interface RollcallRepository {
 class LiveRollcallRepository(
     private val client: TronclassClient,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : RollcallRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<TronRollcall>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<TronRollcall>> = _state.asStateFlow()
     private val inFlight = Mutex()
@@ -81,42 +84,45 @@ class LiveRollcallRepository(
     @Volatile
     private var myIdResolved = false
 
-    private suspend fun myStudentId(): Int? {
+    init {
+        epoch.registerReset {
+            guard.invalidate()
+            cachedMyId = null
+            myIdResolved = false
+            _state.value = ListState.FirstLoad
+        }
+    }
+
+    private suspend fun myStudentId(ownerToken: Long): Int? {
         if (myIdResolved) return cachedMyId
-        val id = runCatching { client.profileUserId() }.getOrNull()
-        cachedMyId = id
-        // ★ 只有「真的取到了」才標記已解析：取不到時下次仍會再試，
-        //   否則一次網絡抖動會讓「我簽了沒」永遠顯示「—」。
-        myIdResolved = id != null
+        val id = catchingActive { client.profileUserId() }.getOrNull()
+        if (!epoch.publish(ownerToken) {
+            cachedMyId = id
+            myIdResolved = id != null
+        }) throw kotlinx.coroutines.CancellationException("Account changed")
         return id
     }
 
     override suspend fun refresh() {
+        val ownerToken = epoch.token()
+        val token = guard.begin()
         inFlight.withLock {
-            val token = guard.begin()
-            _state.value = _state.value.startRefresh()
+            if (!epoch.isCurrent(ownerToken) || !guard.isCurrent(token)) return
+            if (!guard.publish(token) { _state.value = _state.value.startRefresh() }) return
             // 先確保知道自己是誰（簽到狀態要按 student_id 挑）。
-            val me = myStudentId()
-            // ★ 刷新**必须**绕过本地响应缓存（业主 2026-11-06：「签到压根没做好」）。
-            //   缓存 TTL 是 5 分钟（`TronclassClient.TTL_MS`），而 `/api/radar/rollcalls`
-            //   正好属于可缓存的 GET —— 于是「老师刚发起 → 我点刷新 → 还是那句
-            //   『清单里没有进行中的签到』」，以及「刚签完 → 刷新 → 卡片还写着缺勤」。
-            //   2026-11-04 15:16 那次的现场就在机器上：提交前后两份快照 mtime 相隔 10 秒、
-            //   内容一模一样，因为后一次根本没走网络。
-            //   ⚠️ 必须紧挨着 `ongoingRollcalls`：`bypassCacheOnce()` 是一次性开关，
-            //   放到 `myStudentId()` 之前会被那次 `/api/profile` 吃掉。
-            client.bypassCacheOnce()
-            val result = runCatching { client.ongoingRollcalls(me) }
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = { _state.value.settleFirstPage(it, clock()) { r -> r.id } },
-                onFailure = {
-                    _state.value.failWith(
-                        if (it is HzcuException) it
-                        else HzcuException.Parse("签到数据解析失败", cause = it),
-                    )
-                },
-            )
+            val me = myStudentId(ownerToken)
+            val result = catchingActive { client.ongoingRollcalls(me, forceRefresh = true) }
+            guard.publish(token) {
+                _state.value = result.fold(
+                    onSuccess = { _state.value.settleFirstPage(it, clock()) { r -> r.id } },
+                    onFailure = {
+                        _state.value.failWith(
+                            if (it is HzcuException) it
+                            else HzcuException.Parse("签到数据解析失败", cause = it),
+                        )
+                    },
+                )
+            }
         }
     }
 
@@ -124,7 +130,13 @@ class LiveRollcallRepository(
         rollcallId: Int,
         kind: RollcallAnswerKind,
         code: String?,
-    ): RollcallAnswerResult = client.answerRollcall(rollcallId, kind, code)
+    ): RollcallAnswerResult {
+        val token = epoch.token()
+        if (!epoch.isCurrent(token)) throw kotlinx.coroutines.CancellationException("Account changed")
+        val result = client.answerRollcall(rollcallId, kind, code)
+        if (!epoch.isCurrent(token)) throw kotlinx.coroutines.CancellationException("Account changed")
+        return result
+    }
 
     /**
      * 提交之后，**回服务端的出勤記錄裡核對一次**（只讀）。
@@ -154,6 +166,7 @@ class LiveRollcallRepository(
      *   查不到、解析不出、請求失敗都回 null。
      */
     override suspend fun verifyAttendance(rollcallId: Int, courseId: Int): String? {
+        val ownerToken = epoch.token()
         // ① 先查**進行中的清單** —— 這是唯一確定包含「正在進行的點名」的端點。
         //
         //    實憑據（2026-11-04 15:16 那次真實提交，機器上 `files/http_cache/` 的原文）：
@@ -167,13 +180,13 @@ class LiveRollcallRepository(
         //
         //    ⚠️ 必須繞過緩存：不清掉就會讀到**提交之前**的快照，永遠是 `absent`，
         //    那會把一次成功的簽到核成失敗 —— 比不核還糟。
-        client.bypassCacheOnce()
         // ⚠️ 傳**已緩存**的學號就好：`/api/radar/rollcalls` 的每條記錄頂層 `status`
         //    本來就是「我」的狀態，不需要拿學號去 `student_rollcalls[]` 裡挑；
         //    這裡若走 `myStudentId()` 會白多打一次 `/api/profile`。
-        val ongoing = runCatching {
-            client.ongoingRollcalls(if (myIdResolved) cachedMyId else null)
+        val ongoing = catchingActive {
+            client.ongoingRollcalls(if (myIdResolved) cachedMyId else null, forceRefresh = true)
         }.getOrNull()
+        if (!epoch.isCurrent(ownerToken)) return null
         ongoing?.firstOrNull { it.id == rollcallId }?.let { row ->
             // 解析器現在把 `status`（生命週期）與 `myStatus`（我的考勤）分開了；
             // 核對要的是**我的考勤**。`row.status` 只在它的值確實是考勤值時才兜底
@@ -187,8 +200,9 @@ class LiveRollcallRepository(
         //    `courseId == 0` 是掃描器合成的占位記錄常用的值（沒有課程就無處可查），
         //    所以要在發任何請求**之前**就返回 —— 別白打一次 `/api/profile`。
         val course = courseId.takeIf { it > 0 } ?: return null
-        val me = myStudentId() ?: return null
-        val rows = runCatching { client.courseAttendance(course, me) }.getOrNull() ?: return null
+        val me = myStudentId(ownerToken) ?: return null
+        val rows = catchingActive { client.courseAttendance(course, me, forceRefresh = true) }.getOrNull() ?: return null
+        if (!epoch.isCurrent(ownerToken)) return null
         return rows.firstOrNull { it.rollcallId == rollcallId }?.myStatus?.takeIf { it.isNotBlank() }
     }
 }

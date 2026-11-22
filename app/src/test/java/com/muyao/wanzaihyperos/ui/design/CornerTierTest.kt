@@ -112,11 +112,12 @@ class CornerTierTest {
         val page = File("$mainRoot/ui/main/pages/AppearancePage.kt")
         val code = SourceScan.stripComments(page.readText(Charsets.UTF_8))
 
-        val tile = bodyAfter(code, "fun WallpaperTile(")
-        assertTrue("牆紙格（WallpaperTile）必须走 Dims.wallpaperTileCorner", "Dims.wallpaperTileCorner" in tile)
+        val tile = bodyAfter(code, "fun WallpaperThumbnail(")
+        assertTrue("牆紙格（WallpaperThumbnail）必须走 Dims.wallpaperTileCorner", "Dims.wallpaperTileCorner" in tile)
 
-        val chip = bodyAfter(code, "fun PresetChip(")
-        assertTrue("预设胶囊（PresetChip）必须走 Dims.chipCorner", "Dims.chipCorner" in chip)
+        val choice = bodyAfter(code, "fun VisualChoice(")
+        assertTrue("壁纸选择卡（VisualChoice）外框必须走 Dims.cardCorner", "Dims.cardCorner" in choice)
+        assertTrue("壁纸选择卡（VisualChoice）预览图必须走 Dims.wallpaperTileCorner", "Dims.wallpaperTileCorner" in choice)
 
         // A10：取景框搬去独立页（`WallpaperCropPage.kt` 的 `CropEditor`）。
         // 断言不删，改指向新文件；外观页原本那一条由 HomeSkyTest 的守卫兜住。

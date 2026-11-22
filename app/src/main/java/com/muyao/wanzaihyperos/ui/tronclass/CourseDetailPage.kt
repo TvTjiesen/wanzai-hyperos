@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.data.tronclass.CourseDetailPart
 import com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository
 import com.muyao.wanzaihyperos.data.tronclass.TronBulletin
 import com.muyao.wanzaihyperos.data.tronclass.TronCourseDetailBundle
@@ -85,6 +86,7 @@ fun CourseDetailContent(
     onBack: () -> Unit,
     /** 進去看這門課的作業清單（複用既有的作業頁，不重做一份）。 */
     onOpenHomework: () -> Unit,
+    onOpenMembers: () -> Unit,
     onOpenWeb: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -95,7 +97,7 @@ fun CourseDetailContent(
 
     // 殼內子頁（**不新增頂層 Route**）：詳情 / 全部公告 / 討論目錄。
     // 換一門課（bundle 換人）時自動回到詳情 —— 否則會帶著上一門課的子頁進來。
-    var sub by remember(bundle?.course?.id) { mutableStateOf(CourseSub.NONE) }
+    var sub by androidx.compose.runtime.saveable.rememberSaveable(bundle?.course?.id) { mutableStateOf(CourseSub.NONE) }
 
     // 三個清單各自的滾動狀態。**不能共用一個**：子頁與詳情的內容長度不同，
     // 共用會出現「從公告頁退回詳情，詳情莫名其妙停在半中間」。
@@ -186,20 +188,41 @@ fun CourseDetailContent(
         // 只把不相關的區塊跳過 —— 不另開三個列表，否則三份 scrollState 要各自維護，
         // 切回上一段時位置也接不上。
         // 目前選中的區段：0 課程信息 / 1 出勤 / 2 作業。
-        var infoTab by remember { mutableIntStateOf(0) }
+        var infoTab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
 
         when (sub) {
             CourseSub.NONE -> AppList(modifier = contentModifier, state = mainListState) {
                 // 課程卡（課名 + 老師 + 學期 + 五行 kv）在三段之外：稿上它固定在標籤列上方，
                 // 切到「出勤」「作業」時課名不會消失 —— 不然看第二段就不知道自己在看哪門課。
                 item(key = "course-header") { CourseHeader(bundle) }
+                item(key = "course-members") {
+                    ActionRow(title = "课程成员", subtitle = "教师与同学", action = "查看", onClick = onOpenMembers)
+                }
+                if (bundle.pendingParts.isNotEmpty() || bundle.partErrors.isNotEmpty()) {
+                    item(key = "course-progress") {
+                        val pending = bundle.pendingParts.joinToString("、") { it.label }
+                        val failed = bundle.partErrors.keys.joinToString("、") { it.label }
+                        TronNotice(
+                            listOfNotNull(
+                                pending.takeIf { it.isNotBlank() }?.let { "尚待确认：$it。已取得的内容可先阅读。" },
+                                failed.takeIf { it.isNotBlank() }?.let { "$it 读取失败，保留上次内容。" },
+                            ).joinToString("\n"),
+                            error = bundle.partErrors.isNotEmpty(),
+                        )
+                    }
+                    if ((state as? ListState.Content)?.meta?.refreshing != true) {
+                        item(key = "course-retry") {
+                            ActionRow(title = "继续读取课程资料", action = "重试", onClick = {
+                                scope.launch { runCatching { repository.refresh() } }
+                            })
+                        }
+                    }
+                }
                 item(key = "course-tabs") {
-                    TabRow(
-                        tabs = listOf("课程信息", "出勤", "作业"),
-                        selectedTabIndex = infoTab,
-                        onTabSelected = { infoTab = it },
-                        minWidth = 88.dp,
-                        maxWidth = 88.dp,
+                    com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
+                        labels = listOf("课程信息", "出勤", "作业"),
+                        selectedIndex = infoTab,
+                        onSelect = { infoTab = it },
                         modifier = Modifier.padding(horizontal = Dims.screenH),
                     )
                 }
@@ -392,7 +415,8 @@ private fun ScoreSection(bundle: TronCourseDetailBundle) {
         AppCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(Dims.cardPadding)) {
                 if (score == null) {
-                    HintText("没有取到成绩（不是 0 分，是没取到）。")
+                    HintText(coursePartStatus(bundle, CourseDetailPart.SCORE)
+                        ?: "没有取到成绩（不是 0 分，是没取到）。")
                 } else {
                     KeyValueRow("总评", score.summary, labelWidth = Dims.labelColumnWide)
                     if (score.published && score.rawScore.isNotBlank()) {
@@ -423,13 +447,16 @@ private fun ScoreSection(bundle: TronCourseDetailBundle) {
 private fun AttendanceSummary(bundle: TronCourseDetailBundle) {
     val summary = bundle.rollcallScore
     Column {
-        TronSection(text = "出勤（${bundle.attendance.size} 次记录）", icon = MarkIcon.Scan)
+        TronSection(text = if (bundle.isUnconfirmed(CourseDetailPart.ATTENDANCE) && bundle.attendance.isEmpty())
+            "出勤（记录待确认）" else "出勤（${bundle.attendance.size} 次记录）", icon = MarkIcon.Scan)
         AppCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(Dims.cardPadding)) {
                 if (summary == null) {
                     HintText(
-                        if (bundle.attendance.isEmpty()) "没有取到出勤记录。"
-                        else "没有取到出勤统计。",
+                        coursePartStatus(bundle, CourseDetailPart.ROLLCALL)
+                            ?: coursePartStatus(bundle, CourseDetailPart.ATTENDANCE)
+                            ?: if (bundle.attendance.isEmpty()) "没有取到出勤记录。"
+                            else "没有取到出勤统计。",
                     )
                 } else {
                     KeyValueRow("参与/点名", summary.summary, labelWidth = Dims.labelColumnWide)
@@ -437,7 +464,7 @@ private fun AttendanceSummary(bundle: TronCourseDetailBundle) {
                         KeyValueRow("最后一次", summary.lastRollcallLocal, labelWidth = Dims.labelColumnWide)
                     }
                     if (bundle.attendance.isEmpty()) {
-                        HintText("没有出勤记录明细。")
+                        HintText(coursePartStatus(bundle, CourseDetailPart.ATTENDANCE) ?: "没有出勤记录明细。")
                     }
                 }
             }
@@ -455,9 +482,10 @@ private fun AttendanceSummary(bundle: TronCourseDetailBundle) {
 @Composable
 private fun HomeworkSection(bundle: TronCourseDetailBundle, onOpenHomework: () -> Unit) {
     Column {
-        TronSection(text = "作业（${bundle.homeworks.size}）", icon = MarkIcon.File)
+        TronSection(text = if (bundle.isUnconfirmed(CourseDetailPart.HOMEWORK) && bundle.homeworks.isEmpty())
+            "作业（待确认）" else "作业（${bundle.homeworks.size}）", icon = MarkIcon.File)
         if (bundle.homeworks.isEmpty()) {
-            HintText("这门课目前没有作业。")
+            HintText(coursePartStatus(bundle, CourseDetailPart.HOMEWORK) ?: "这门课目前没有作业。")
         } else {
             Spacer(Modifier.height(Dims.tight))
             ActionRow(
@@ -479,9 +507,10 @@ private fun HomeworkSection(bundle: TronCourseDetailBundle, onOpenHomework: () -
 @Composable
 private fun BulletinSection(bundle: TronCourseDetailBundle) {
     Column {
-        TronSection(text = "课程公告（${bundle.bulletins.size}）", icon = MarkIcon.Pin)
+        TronSection(text = if (bundle.isUnconfirmed(CourseDetailPart.BULLETINS) && bundle.bulletins.isEmpty())
+            "课程公告（待确认）" else "课程公告（${bundle.bulletins.size}）", icon = MarkIcon.Pin)
         if (bundle.bulletins.isEmpty()) {
-            HintText("这门课没有公告。")
+            HintText(coursePartStatus(bundle, CourseDetailPart.BULLETINS) ?: "这门课没有公告。")
         } else if (bundle.bulletins.size > PREVIEW_COUNT) {
             HintText("共 ${bundle.bulletins.size} 条。")
         }
@@ -513,6 +542,12 @@ private fun BulletinItem(bulletin: TronBulletin) {
     )
 }
 
+internal fun coursePartStatus(bundle: TronCourseDetailBundle, part: CourseDetailPart): String? = when {
+    part in bundle.pendingParts -> "${part.label}尚待确认，可先阅读已取得的内容。"
+    part in bundle.partErrors -> "${part.label}读取失败，请重试；此时不能确认是否为空。"
+    else -> null
+}
+
 /** 課程大綱。老師沒填時要說清楚「沒填」而不是「取不到」。 */
 @Composable
 private fun OutlineSection(bundle: TronCourseDetailBundle) {
@@ -522,7 +557,7 @@ private fun OutlineSection(bundle: TronCourseDetailBundle) {
         AppCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(Dims.cardPadding)) {
                 when {
-                    detail == null -> HintText("没有取到课程大纲。")
+                    detail == null -> HintText(coursePartStatus(bundle, CourseDetailPart.DETAIL) ?: "没有取到课程大纲。")
                     !detail.outlineFilled -> HintText("老师尚未填写课程大纲（栏位有 ${detail.outline.size} 个，内容都是空的）。")
                     else -> detail.filledOutline.forEach { field ->
                         // ⚠️ 用**直排**（標題一行、內容在下），不用 KeyValueRow：

@@ -79,7 +79,7 @@ val LocalContainerStyle = staticCompositionLocalOf { ContainerStyle.DEFAULT }
  */
 fun Modifier.containerBackground(isDark: Boolean): Modifier =
     composed {
-        if (LocalContainerStyle.current == ContainerStyle.Bare) {
+        if (LocalContainerStyle.current == ContainerStyle.Bare || LocalThemeCustomization.current.useSystemWallpaper) {
             this
         } else {
             background(AppColors.pageBrush(isDark))

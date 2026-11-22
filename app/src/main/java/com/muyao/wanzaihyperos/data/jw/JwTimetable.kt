@@ -37,6 +37,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * ⚠️ 紀律：**認不出來的不能靜默丟**。課表少一格 = 他不去上課，
  * 那個後果比界面難看大得多（學在城院那條路就是靠 `unparsed` 才摸清學校的寫法邊界）。
  */
+@kotlinx.serialization.Serializable
 data class JwTimetableResult(
     val slots: List<TronScheduleSlot>,
     /** 沒認出來的原文（每條自帶是哪一格／哪個欄位）。 */

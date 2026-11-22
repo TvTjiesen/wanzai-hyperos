@@ -3,6 +3,8 @@ package com.muyao.wanzaihyperos.data.tronclass
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.failWith
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startRefresh
 import com.muyao.wanzaihyperos.net.HzcuException
@@ -34,6 +36,9 @@ data class TronFeed(
     val bulletins: List<TronBulletin>,
     val todos: List<TronTodo>,
     val courses: List<TronCourse>,
+    val bulletinsError: HzcuException? = null,
+    val todosError: HzcuException? = null,
+    val coursesError: HzcuException? = null,
 ) {
     /** 有沒有任何內容可顯示（用來區分「空」與「有東西」）。 */
     val isEmpty: Boolean get() = bulletins.isEmpty() && todos.isEmpty() && courses.isEmpty()
@@ -47,45 +52,45 @@ interface TronFeedRepository {
 class LiveTronFeedRepository(
     private val client: TronclassClient,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : TronFeedRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<TronFeed>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<TronFeed>> = _state.asStateFlow()
     private val inFlight = Mutex()
 
+    init { epoch.registerReset { guard.invalidate(); _state.value = ListState.FirstLoad } }
+
     override suspend fun refresh() {
         inFlight.withLock {
             val token = guard.begin()
-            _state.value = _state.value.startRefresh()
-
-            val result = runCatching {
-                // 公告：**必須帶 `conditions={}`**（實測：不帶會 500）。
-                val bulletins = runCatching { client.orgBulletins() }
-                val todos = runCatching { client.todos() }
-                val courses = runCatching { client.myCourses() }
-
+            val previousState = _state.value as? ListState.Content
+            val previous = previousState?.items?.firstOrNull()
+            guard.publish(token) { _state.value = _state.value.startRefresh() }
+            val bulletins = catchingActive { client.orgBulletins() }
+            val todos = catchingActive { client.todos() }
+            val courses = catchingActive { client.myCourses() }
+            guard.publish(token) {
                 if (bulletins.isFailure && todos.isFailure && courses.isFailure) {
-                    throw bulletins.exceptionOrNull() ?: todos.exceptionOrNull()
-                        ?: courses.exceptionOrNull() ?: HzcuException.Parse("学在城院没有取到数据")
-                }
-                TronFeed(
-                    bulletins = bulletins.getOrDefault(emptyList()),
-                    todos = todos.getOrDefault(emptyList()),
-                    courses = courses.getOrDefault(emptyList()),
-                )
-            }
-
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = { _state.value.settleFirstPage(listOf(it), clock()) { f -> f.hashCode() } },
-                onFailure = {
-                    _state.value.failWith(
-                        if (it is HzcuException) it
-                        else HzcuException.Parse("课程动态解析失败", cause = it),
+                    _state.value = _state.value.failWith(bulletins.exceptionOrNull()!!.tronPartFailure())
+                } else {
+                    val feed = TronFeed(
+                        bulletins.getOrElse { previous?.bulletins.orEmpty() },
+                        todos.getOrElse { previous?.todos.orEmpty() },
+                        courses.getOrElse { previous?.courses.orEmpty() },
+                        bulletins.exceptionOrNull()?.tronPartFailure(),
+                        todos.exceptionOrNull()?.tronPartFailure(),
+                        courses.exceptionOrNull()?.tronPartFailure(),
                     )
-                },
-            )
+                    val partial = feed.bulletinsError ?: feed.todosError ?: feed.coursesError
+                    val settled = _state.value.settleFirstPage(listOf(feed), clock()) { it.hashCode() }
+                    _state.value = if (settled is ListState.Content && partial != null) {
+                        settled.copy(meta = settled.meta.copy(stale = true, lastRefreshError = partial,
+                            updatedAtMillis = previousState?.meta?.updatedAtMillis))
+                    } else settled
+                }
+            }
         }
     }
 }
@@ -98,6 +103,8 @@ class LiveTronFeedRepository(
 data class TronMe(
     val profile: TronProfile,
     val stats: TronMyStats,
+    val statsErrors: List<HzcuException> = emptyList(),
+    val ownerGeneration: Long = 0L,
 )
 
 interface TronMeRepository {
@@ -120,48 +127,47 @@ interface TronMeRepository {
 class LiveTronMeRepository(
     private val client: TronclassClient,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : TronMeRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<TronMe>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<TronMe>> = _state.asStateFlow()
     private val inFlight = Mutex()
 
+    init { epoch.registerReset { guard.invalidate(); _state.value = ListState.FirstLoad } }
+
     override suspend fun refresh() {
         inFlight.withLock {
             val token = guard.begin()
-            _state.value = _state.value.startRefresh()
-
-            val result = runCatching {
-                // 個人信息是**必須**的（沒有它整頁沒意義）。
-                val profile = client.profile()
-                    ?: throw HzcuException.Parse("没有取到个人资料")
-
-                // 統計各自獨立：取不到就是 null（**不是 0**）。
-                val todos = runCatching { client.todos() }.getOrNull()
-                val courses = runCatching { client.myCourses() }.getOrNull()
-                val rollcalls = runCatching { client.ongoingRollcalls(null) }.getOrNull()
-
+            val previousTime = (_state.value as? ListState.Content)?.meta?.updatedAtMillis
+            guard.publish(token) { _state.value = _state.value.startRefresh() }
+            val result = catchingActive {
+                val profile = client.profile() ?: throw HzcuException.Parse("没有取到个人资料")
+                val todos = catchingActive { client.todos() }
+                val courses = catchingActive { client.myCourses() }
+                val rollcalls = catchingActive { client.ongoingRollcalls(null) }
                 TronMe(
-                    profile = profile,
-                    stats = TronMyStats(
-                        todoCount = todos?.size,
-                        courseCount = courses?.size,
-                        openRollcallCount = rollcalls?.count { it.isOpen },
-                    ),
+                    profile,
+                    TronMyStats(todos.getOrNull()?.size, courses.getOrNull()?.size,
+                        rollcalls.getOrNull()?.count { it.isOpen }),
+                    listOfNotNull(todos.exceptionOrNull(), courses.exceptionOrNull(),
+                        rollcalls.exceptionOrNull()).map { it.tronPartFailure() },
+                    ownerGeneration = epoch.token(),
                 )
             }
-
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = { _state.value.settleFirstPage(listOf(it), clock()) { m -> m.profile.userNo } },
-                onFailure = {
-                    _state.value.failWith(
-                        if (it is HzcuException) it
-                        else HzcuException.Parse("个人资料解析失败", cause = it),
-                    )
-                },
-            )
+            guard.publish(token) {
+                _state.value = result.fold(
+                    onSuccess = { me ->
+                        val settled = _state.value.settleFirstPage(listOf(me), clock()) { it.profile.userNo }
+                        if (settled is ListState.Content && me.statsErrors.isNotEmpty()) {
+                            settled.copy(meta = settled.meta.copy(stale = true,
+                                lastRefreshError = me.statsErrors.first(), updatedAtMillis = previousTime))
+                        } else settled
+                    },
+                    onFailure = { _state.value.failWith(it.tronPartFailure()) },
+                )
+            }
         }
     }
 }

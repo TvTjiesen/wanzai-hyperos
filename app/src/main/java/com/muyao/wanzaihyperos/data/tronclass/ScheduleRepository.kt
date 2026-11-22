@@ -3,6 +3,8 @@ package com.muyao.wanzaihyperos.data.tronclass
 import com.muyao.wanzaihyperos.data.CountValue
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.failWith
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
 import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startRefresh
@@ -14,6 +16,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
+import com.muyao.wanzaihyperos.data.ListMeta
+import com.muyao.wanzaihyperos.data.repo.finishRefresh
+import com.muyao.wanzaihyperos.data.jw.OwnerSnapshotStore
+import com.muyao.wanzaihyperos.session.TronclassSession
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+
+@Serializable
+internal data class SavedSchedule(val slots: List<TronScheduleSlot>, val unparsed: List<Pair<String, String>>)
 
 /**
  * **課表**：把各門課的上課時間字串攤成一週的格子。
@@ -55,18 +67,44 @@ data class TronSchedule(
 interface ScheduleRepository {
     val state: StateFlow<ListState<TronSchedule>>
     suspend fun refresh()
+    suspend fun refreshIfNeeded() {
+        if (com.muyao.wanzaihyperos.data.schedule.shouldRefreshTimetable(state.value, System.currentTimeMillis())) refresh()
+    }
 }
 
 class LiveScheduleRepository(
     private val client: TronclassClient,
     private val today: () -> LocalDate = { LocalDate.now() },
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
+    appContext: android.content.Context? = null,
+    private val session: TronclassSession? = null,
 ) : ScheduleRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<TronSchedule>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<TronSchedule>> = _state.asStateFlow()
     private val inFlight = Mutex()
+    private val snapshotFile = appContext?.let { java.io.File(it.filesDir, "tron_timetable_snapshot.json") }
+    private val snapshots = OwnerSnapshotStore(snapshotFile, "tron-timetable", epoch)
+    private var credentialRevision = session?.credentialRevision()
+
+    private fun seedSnapshot() {
+        val owner = epoch.token()
+        epoch.publishData(owner) {
+            val read: () -> Unit = {
+                val saved = snapshots.read(owner)?.let {
+                    catchingActive { Json.decodeFromString<SavedSchedule>(it) }.getOrNull()
+                }
+                if (saved != null) {
+                    val meta = ListMeta(updatedAtMillis = snapshotFile?.lastModified(), stale = true, hasMore = false)
+                    _state.value = if (saved.slots.isEmpty() && saved.unparsed.isEmpty()) ListState.Empty(meta)
+                    else ListState.Content(listOf(TronSchedule(saved.slots, CountValue.Unknown, saved.unparsed)), meta)
+                }
+            }
+            session?.let { it.publishCredential(it.credentialRevision(), read) } ?: read()
+        }
+    }
 
     /**
      * 教學週快取。
@@ -77,19 +115,46 @@ class LiveScheduleRepository(
     @Volatile
     private var cachedWeeks: List<TronTeachingWeek>? = null
 
-    private suspend fun teachingWeeks(): List<TronTeachingWeek>? {
+    init {
+        epoch.registerReset {
+            guard.invalidate()
+            cachedWeeks = null
+            _state.value = ListState.FirstLoad
+        }
+        session?.addListener {
+            epoch.publishData(epoch.token()) {
+                val revision = session.credentialRevision()
+                session.publishCredential(revision) {
+                    if (credentialRevision != revision) {
+                        credentialRevision = revision
+                        guard.invalidate()
+                        cachedWeeks = null
+                        snapshotFile?.delete()
+                        _state.value = ListState.FirstLoad
+                    }
+                }
+            }
+        }
+        if (session == null || session.accessToken() != null) seedSnapshot()
+    }
+
+    private suspend fun teachingWeeks(token: Long): List<TronTeachingWeek>? {
         cachedWeeks?.let { return it }
-        val weeks = runCatching { client.teachingWeeks() }.getOrNull()
-        if (!weeks.isNullOrEmpty()) cachedWeeks = weeks
+        val weeks = catchingActive { client.teachingWeeks() }.getOrNull()
+        if (!weeks.isNullOrEmpty()) guard.publish(token) { cachedWeeks = weeks }
         return weeks
     }
 
     override suspend fun refresh() {
+        val token = guard.begin()
+        val owner = epoch.token()
+        val revision = session?.credentialRevision()
+        try {
         inFlight.withLock {
-            val token = guard.begin()
-            _state.value = _state.value.startRefresh()
+            if (!guard.isCurrent(token)) return
+            if (!guard.publish(token) { _state.value = _state.value.startRefresh() }) return
 
-            val result = runCatching {
+            val result = catchingActive {
                 // 課程清單是**必須**的（沒有它整頁沒意義）。
                 val courses = client.myCourses()
 
@@ -103,7 +168,7 @@ class LiveScheduleRepository(
 
                 // 教學週取不到 → currentWeek 是 Unknown（顯示「—」），
                 // **不是 0**：0 會被讀成「還沒開學」。
-                val weeks = teachingWeeks()
+                val weeks = teachingWeeks(token)
                 val currentWeek = weeks
                     ?.let { currentTeachingWeek(it, today()) }
                     ?.let { CountValue.Known(it) }
@@ -118,16 +183,32 @@ class LiveScheduleRepository(
                 )
             }
 
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = { _state.value.settleFirstPage(listOf(it), clock()) { s -> s.slots.size } },
-                onFailure = {
-                    _state.value.failWith(
-                        if (it is HzcuException) it
-                        else HzcuException.Parse("课表解析失败", cause = it),
-                    )
-                },
-            )
+            val publish: () -> Unit = {
+                _state.value = result.fold(
+                    onSuccess = { schedule ->
+                        val save: () -> Unit = {
+                            snapshots.write(owner, Json.encodeToString(SavedSchedule(schedule.slots, schedule.unparsed)))
+                        }
+                        if (revision != null) session?.publishCredential(revision, save) else save()
+                        _state.value.settleFirstPage(listOf(schedule), clock()) { s -> s.slots.size }
+                    },
+                    onFailure = {
+                        _state.value.failWith(
+                            if (it is HzcuException) it
+                            else HzcuException.Parse("课表解析失败", cause = it),
+                        )
+                    },
+                )
+            }
+            guard.publish(token) {
+                if (revision != null) session?.publishCredential(revision, publish) else publish()
+            }
+        }
+        } finally {
+            guard.publish(token) {
+                val finish: () -> Unit = { _state.value = _state.value.finishRefresh() }
+                if (revision != null) session?.publishCredential(revision, finish) else finish()
+            }
         }
     }
 }

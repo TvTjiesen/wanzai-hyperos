@@ -29,6 +29,17 @@ import java.net.Socket
  */
 object LiveNetworkGate {
 
+    const val OPT_IN_PROPERTY = "wanzai.live.enabled"
+    const val OPT_IN_ENV = "WANZAI_LIVE_ENABLED"
+
+    internal fun optedIn(property: String?, environment: String?): Boolean =
+        property == "true" || environment == "true"
+
+    fun requireOptIn() {
+        Assume.assumeTrue("活体测试默认关闭，须显式授权启用",
+            optedIn(System.getProperty(OPT_IN_PROPERTY), System.getenv(OPT_IN_ENV)))
+    }
+
     /** 門戶（CAS 與業務接口都在這個域下）。 */
     private const val PORTAL_HOST = "iappdd.hzcu.edu.cn"
 
@@ -43,6 +54,7 @@ object LiveNetworkGate {
      * 呼叫方式：測試體開頭 `LiveNetworkGate.requirePortal()`。
      */
     fun requirePortal() {
+        requireOptIn()
         Assume.assumeTrue(
             "門戶 $PORTAL_HOST:80 連不上（當前網絡環境不可達），跳過活體測試",
             reachable(PORTAL_HOST, 80),
@@ -51,6 +63,7 @@ object LiveNetworkGate {
 
     /** 學在城院接口域可達性。 */
     fun requireTronclass() {
+        requireOptIn()
         Assume.assumeTrue(
             "學在城院 $TRONCLASS_HOST:443 連不上（當前網絡環境不可達），跳過活體測試",
             reachable(TRONCLASS_HOST, 443),

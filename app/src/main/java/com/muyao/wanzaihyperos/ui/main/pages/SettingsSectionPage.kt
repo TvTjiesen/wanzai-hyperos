@@ -1,10 +1,14 @@
 package com.muyao.wanzaihyperos.ui.main.pages
 
+import com.muyao.wanzaihyperos.BuildConfig
 import com.muyao.wanzaihyperos.ui.design.liquid.LocalNavBarVisible
 import com.muyao.wanzaihyperos.ui.design.liquid.rememberPageChromePilot
 import com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp
 import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
 import com.muyao.wanzaihyperos.ui.design.ai.AiBall
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallPresentation
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallWork
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallWorkPhase
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
@@ -28,11 +32,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import com.muyao.wanzaihyperos.net.CacheDomain
+import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,11 +68,14 @@ import com.muyao.wanzaihyperos.ui.main.pages.redesign.SettingsOverviewRow
 import com.muyao.wanzaihyperos.ui.main.pages.redesign.SettingsGroupTitle
 import com.muyao.wanzaihyperos.ui.main.pages.redesign.SettingsConnectionCard
 import com.muyao.wanzaihyperos.ui.main.pages.redesign.settingsTitleItem
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.SettingsCacheClearPlan
+import com.muyao.wanzaihyperos.ui.main.pages.redesign.settingsCacheSizeLabel
 import com.muyao.wanzaihyperos.ui.design.PillSwitch
 import com.muyao.wanzaihyperos.ui.design.PeriodTimeEditor
 import androidx.compose.ui.platform.LocalContext
 import com.muyao.wanzaihyperos.ui.design.Tone
 import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.springListEntrance
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -123,10 +136,10 @@ fun SettingsSectionPage(
     onOpenApps: () -> Unit = {},
     /** 关于 + 开源许可（B4-10）。 */
     onOpenAbout: () -> Unit = {},
+    onOpenPreferences: () -> Unit = {},
     /** 「账号」二级页（B4-06：六源逐条挪进去，这一屏只留聚合入口）。 */
     onOpenAccounts: () -> Unit = {},
     /** 「动画与辅助显示」二级页（v2.1 稿 `screens/accessibility.png`）。 */
-    onOpenAccessibility: () -> Unit = {},
     /** 节次时间表搬到独立页后，首屏这一行只负责跳转（返工总单 A4）。 */
     onOpenPeriods: () -> Unit = {},
     /** 上课提醒搬到独立页（返工总单 A5）。 */
@@ -138,559 +151,110 @@ fun SettingsSectionPage(
     refreshKey: Int = 0,
 ) {
     val colors = MiuixTheme.colorScheme
-    val context = LocalContext.current
-    var showPeriods by remember { mutableStateOf(false) }
-    // 资料来源弹层（返工总单 A11）
-    var showSources by remember { mutableStateOf(false) }
-    // 稿用 R.sheet 的形态：一条说明，不是一页。也不放任何外链（验收要求「不打开外部链接」）。
-    if (showSources) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { showSources = false }) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(colors.background, androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
-                    .padding(18.dp),
-            ) {
-                Text(
-                    text = "资料来源",
-                    fontSize = Type.title,
-                    fontWeight = Type.weightTitle,
-                    color = colors.onBackground,
-                )
-                Text(
-                    text = "浙大城市学院门户、教务系统、学在城院及各业务系统。",
-                    fontSize = Type.secondary,
-                    color = colors.onSurfaceVariantSummary,
-                    lineHeight = Type.secondary * 1.65f,
-                    modifier = Modifier.padding(top = 10.dp),
-                )
-                Text(
-                    text = "所有内容与数据归学校所有。本应用只做聚合展示，不改写、不对外转发；" +
-                        "评审稿里的合成样例仅用于演示，不代表任何真实记录。",
-                    fontSize = Type.secondary,
-                    color = colors.onSurfaceVariantSummary,
-                    lineHeight = Type.secondary * 1.65f,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-                Text(
-                    text = "关闭",
-                    fontSize = Type.secondary,
-                    color = colors.primary,
-                    modifier = Modifier
-                        .padding(top = 14.dp)
-                        .clickable(onClickLabel = "关闭资料来源") { showSources = false },
-                )
-            }
-        }
-    }
-    var showDiag by remember { mutableStateOf(false) }
-
-    // 通知权限：Android 13 起是运行时权限。打开开关时当场要一次，
-    // **被拒就把开关退回「关」** —— 留一个「已开」却没有通知权限的开关，等于骗他。
-    val notifPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        UiPrefs.saveClassReminderEnabled(granted)
-        if (!granted) {
-            Toast.makeText(context, "系统没给通知权限，提醒发不出来", Toast.LENGTH_LONG).show()
-        }
-    }
-    // 订阅 MotionPrefs.version：`reduceTransparency` 是普通 @Volatile 字段，
-    // 直接读不会触发重组 —— 开关会「动了但不变」（Motion.kt 档头写过的坑）。
     val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
-
-    // 各源快照。`ensureLoaded()` 会**同步碰加密存储**（Keystore 解密），所以整份快照
-    // 在 IO 线程算好再上屏 —— 放在 `remember` 里算就是把四次解密挂在设置页第一帧上
-    // （v3 #8 复审计到过一次：`LaunchedEffect` 在组合之后才跑，`remember` 那次已经读完了）。
-    var accountSources by remember { mutableStateOf<List<AccountSource>>(emptyList()) }
-    // 登录态**或**返回栈深度一变就重算（聚合入口上的「已登录 N 项」不能停在旧数）
-    LaunchedEffect(uiState.loggedIn, refreshKey) {
-        accountSources = withContext(Dispatchers.IO) {
-            snapshotAccountSources(
-                portal = graph.portalSession,
-                tronclass = graph.tronclassSession,
-                jw = graph.jwSession,
-                cjh52 = graph.cjh52Session,
-                zhgy = graph.zhgySession,
-                szty = graph.sztySession,
-            )
-        }
+    val context = LocalContext.current
+    var ballFacts by remember(graph) { mutableStateOf(SettingsBallSnapshot()) }
+    val accountSources = ballFacts.sources
+    val pageActive = com.muyao.wanzaihyperos.ui.design.liquid.LocalPageActive.current
+    val entryOwner = com.muyao.wanzaihyperos.ui.main.LocalPageEntryOwner.current
+    LaunchedEffect(graph, uiState.loggedIn, refreshKey, pageActive, entryOwner) {
+        if (!pageActive) return@LaunchedEffect
+        ballFacts = ballFacts.beginRead()
+        val ticket = ballFacts.ticket
+        try {
+            val sources = withContext(Dispatchers.IO) {
+                snapshotAccountSources(portal = graph.portalSession, tronclass = graph.tronclassSession,
+                    jw = graph.jwSession, cjh52 = graph.cjh52Session, zhgy = graph.zhgySession, szty = graph.sztySession)
+            }
+            ballFacts = ballFacts.acceptRead(ticket, sources)
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { ballFacts = ballFacts.failRead(ticket) }
+        finally { ballFacts = ballFacts.finishRead(ticket) }
     }
-    // 大標題交給頂欄（T53 的試點抽成共用實作）：標題是列表第 0 項，
-    // 跟著內容一起滾，滾出去之後由頂欄接手小標題。
-    // 原本這一頁自己畫了一個「消息/應用/設定」的大字 —— 那就是雙標題的來源：
-    // 頂欄已經會顯示板塊名，頁內再畫一個，兩處的字體/位置遲早不一致。
     val pilot = rememberPageChromePilot()
-
-    // 小球跟着内容走（业主 2026-10-25「不要单独一个图层」）：挂在大标题左边，随列表滚。
-    // 这一页没有课程数据，唯一的事实是「六个系统的登录状态读没读到」。
-    // `AccountStatus.Unknown` 的注释写着「不得当成未登录」—— 所以它是 Loading，不是 Idle。
-    val inFlight by graph.inFlight.collectAsState()
-    val ballState = AiBallStates.ofAccounts(accountSources, fetching = inFlight > 0)
-
-    // ── 英雄区副行（设计稿 v2.1：「液态玻璃 · 偏好保存在本机」）──────────────
-    // 前半是当前玻璃档位（真实读取，用户改了就跟着变），后半是这句承诺本身。
-    // 档位名与外观页保持同一套说法，别在这里另造词。
-    val glassLabel = when (UiPrefs.glassMode) {
-        "frost" -> "磨砂玻璃"
-        "off" -> "关闭玻璃"
-        else -> "液态玻璃"
-    }
-
-    LazyColumn(
-        state = pilot.listState,
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = Dims.screenH,
-            end = Dims.screenH,
-            // 大標題自己帶狀態欄 inset，這裡 top 必須歸零 ——
-            // 留著原本那 56dp 會出現「標題下面憑空一大塊空白」。
-            top = 0.dp,
-            bottom = pageBottomInsetDp(LocalNavBarVisible.current),   // 玻璃底欄的高度：讓最後一行能滾到玻璃底下
-        ),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        // 大标题与连接卡独立成层；标题测量仍交给同一个滚动 pilot。
-        settingsTitleItem(
-            pilot = pilot,
-            leading = { AiBall(state = ballState, diameter = AiBall.DIAMETER_PAGE, hitSlop = AiBall.INLINE_SLOP, announceArrival = true) },
-        )
-
-        // ---- 帳號（v3 #8：业主 2026-10-22「把需要登录的账号都列出来」）--------
-        //
-        // 学校这六套登录态**互不牵连**（凭据与寿命各不相同，见 `data/account/AccountSources.kt`），
-        // 所以合成一行「已登录/未登录」就是骗人：他教务掉线了，界面却可能显示已登录。
-        // 逐源给：状态 · 最近一次真实时间 · 去哪登。
-        //
-        // ★ 这一屏**没有任何代登录**：点了只是跳到对应的页，账号密码永远由他自己填。
-        // ---- 账号（B4-06：六源收进二级页，这里只留一行聚合入口）-------------
-        //
-        // 为什么收起来：六行 × 两行说明在这个屏里占了半屏，下面「外观/外观与壁纸/关于」
-        // 全被挤到第二屏。收进去之后**每一项仍然逐条可达**（`AccountsPage` 照原样列），
-        // 只是"要不要看"由他决定。
-        //
-        // ⚠️ 聚合行只报**数量**，不报"已登录/未登录"那种一句话结论 ——
-        // 六套登录态互不牵连（见 `data/account/AccountSources.kt`），一句话必然骗人。
-        // ---- 账号与外观（v2.1 稿 `screens/settings.png`：**一张卡四行**）------
-        //
-        // 板面这一个分组叫「账号与外观」，只有一张卡：账号与连接 / 外观与壁纸 /
-        // 减弱透明度（开关）/ 动画与辅助显示（带 ›）。原来这里是「账号」「外观」两张卡，
-        // 与板面一比，卡中间多了一条缝、标题也多了一行。
+    val entrance = com.muyao.wanzaihyperos.ui.design.rememberSpringListEntrance(pilot.listState)
+    val ballState = AiBallStates.ofAccounts(accountSources, fetching = ballFacts.loading)
+    val ballWork = AiBallWork(ballFacts.phase, ballFacts.resultRevision, ballFacts.errorRevision)
+    LazyColumn(state = pilot.listState, modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = Dims.screenH, end = Dims.screenH,
+            bottom = pageBottomInsetDp(LocalNavBarVisible.current)),
+        verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        settingsTitleItem(pilot = pilot)
         item(key = "account-entry") {
             SettingsConnectionCard(
-                summary = if (accountSources.isEmpty() || accountSources.any { it.status == AccountStatus.Unknown }) {
-                    "正在读取各系统的登录状态"
-                } else {
-                    val n = accountSources.count { it.status == AccountStatus.LoggedIn }
-                    "$n / ${accountSources.size} 个来源 · 独立连接"
-                },
-                sourceCount = if (accountSources.isEmpty()) "—" else accountSources.size.toString() + " 项",
-                reading = accountSources.isEmpty() || accountSources.any { it.status == AccountStatus.Unknown },
+                configuration = com.muyao.wanzaihyperos.data.account.accountConfigurationSummary(accountSources),
                 onClick = onOpenAccounts,
+                leading = { AiBall(state = ballState, diameter = 64.dp, hitSlop = 4.dp,
+                    announceArrival = false, castShadow = true,
+                    presentation = AiBallPresentation.Home, work = ballWork,
+                    stateDescription = com.muyao.wanzaihyperos.data.account.accountConfigurationSummary(accountSources).let {
+                        it.countText() + "\n" + it.boundaryText()
+                    }) },
             )
         }
         item(key = "personal-preferences") {
-            SettingsGroupTitle("个人偏好")
-            GlasmioGroupedList {
-                // ★ 主题三行**撤掉了**（工单第 15 轮）：它和外观页第一行是同一个功能两个入口。
-                //   现在主题只在外观页出现（`AppearanceOneStopTest` 守"唯一入口"）。
-                SettingsOverviewRow(
-                    icon = SettingIcon.Glass,
-                    tint = Tone.quiet,
-                    title = "外观与壁纸",
-                    subtitle = "$glassLabel · 色彩、布局与本地壁纸",
-                    // 稿 `settings` 右值「自定义」：不是"已改过"的判定，是这一组设置的统称 ——
-                    // 与「7 项」同一手法（右端是归类，不是状态）。
-                    trailingChevron = true,
-                    trailing = {
-                        Text(
-                            text = "自定义",
-                            fontSize = Type.caption,
-                            color = colors.onSurfaceVariantSummary,
-                        )
-                    },
-                    onClick = onOpenAppearance,
-                )
-                SettingsOverviewRow(
-                    icon = SettingIcon.Eye,
-                    // 笔画色跟着开关走：OFF 时还给强调蓝，等于用颜色替一项
-                    // 没生效的功能背书（复评 2026-10-22）。2026-11-07 起图形是裸线稿，
-                    // 这个 tint 就是线条颜色本身（对卡面 7.34 vs 5.24，两档都过 4.5）。
-                    tint = if (UiPrefs.reduceTransparency) Tone.ok else Tone.quiet,
-                    title = "减弱透明度",
-                    subtitle = "暂用实色 · 保留材质选择",
-                    trailing = {
-                        PillSwitch(
-                            checked = motion.reduceTransparency,
-                            label = "减弱透明度",
-                        ) {
-                            val next = !motion.reduceTransparency
-                            com.muyao.wanzaihyperos.ui.design.MotionPrefs.setReduceTransparency(next)
-                            UiPrefs.saveReduceTransparency(next)
-                        }
-                    },
-                )
-                SettingsOverviewRow(
-                    icon = SettingIcon.Sun,
-                    tint = Tone.quiet,
-                    title = "动画与辅助显示",
-                    subtitle = "跟随系统 · 减少动态 · 高对比",
-                    onClick = onOpenAccessibility,
-                    trailingChevron = true,
-                )
+            Column(Modifier.springListEntrance(entrance, "personal-preferences"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SettingsGroupTitle("让它更像你")
+                GlasmioGroupedList {
+                    SettingsOverviewRow(icon = SettingIcon.Glass, tint = Tone.quiet, title = "主题设置",
+                        subtitle = "背景、颜色、底栏、手势与动画显示", onClick = onOpenAppearance, trailingChevron = true)
+                }
             }
         }
-
-        // ---- 課表 ----------------------------------------------------------
-        item(key = "timetable-label") { SettingsGroupTitle("课表与提醒") }
-        item(key = "timetable-default-view") {
-            GlasmioGroupedList {
-                SettingsOverviewRow(
-                    icon = SettingIcon.Timetable,
-                    tint = Tone.ok,
-                    title = "默认整周课表",
-                    // ★ 這行字原本寫「默認用三天窗口網格」—— 三天窗口在 T58
-                    //   已經按他的要求拆掉了（「我要你把五節課全部顯示」）。
-                    //   設定裡留一個不存在的選項名，比沒有這個選項更糟。
-                    subtitle = "关闭时默认显示今天议程",
-                    trailing = {
-                        PillSwitch(
-                            checked = uiState.timetableGrid,
-                            label = "课表板",
-                        ) {
+        item(key = "learning") {
+            Column(Modifier.springListEntrance(entrance, "learning"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SettingsGroupTitle("学习与提醒")
+                GlasmioGroupedList {
+                    SettingsOverviewRow(icon = SettingIcon.Timetable, tint = Tone.ok, title = "默认整周课表",
+                        trailing = { PillSwitch(checked = uiState.timetableGrid, label = "默认整周课表") {
                             uiState.timetableGrid = !uiState.timetableGrid
                             UiPrefs.saveTimetableGrid(uiState.timetableGrid)
-                        }
-                    },
-                )
-                SettingsOverviewRow(
-                    icon = SettingIcon.Clock,
-                    tint = Tone.ok,
-                    title = "节次时间表",
-                    // 2026-10-20：底色换成**学校日历**给的那一份（他从 .ics 里推出来的），
-                    // 所以这里不再写「未設定 · 课表只标第 N 节」—— 那句话说的是旧状态，
-                    // 现在课表本来就有几点，这一屏只是「要不要覆盖学校那份」。
-                    // 副标题两行就截（SettingsChrome.SettingRow 硬编码 maxLines=2），
-                    // 所以这里只留「认几节 / 你填几节 / 以谁为准」三件事；
-                    // 学校那一层的说明在展开后的编辑器里（PeriodTimeEditor 顶部）。
-                    // 稿 `settings`：`row("节次时间表", "学校时间为底，你的设置优先", "", "periods")` ——
-                    // 副标题只有一句「以谁为准」，右值是「11 节」（学校日历的节数）。
-                    // 原来那句「认得 N 节 · 你另填 N 节」把两件事塞进副标题，两行就截；
-                    // 现在「你另填几节」放进展开后的编辑器里（那一屏本来就写着），右值只报学校节数。
-                    subtitle = "学校时间为底，你的设置优先",
-                    onClick = onOpenPeriods,
-                    // 返工总单 A4：这一行不再就地展开，改成跳独立页（稿 periods 是独立页）。
-                    // 原来那颗自绘的 ›/▾ 箭头随之删除 —— 现在恒为跳转，交给 trailingChevron。
-                    trailingChevron = true,
-                )
-                SettingsOverviewRow(
-                    icon = SettingIcon.Alarm,
-                    tint = if (UiPrefs.classReminderEnabled) Tone.ok else Tone.quiet,
-                    title = "上课提醒",
-                    // 返工总单 A5：提前多久 / 隐私 / 静音 / 诊断全部搬到独立页做三级。
-                    // 原来四件东西加一个静音选择器就地展开，一打开就把「存储」「关于」
-                    // 顶到屏幕外 —— 用户会以为设置项丢了。首屏只留这一行摘要。
-                    subtitle = reminderSubtitle(context),
-                    onClick = onOpenReminders,
-                    trailingChevron = true,
-                )            }
-        }
-
-        // ---- 本地缓存（业主 2026-10-20 同意加缓存，這一條是我加的條件）------------
-        //
-        // 緩存里存的是他本人的課表/賬單/成績原文。悄悄往他手機裡寫這些、
-        // 又不給一個看得見的大小和一鍵清除，這件事本身就不該做。
-        // 稿 `settings` 把缓存单独归在一个「存储」分组下 —— 它确实是另一件事：
-        // 前两组是「怎么显示」「怎么提醒」，这一组是「东西存在哪、占多大」。
-        item(key = "storage-label") { SettingsGroupTitle("存储与数据") }
-        item(key = "http-cache") {
-            GlasmioGroupedList {
-                // 建议五：分域清理（业主 2026-11-07「五项新增设置全做」）。
-                //
-                // 为什么不是"一键全清"了事：一键全清是最后手段。他多半只想清掉
-                // 「成绩那一类」而留着课表 —— 但他得先看得见有哪几类。
-                // 所以这里先把分类列出来，每类给条数/大小/清；最后才是全清。
-                var domains by remember { mutableStateOf(graph.httpCache.domains()) }
-                var expanded by remember { mutableStateOf(false) }
-                val totalBytes = domains.sumOf { it.bytes }
-                val totalCount = domains.sumOf { it.entries }
-                SettingsOverviewRow(
-                    icon = SettingIcon.Broom,
-                    tint = Tone.ok,
-                    title = "本地缓存",
-                    // 稿 `settings`：副标题是**边界声明**（只缓存读取数据），不是大小 ——
-                    // 大小放右值。原来的「N KB · N 条 · 点开可按类别清」把三件事塞进一行，
-                    // 两行就截（SettingRow 硬编码 maxLines=2）。
-                    subtitle = if (totalCount == 0) {
-                        "空 · 读来的数据存 5 分钟，来回切板块不再向学校要一次"
-                    } else {
-                        "只缓存读取数据，写操作不经缓存"
-                    },
-                    onClick = { expanded = !expanded },
-                    trailing = {
-                        Text(
-                            text = when {
-                                totalCount == 0 -> "—"
-                                expanded -> "▾"
-                                // 稿右值「2.4 MB」：保留一位小数，1023.6 KB 读起来不像人给的数。
-                                totalBytes >= 1024 * 1024 ->
-                                    ((totalBytes / (1024 * 102.4)).toInt() / 10.0).toString() + " MB"
-                                else -> (totalBytes / 1024).toString() + " KB"
-                            },
-                            fontSize = Type.summary,
-                            color = if (totalCount == 0) colors.onSurfaceVariantSummary else colors.primary,
-                        )
-                    },
-                )
-                if (expanded && domains.isNotEmpty()) {
-                    domains.forEach { d ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(onClickLabel = "清掉" + d.name + "这一类缓存") {
-                                    graph.httpCache.clearDomain(d.name)
-                                    domains = graph.httpCache.domains()
-                                }
-                                .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = d.name,
-                                fontSize = Type.summary,
-                                color = colors.onBackground,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = d.entries.toString() + " 条 · " + (d.bytes / 1024) + " KB",
-                                fontSize = Type.caption,
-                                color = colors.onSurfaceVariantSummary,
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Text(text = "清", fontSize = Type.caption, color = colors.primary)
-                        }
-                    }
-                }
-                SettingsOverviewRow(
-                    icon = SettingIcon.Broom,
-                    tint = if (totalCount == 0) Tone.quiet else Tone.warn,
-                    title = "全部清掉",
-                    subtitle = "下次进各板块会重新向学校取一次（多等几百毫秒）",
-                    onClick = {
-                        graph.httpCache.clearAll()
-                        domains = graph.httpCache.domains()
-                    },
-                    trailing = {
-                        Text(
-                            text = "清空",
-                            fontSize = Type.summary,
-                            color = if (totalCount == 0) colors.onSurfaceVariantSummary else colors.primary,
-                        )
-                    },
-                )
-            }
-        }
-
-        // ---- 偏好备份（建议五，业主 2026-11-07「五项新增设置全做」）--------------
-        item(key = "backup-label") { SettingsGroupTitle("偏好备份") }
-        item(key = "backup") {
-            GlasmioGroupedList {
-                var pending by remember { mutableStateOf<com.muyao.wanzaihyperos.data.PrefsBackup.Preview?>(null) }
-                var result by remember { mutableStateOf<String?>(null) }
-
-                val exportLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.CreateDocument("application/json"),
-                ) { uri ->
-                    if (uri == null) return@rememberLauncherForActivityResult
-                    runCatching {
-                        // ★ 返工总单 C6：原来写的是 openOutputStream(uri)?.use { ... }，
-                        //   返回 null 时 ?.use 直接短路、既没写也没抛异常，于是照样报
-                        //   「已导出到所选文件」—— 假的成功比失败更坏。这里把 null 变成失败。
-                        val out = context.contentResolver.openOutputStream(uri)
-                            ?: error("系统没有给出可写的数据流")
-                        out.use { s ->
-                            s.write(com.muyao.wanzaihyperos.data.PrefsBackup.export().toByteArray())
-                        }
-                    }.onSuccess {
-                        result = "已导出到所选文件"
-                    }.onFailure {
-                        result = "导出失败：" + (it.message ?: "存储拒绝")
-                    }
-                }
-                val importLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.OpenDocument(),
-                ) { uri ->
-                    if (uri == null) return@rememberLauncherForActivityResult
-                    runCatching {
-                        context.contentResolver.openInputStream(uri)?.use { input ->
-                            input.readBytes().toString(Charsets.UTF_8)
-                        }.orEmpty()
-                    }.mapCatching { text ->
-                        com.muyao.wanzaihyperos.data.PrefsBackup.parse(text)
-                            ?: error(com.muyao.wanzaihyperos.data.PrefsBackup.lastError ?: "读不出来")
-                    }.onSuccess { pending = it }
-                        .onFailure { result = "读不了这份文件：" + (it.message ?: "") }
-                }
-
-                SettingsOverviewRow(
-                    icon = SettingIcon.Doc,
-                    tint = Tone.ok,
-                    title = "导出偏好",
-                    subtitle = "主题、背景、材质、容器、密度、模块、折叠、课表默认视图 · 不含账号与草稿",
-                    onClick = { exportLauncher.launch(com.muyao.wanzaihyperos.data.PrefsBackup.suggestedFileName()) },
-                    trailing = { Text(text = "导出", fontSize = Type.summary, color = colors.primary) },
-                )
-                SettingsOverviewRow(
-                    icon = SettingIcon.School,
-                    tint = Tone.quiet,
-                    title = "从备份恢复",
-                    subtitle = "先看它会改哪几项，确认后才写入 · 有一项不合法就整份不应用",
-                    onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) },
-                    trailing = { Text(text = "选择文件", fontSize = Type.summary, color = colors.primary) },
-                )
-
-                // 二次确认：逐项列出"会变成什么"，而不是只说"已恢复"。
-                val p = pending
-                if (p != null) {
-                    // 「确认」这颗要写两件事：改了什么（n 项）和改没改成。
-                    // 单独提出来是因为它落在 `Text(...)` 的 modifier lambda 里时，
-                    // `TnumOnChangingNumbersTest` 的源码扫描会把 `"已应用 $n 项偏好"`
-                    // 当成「这个 Text 渲染的计数」—— 而那行字其实是「确认恢复」。
-                    // 提到 Text 外面，判据和代码就都对上了（不是给测试开后门）。
-                    val applyNow: () -> Unit = {
-                        val n = com.muyao.wanzaihyperos.data.PrefsBackup.apply(p)
-                        if (n >= 0) {
-                            // ★ 返工总单 C3：apply 只把值写进 UiPrefs 与盘，**没推给界面状态**
-                            //   ⇒ 导入成功、提示「已应用 N 项」，但主题/周视图/材质要冷启才变，
-                            //   用户会以为导入失败。这里走与冷启动（WanzaiRoot 那条 LaunchedEffect）
-                            //   完全相同的双写路径，一份口径两处复用。
-                            com.muyao.wanzaihyperos.ui.syncUiStateFromPrefs(uiState)
-                            com.muyao.wanzaihyperos.ui.design.MotionPrefs.setReduceTransparency(
-                                com.muyao.wanzaihyperos.data.UiPrefs.reduceTransparency,
-                            )
-                            com.muyao.wanzaihyperos.ui.design.MotionPrefs.setRefractsGlass(
-                                com.muyao.wanzaihyperos.data.UiPrefs.glassMode == "liquid",
-                            )
-                        }
-                        result = if (n >= 0) "已应用 $n 项偏好" else {
-                            com.muyao.wanzaihyperos.data.PrefsBackup.lastError ?: "没有应用"
-                        }
-                        pending = null
-                    }
-                    Column(modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)) {
-                        Text(
-                            text = "这份备份会改掉这 ${p.lines.size} 项：",
-                            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = Type.tabular),
-                            fontSize = Type.summary,
-                            fontWeight = Type.weightBody,
-                            color = colors.onBackground,
-                        )
-                        p.lines.forEach { (label, value) ->
-                            Row(modifier = Modifier.fillMaxWidth().padding(top = 3.dp)) {
-                                Text(
-                                    text = label,
-                                    fontSize = Type.caption,
-                                    color = colors.onSurfaceVariantSummary,
-                                    modifier = Modifier.width(84.dp),
-                                )
-                                Text(text = value, fontSize = Type.caption, color = colors.onBackground)
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "确认恢复",
-                                fontSize = Type.summary,
-                                color = colors.primary,
-                                modifier = Modifier
-                                    .height(Dims.minTouch)
-                                    .clickable(onClickLabel = "确认恢复这份偏好备份") { applyNow() }
-                                    .padding(end = 16.dp),
-                            )
-                            Text(
-                                text = "取消",
-                                fontSize = Type.summary,
-                                color = colors.onSurfaceVariantSummary,
-                                modifier = Modifier
-                                    .height(Dims.minTouch)
-                                    .clickable(onClickLabel = "取消恢复") { pending = null }
-                                    .padding(end = 16.dp),
-                            )
-                        }
-                    }
-                }
-                val r = result
-                if (r != null) {
-                    Text(
-                        text = r,
-                        fontSize = Type.caption,
-                        color = colors.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
-                    )
+                        } })
+                    SettingsOverviewRow(icon = SettingIcon.Clock, tint = Tone.quiet, title = "节次时间",
+                        onClick = onOpenPeriods, trailingChevron = true)
+                    SettingsOverviewRow(icon = SettingIcon.Alarm, tint = Tone.quiet, title = "上课提醒",
+                        subtitle = reminderSubtitle(context), onClick = onOpenReminders, trailingChevron = true)
                 }
             }
         }
-
-        // ---- 關於 ----------------------------------------------------------
-        item(key = "about-label") { SettingsGroupTitle("关于与来源") }
-        item(key = "about") {
-            GlasmioGroupedList {
-                // 2026-11-08 业主：「底下的品牌与图标方案可以去掉」—— 品牌页连同这一行
-                // 一起下线。名称与图标现在只在关于页出现（真图标 + 「柒合院」）。
-                // ★ 返工总单 A11：这一行以前没有 onClick（死行）。稿里它是个弹层（R.sheet），
-                //   不是独立页 —— 一条「这些数据归谁」的说明不值得占一个 Route。
-                SettingsOverviewRow(
-                    icon = SettingIcon.School,
-                    tint = Tone.ok,
-                    title = "资料来源",
-                    subtitle = "浙大城市学院门户与各业务系统，资料所有权归学校",
-                    onClick = { showSources = true },
-                    trailingChevron = true,
-                )
-                // B4-10：关于页（原项目仓库 / 作者 / 逐条开源许可）收在二级页里。
-                // 2026-11-09 业主让把关于页底下的注释去掉，版本号挪到这条副标题上，
-                // 免得「我装的是哪一版」只能靠猜。
-                SettingsOverviewRow(
-                    icon = SettingIcon.Doc,
-                    tint = Tone.ok,
-                    title = "关于与开源许可",
-                    subtitle = "版本 " + com.muyao.wanzaihyperos.BuildConfig.VERSION_NAME +
-                        " · GitHub、酷安与开源项目清单",
-                    onClick = onOpenAbout,
-                    trailingChevron = true,
-                )
-                // 调试包才有的入口：AI 小球调试台（整个 Activity 只存在于 src/debug，
-                // release 包里没有这个类，所以这里用类名字符串而不是直接引用 —— 直接 import
-                // 会让 release 编译期就找不着符号）。判据用 FLAG_DEBUGGABLE 而不是 BuildConfig.DEBUG，
-                // 与本项目其它 debug 口子一致。
-                if ((context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
-                    SettingsOverviewRow(
-                        icon = SettingIcon.Info,
-                        tint = Tone.warn,
-                        title = "小球调试台",
-                        subtitle = "仅 debug 包 · 不属于学校业务",
-                        onClick = {
-                            runCatching {
-                                context.startActivity(
-                                    android.content.Intent().setClassName(
-                                        context,
-                                        "com.muyao.wanzaihyperos.dev.AiBallLabActivity",
-                                    ),
-                                )
-                            }
-                        },
-                        trailingChevron = true,
-                        trailing = {
-                            Text(
-                                text = "DEBUG",
-                                fontSize = Type.micro,
-                                color = colors.onSurfaceVariantSummary,
-                            )
-                        },
-                    )
-                }
+        item(key = "settings-more") {
+            Column(Modifier.springListEntrance(entrance, "settings-more"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                AppearanceChoice("偏好与备份", false, onClick = onOpenPreferences)
+                AppearanceChoice("关于柒合院", false, subtitle = "版本 ${BuildConfig.VERSION_NAME}", onClick = onOpenAbout)
             }
         }
     }
+}
+
+internal data class SettingsBallSnapshot(
+    val sources: List<AccountSource> = emptyList(),
+    val loading: Boolean = false,
+    val readFailed: Boolean = false,
+    val resultRevision: Long = 0L,
+    val errorRevision: Long = 0L,
+    val ticket: Long = 0L,
+) {
+    private val known: Boolean get() = sources.isNotEmpty() && sources.none { it.status == AccountStatus.Unknown }
+
+    val phase: AiBallWorkPhase get() = when {
+        loading -> AiBallWorkPhase.Reading
+        readFailed -> AiBallWorkPhase.Error
+        known -> AiBallWorkPhase.Ready
+        else -> AiBallWorkPhase.Unknown
+    }
+
+    fun beginRead(): SettingsBallSnapshot = copy(loading = true, readFailed = false, ticket = ticket + 1)
+
+    fun acceptRead(readTicket: Long, next: List<AccountSource>): SettingsBallSnapshot {
+        if (readTicket != ticket || !loading) return this
+        val confirmed = next.isNotEmpty() && next.none { it.status == AccountStatus.Unknown }
+        return copy(sources = next, readFailed = false, resultRevision = resultRevision + if (confirmed) 1 else 0)
+    }
+
+    fun failRead(readTicket: Long): SettingsBallSnapshot = if (readTicket != ticket || !loading) this else
+        copy(sources = emptyList(), readFailed = true, errorRevision = errorRevision + 1)
+
+    fun finishRead(readTicket: Long): SettingsBallSnapshot = if (readTicket != ticket) this else copy(loading = false)
 }
 
 /**

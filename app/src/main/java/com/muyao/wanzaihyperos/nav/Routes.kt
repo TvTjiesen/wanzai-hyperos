@@ -44,6 +44,9 @@ sealed interface Route : NavKey {
     @Serializable
     data object About : Route
 
+    @Serializable
+    data object Preferences : Route
+
     /** A9：开源许可与字体（三级页，从关于页「开源许可」进来）。 */
     @Serializable
     data object Licenses : Route
@@ -72,18 +75,12 @@ sealed interface Route : NavKey {
     @Serializable
     data object AccountSources : Route
 
-    /**
-     * WebView 外壳（压在主壳之上）。
-     *
-     * 只带展示所需的最小信息：应用 id 用于日志与将来换 tempcode，
-     * title 用于顶栏，url 用于加载。**不带凭据** —— A1 不接学校接口，
-     * 这里的 url 全部来自展示用示例数据。
-     */
-    @Serializable
+    /** Saved state contains only a validated business target; credentials are resolved on display. */
+    @Serializable(with = WebRouteSerializer::class)
     data class Web(
         val appId: Int,
         val title: String,
-        val url: String,
+        val target: WebTarget,
     ) : Route
 
     /**
@@ -147,7 +144,7 @@ sealed interface Route : NavKey {
      * 帶 `tileUrl` 是為了「改用網頁版」能回退到**同一個**學在城院地址。
      */
     @Serializable
-    data class TronHome(val tileUrl: String = "") : Route
+    data class TronHome(@Serializable(with = SafeTileUrlSerializer::class) val tileUrl: String = "") : Route
 
     /**
      * 學在城院 → 簽到（看 + 簽）。
@@ -159,13 +156,13 @@ sealed interface Route : NavKey {
      * 學在城院外殼裡那個二級頁用的是**同一份** [com.muyao.wanzaihyperos.ui.tronclass.RollcallBody]。
      */
     @Serializable
-    data class Rollcall(val tileUrl: String = "") : Route
+    data class Rollcall(@Serializable(with = SafeTileUrlSerializer::class) val tileUrl: String = "") : Route
 
     /**
      * 學在城院 → 某門課的作業清單。
      */
     @Serializable
-    data class Homework(val courseId: Int = 0, val courseName: String = "", val tileUrl: String = "") : Route
+    data class Homework(val courseId: Int = 0, val courseName: String = "", @Serializable(with = SafeTileUrlSerializer::class) val tileUrl: String = "") : Route
 
     /**
      * 學在城院 → **一項作業的詳情 + 提交**（2026-10-19）。
@@ -184,7 +181,7 @@ sealed interface Route : NavKey {
         val homeworkId: Int = 0,
         val courseName: String = "",
         val title: String = "",
-        val tileUrl: String = "",
+        @Serializable(with = SafeTileUrlSerializer::class) val tileUrl: String = "",
     ) : Route
 
     /**
@@ -199,7 +196,7 @@ sealed interface Route : NavKey {
      * 硬併進去會讓那個 when 分支塞進兩套邏輯。
      */
     @Serializable
-    data class Lectures(val tileUrl: String = "") : Route
+    data class Lectures(@Serializable(with = SafeTileUrlSerializer::class) val tileUrl: String = "") : Route
 
     /**
      * B17：**智慧公寓**（`zhgy.hzcu.edu.cn`）。

@@ -104,6 +104,7 @@ data class GlasmioTabItem<T>(
     val contentDescription: String = label,
     val icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     val badge: Int = 0,
+    val customIcon: (@Composable () -> Unit)? = null,
 )
 
 @androidx.compose.runtime.Immutable
@@ -266,6 +267,7 @@ fun <T> GlasmioNavigationBar(
     onItemBoundsChanged: ((T, Rect) -> Unit)? = null,
     compactItem: GlasmioTabItem<T>? = null,
     onItemIconBoundsChanged: ((T, Rect) -> Unit)? = null,
+    blurRadius: Dp = Dp.Unspecified,
 ) {
     require(items.isNotEmpty())
     val compactState = remember(compactProgress) {
@@ -407,6 +409,7 @@ fun <T> GlasmioNavigationBar(
         }
         val offsetAnimation = remember { Animatable(0f) }
         val selectionPressOrigin = remember { mutableStateOf(true) }
+        val gestureTarget = remember(animationScope, tabItems.size, isLtr) { mutableStateOf<Float?>(null) }
         val dragAnimation = remember(animationScope, tabItems.size, isLtr) {
             DampedDragAnimation(
                 animationScope = animationScope,
@@ -417,30 +420,35 @@ fun <T> GlasmioNavigationBar(
                 pressedScale = 78f / 56f,
                 dragCoordinateSpace = { dragCoordinateSpace.value },
                 onDragStarted = { position ->
+                    gestureTarget.value = null
                     selectionPressOrigin.value = compactState.value == 0f
                     if (compactState.value < 0.74f) {
                         val x = if (isLtr) position.x else barWidthState.value - position.x
                         val index = ((x - paddingPx - tabGeometryState.value.widthPx / 2f) / tabStepPx.value)
                             .fastRoundToInt().fastCoerceIn(0, tabItems.lastIndex)
+                        gestureTarget.value = index.toFloat()
                         updateValue(index.toFloat())
                     }
                 },
                 onDragCancelled = {
+                    gestureTarget.value = null
                     animateToValue(selectedIndexState.value.toFloat(), animatePress = false)
                     animationScope.launch {
                         offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
                     }
                 },
                 onDragStopped = {
+                    val releasedTarget = gestureTarget.value
+                    gestureTarget.value = null
                     if (compactState.value >= 0.74f) {
                         onExpandState.value()
                         animateToValue(selectedIndexState.value.toFloat())
                         return@DampedDragAnimation
                     }
-                    val target = targetValue.fastRoundToInt().fastCoerceIn(0, tabItems.lastIndex)
-                    if (target != selectedIndexState.value) {
-                        stableOnSelected(tabItemsState.value[target].key)
-                    }
+                    if (releasedTarget == null) return@DampedDragAnimation
+                    val target = releasedTarget.fastRoundToInt().fastCoerceIn(0, tabItems.lastIndex)
+                    // Completed input is independent of the indicator's animated destination.
+                    stableOnSelected(tabItemsState.value[target].key)
                     animateToValue(target.toFloat())
                     animationScope.launch {
                         offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
@@ -448,10 +456,11 @@ fun <T> GlasmioNavigationBar(
                 },
                 onDrag = { _, dragAmount ->
                     if (compactState.value >= 0.74f) return@DampedDragAnimation
-                    updateValue(
-                        (targetValue + dragAmount.x / tabStepPx.value * if (isLtr) 1f else -1f)
-                            .fastCoerceIn(0f, tabItems.lastIndex.toFloat()),
-                    )
+                    val currentTarget = gestureTarget.value ?: return@DampedDragAnimation
+                    val nextTarget = (currentTarget + dragAmount.x / tabStepPx.value * if (isLtr) 1f else -1f)
+                        .fastCoerceIn(0f, tabItems.lastIndex.toFloat())
+                    gestureTarget.value = nextTarget
+                    updateValue(nextTarget)
                     animationScope.launch { offsetAnimation.snapTo(offsetAnimation.value + dragAmount.x) }
                 },
                 lensStyle = NativeControlLensStyle.TabBarIndicator,
@@ -465,10 +474,11 @@ fun <T> GlasmioNavigationBar(
                 dragAnimation.release()
             }
         }
-        LaunchedEffect(selectedIndex, dragAnimation) {
-            // Route and preference updates only move the indicator. Navigation callbacks
-            // belong to user input, including while the bar is fading out on a detail page.
-            if (dragAnimation.targetValue != selectedIndex.toFloat()) {
+        val gestureActive = gestureTarget.value != null
+        LaunchedEffect(selectedIndex, dragAnimation, gestureActive) {
+            // Do not overwrite a pressed finger's destination with a transit-page update.
+            // Re-sync on release even if selectedIndex itself has not changed again.
+            if (!gestureActive && dragAnimation.targetValue != selectedIndex.toFloat()) {
                 selectionPressOrigin.value = compactState.value == 0f
                 dragAnimation.animateToValue(selectedIndex.toFloat(), animatePress = false)
             }
@@ -663,6 +673,7 @@ fun <T> GlasmioNavigationBar(
             navigationMaterial = appearance.usesBackdrop,
             isDark = materialContext.isDark,
             darkFraction = materialContext.darkFraction,
+            frostRadius = blurRadius.takeIf { it.value.isFinite() },
             pressProgress = { pressProgressState.value },
             layerBlock = pressLayerBlock,
         )
@@ -676,8 +687,10 @@ fun <T> GlasmioNavigationBar(
             pressLayerBlock,
             appearance,
             materialContext,
+            blurRadius,
         ) {
             Modifier.navigationGlassBackground(
+                blurRadius = blurRadius,
                 backdrop = backdrop,
                 shape = { Capsule() },
                 containerColor = containerColor,
@@ -1225,7 +1238,9 @@ private fun <T> NavigationTabContent(
     Box(iconModifier, contentAlignment = Alignment.Center) {
         Box(glyphModifier.then(if (badgeOnly) Modifier.alpha(0f) else Modifier), contentAlignment = Alignment.Center) {
             val vector = item.icon
-            if (vector != null) {
+            if (item.customIcon != null) {
+                item.customIcon.invoke()
+            } else if (vector != null) {
                 androidx.compose.material3.Icon(
                     vector, null, Modifier.height(ExpandedNavigationIconSize), tint = iconTint,
                 )
@@ -1239,7 +1254,7 @@ private fun <T> NavigationTabContent(
         }
         if (showBadge && item.badge > 0) {
             Text(
-                text = if (item.badge > 99) "99+" else item.badge.toString(),
+                text = item.badge.toString(),
                 color = Color.White,
                 fontSize = 9.sp,
                 lineHeight = 11.sp,

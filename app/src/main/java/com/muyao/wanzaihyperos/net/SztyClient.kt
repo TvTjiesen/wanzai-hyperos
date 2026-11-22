@@ -1,7 +1,12 @@
 package com.muyao.wanzaihyperos.net
 
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -79,6 +84,19 @@ class SztyClient(
     private val gate = Mutex()
     private var lastCallAt: Long = 0
 
+    private class ReadGuard(val current: () -> Boolean) : AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<ReadGuard>
+    }
+
+    internal suspend fun <T> withReadGuard(current: () -> Boolean, action: suspend () -> T): T =
+        withContext(ReadGuard(current)) { action() }
+
+    private suspend fun ensureReadCurrent() {
+        val context = currentCoroutineContext()
+        context.ensureActive()
+        if (context[ReadGuard]?.current?.invoke() == false) throw CancellationException("Sports credentials changed")
+    }
+
     /**
      * 发一个**只读**查询，返回信封里的 `obj`。
      *
@@ -139,6 +157,7 @@ class SztyClient(
         // 节流放在锁内：并发调用会排队，而不是各自算各自的间隔。
         val wait = lastCallAt + MIN_INTERVAL_MS - clock()
         if (wait > 0) sleeper(wait)
+        ensureReadCurrent()
         lastCallAt = clock()
 
         val request = Request.Builder()
@@ -151,6 +170,7 @@ class SztyClient(
             .build()
 
         withContext(Dispatchers.IO) {
+            ensureReadCurrent()
             try {
                 httpClient.newCall(request).execute().use { response ->
                     val text = response.body.string()

@@ -39,22 +39,13 @@ class AccountsPageTest {
             "accountSources.forEach" in text,
         )
         assertTrue("设置首页少了聚合入口的回调 onOpenAccounts", "onOpenAccounts" in text)
-        // ⚠️ 旧版是 `"已登录 " in text` —— 永真弱断言（随便一句中文都能过）。
-        //    现在必须真的出现「计数表达式」与「共 M 项」两截。
-        assertTrue(
-            "聚合入口必须真的算数量：缺 count{ status == LoggedIn }",
-            Regex("""val n = accountSources\.count \{ it\.status == AccountStatus\.LoggedIn \}""").containsMatchIn(text),
-        )
-        // ★ 2026-11-01：文案从「已登录 n 项 / 共 M 项 · 逐项查看与重新登录」缩成
-        //   「已登录 n / M 项 · 逐项查看」。真机截图（font_scale 1.15、可写宽约 229dp）上，
-        //   长版折出的第二行只剩「登录」两个字，看着像排坏了 ⇒ 副标题必须一行说完。
-        // ★ 2026-11-08：v2.1 板面（screens/settings.png）把「账号与外观」并成一张卡，
-        //   副标题改成「n / M 个来源 · 独立连接」—— 板面写的是「来源」不是「项」，
-        //   而且不再出现「已登录」三个字（聚合行只报数量，不下"已登录/未登录"的结论）。
-        assertTrue(
-            "聚合入口必须显示「n / M 个来源 · 独立连接」两截",
-            "\$n / \${accountSources.size} 个来源 · 独立连接" in text,
-        )
+        assertTrue("入口必须使用共享本机配置事实", "accountConfigurationSummary(accountSources)" in code(text))
+        val overview = code(read(File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/redesign/SettingsOverview.kt")))
+        assertTrue("卡片须显示配置数量和不可验证在线的边界", "configuration.countText()" in overview && "configuration.boundaryText()" in overview)
+        val sources = code(read(File("src/main/java/com/muyao/wanzaihyperos/data/account/AccountSources.kt")))
+        assertTrue("已保存凭据和已取得待激活code都属于配置", "AccountStatus.LoggedIn || it.status == AccountStatus.ObtainedNotActivated" in sources)
+        assertTrue("未知与网页内会话须独立计数", "unknownCount = sources.count { it.status == AccountStatus.Unknown }" in sources && "webOnlyCount = sources.count { it.status == AccountStatus.InWebOnly }" in sources)
+        assertTrue("文案不能将配置声称在线", "配置不等于在线" in sources && "不计入已配置" in sources)
         assertFalse(
             "副标题又拖回「逐项查看与重新登录」那一截了 —— 真机上它会折出孤零零两个字",
             // 用 code() 而不是原文：上面那条注释自己就写着这段旧文案。
@@ -122,7 +113,7 @@ class AccountsPageTest {
         val settingsText = read(settings)
         assertTrue(
             "设置首页的聚合计数必须**同时** key 登录态与返回栈深度",
-            "LaunchedEffect(uiState.loggedIn, refreshKey)" in settingsText,
+            "LaunchedEffect(graph, uiState.loggedIn, refreshKey, pageActive, entryOwner)" in settingsText,
         )
         assertTrue("设置首页没有 refreshKey 参数", "refreshKey: Int = 0" in settingsText)
         assertTrue(

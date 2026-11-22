@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -98,6 +100,9 @@ fun QrScannerPage(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val latestExit by rememberUpdatedState(onExit)
+    val latestScanned by rememberUpdatedState(onScanned)
+    BackHandler { latestExit() }
 
     var hasPermission by remember {
         mutableStateOf(
@@ -110,6 +115,9 @@ fun QrScannerPage(
     // 解碼結果只回報一次：同一個碼在連續幀裡會重複命中，
     // 不去重的話會疊加多次提交（而簽到是寫操作）。
     var reported by remember { mutableStateOf(false) }
+    val reportGate = remember { AtomicBoolean(false) }
+    val pageAlive = remember { AtomicBoolean(true) }
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     // 分析流實際給的是多大一帧，只在第一帧記一次（自檢用，見 ANALYSIS_RESOLUTION）。
     val loggedSize = remember { AtomicBoolean(false) }
 
@@ -138,10 +146,10 @@ fun QrScannerPage(
                     runCatching { decodePickedImage(context, uri) }.getOrNull()
                 }
                 picking = false
-                if (text != null) {
+                if (text != null && !reported && reportGate.compareAndSet(false, true)) {
                     reported = true
-                    onScanned(text)
-                } else {
+                    latestScanned(text)
+                } else if (text == null && !reported) {
                     errorText = "这张照片里没找到二维码。换一张把码拍正、拍清楚的。"
                 }
             }
@@ -175,6 +183,9 @@ fun QrScannerPage(
     DisposableEffect(Unit) {
         onDispose {
             // 必須關掉：不關執行緒會在每次進出掃碼頁時累積。
+            pageAlive.set(false)
+            reportGate.set(true)
+            runCatching { cameraProvider?.unbindAll() }
             runCatching { executor.shutdown() }
         }
     }
@@ -238,6 +249,8 @@ fun QrScannerPage(
                                 errorText = "相机初始化失败（设备可能被占用）"
                                 return@addListener
                             }
+                            if (reportGate.get()) return@addListener
+                            cameraProvider = provider
                             val preview = Preview.Builder().build().also {
                                 it.surfaceProvider = previewView.surfaceProvider
                             }
@@ -259,7 +272,7 @@ fun QrScannerPage(
                                 )
                                 .build()
                             analysis.setAnalyzer(executor) { proxy ->
-                                if (!reported) {
+                                if (!reportGate.get()) {
                                     // 分辨率是这条链路唯一「看不见」的变量：拿不到 1080p 时
                                     // 症状和「解码器坏了」一模一样。留一行可查的事实，
                                     // 免得下次又靠猜（只在自检开关打开时写）。
@@ -281,9 +294,13 @@ fun QrScannerPage(
                                         rowStride = proxy.planes[0].rowStride,
                                         reader = reader,
                                     )
-                                    if (text != null) {
-                                        reported = true
-                                        onScanned(text)
+                                    if (text != null && reportGate.compareAndSet(false, true)) {
+                                        ContextCompat.getMainExecutor(ctx).execute {
+                                            if (pageAlive.get()) {
+                                                reported = true
+                                                latestScanned(text)
+                                            }
+                                        }
                                     }
                                 }
                                 proxy.close()

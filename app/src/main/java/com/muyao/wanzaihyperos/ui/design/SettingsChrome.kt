@@ -415,9 +415,26 @@ fun SettingRow(
     trailingChevron: Boolean = false,
 ) {
     val colors = GlasmioTheme.colors
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val accessoryBelow = settingAccessoryBelow(configuration.screenWidthDp, configuration.fontScale)
+    val accessory: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (trailing != null) {
+                trailing()
+                if (trailingChevron) {
+                    Box(Modifier.width(ChevronSlot), contentAlignment = Alignment.CenterEnd) {
+                        if (onClick != null) Text(text = "›", fontSize = Type.title, color = colors.secondaryContent)
+                    }
+                }
+            } else if (onClick != null) {
+                Text(text = "›", fontSize = Type.title, color = colors.secondaryContent)
+            }
+        }
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .then(if (onClick != null) Modifier.clickable(onClickLabel = title) { onClick() } else Modifier)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -436,48 +453,17 @@ fun SettingRow(
             Text(
                 text = subtitle,
                 fontSize = Type.caption,
-                color = colors.secondaryContent,
-                maxLines = 2,
-                // ★ 截了要看得出来（与课表那几处同规矩）：`Clip` 是**静悄悄少字**，
-                //   业主不会知道这一行还有后半句。
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                lineHeight = Type.caption * 1.45f,
+                color = if (rememberMotion().highContrast) colors.content else colors.secondaryContent,
             )
+            if (accessoryBelow && (trailing != null || onClick != null)) {
+                Spacer(Modifier.height(8.dp))
+                accessory()
+            }
         }
-        // 文字列与尾件之间必须留缝：`weight(1f)` 只保证文字列吃掉剩余宽度，
-        // 副标题写满时会一路顶到右侧状态字上，两句粘成一句（03:04 模拟器像素）。
-        // 只在**真有尾件**时加，否则没有尾件的行右边凭空多 10dp。
-        when {
-            trailing != null -> {
-                Spacer(Modifier.width(10.dp))
-                trailing()
-                // chevron 走**固定宽度的槽**，不随有无伸缩：上一版直接 `if (有箭头) Text("›")`，
-                // 量到带箭头的五行「未登录」右边缘在 963px、不带箭头那行在 999px ——
-                // 同一列差 13.7dp，第二行明显凸出去一块（RUBRIC 必查 7 对齐漂移）。
-                //
-                // ★ 但这个槽**只给显式要它的行**（账号那六行）。把它无条件挂在
-                // `trailing != null` 上，全页 12 处带尾件的行会被一起推内 20dp：
-                // 主题的「✓」从贴边 963..999 搬到 910..946，而同组「外观与壁纸」的「›」
-                // 走下面那条分支仍在 985..997 ⇒ 同一组里 ✓ 与 › 差 19.4dp，
-                // 比它要修的 13.7dp 还大（第 3 轮复审计量出来的）。
-                if (trailingChevron) {
-                    Box(
-                        modifier = Modifier.width(ChevronSlot),
-                        // 右对齐：槽是 20dp 的占位盒，箭头墨迹要落在**其它组 › 所在的那根线上**
-                        // （居中会把账号组的 › 留在 981，而「外观与壁纸」的 › 在 997 ⇒ 6.1dp 跨组内缩）。
-                        // antd RN 的 `arrow="empty"` 也是同一手法：占同一只盒子的同一个位置，只是不画。
-                        contentAlignment = Alignment.CenterEnd,
-                    ) {
-                        if (onClick != null) {
-                            Text(text = "›", fontSize = Type.title, color = colors.secondaryContent)
-                        }
-                    }
-                }
-            }
-
-            onClick != null -> {
-                Spacer(Modifier.width(10.dp))
-                Text(text = "›", fontSize = Type.title, color = colors.secondaryContent)
-            }
+        if (!accessoryBelow && (trailing != null || onClick != null)) {
+            Spacer(Modifier.width(10.dp))
+            accessory()
         }
     }
 }
@@ -521,10 +507,10 @@ fun SettingSectionLabel(text: String, icon: MarkIcon? = null) {
     // 消息页「需要处理 / 门户通知 / 新闻」用的是同一套 [MarkIcon]，不是另造一个。
     // 组标题是**低对比度的路标**，不是标题，所以图标跟着文字一起走 quiet 色，
     // 不加磁贴、不加大——它只需要让人一眼分出「账号 / 外观 / 课表 / 关于」四堆。
-    val color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val color = if (rememberMotion().highContrast) MiuixTheme.colorScheme.onBackground else MiuixTheme.colorScheme.onSurfaceVariantSummary
     Row(
         // 左边不再多缩 6dp：全站正文列是 16dp（板 18px），组标题必须同一条基线
-        modifier = Modifier.fillMaxWidth().padding(start = 0.dp, top = 10.dp, bottom = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = Dims.sectionGap, bottom = Dims.tight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
@@ -541,6 +527,8 @@ fun SettingSectionLabel(text: String, icon: MarkIcon? = null) {
         Text(
             text = text,
             fontSize = Type.summary,
+            lineHeight = Type.summary * 1.4f,
+            modifier = Modifier.weight(1f),
             color = color,
         )
     }

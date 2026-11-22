@@ -78,8 +78,12 @@ class NotifyPillCountTest {
         assertEquals("又出现了 pillLabel 拼接（标签与计数必须各是一个 Text）：" + src.contains("pillLabel"),
             false, src.contains("pillLabel"))
         val body = bodyOf(src, "private fun NotifyFilters(")
-        val calls = Regex("FilterPill\\(\\s*\"([^\"]*)\"\\s*,\\s*([^,\\n]+)").findAll(body).toList()
-        assertEquals("四颗筛选胶囊必须都是 FilterPill(标签, 计数)：" + calls.size, 4, calls.size)
+        // 共享底托后：四个标签在 labels 列表里，唯一调用点仍是 FilterPill(标签, 计数, 选中)，
+        // 标签与计数保持两个独立实参（拼接成串会让计数无法单独弱化）。
+        val labels = Regex("val labels = listOf\\(([^)]*)\\)").find(body)?.groupValues?.get(1).orEmpty()
+        assertEquals("labels 必须是四个：" + labels, 4, Regex("\"([^\"]+)\"").findAll(labels).count())
+        val calls = Regex("FilterPill\\(\\s*labels\\[index\\]\\s*,\\s*([^,\\n]+)").findAll(body).toList()
+        assertEquals("FilterPill(标签, 计数) 必须有唯一调用点且计数独立传参：" + calls.size, 1, calls.size)
     }
 
     @Test

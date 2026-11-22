@@ -17,6 +17,8 @@ import java.io.File
  */
 class ResponseCacheTest {
 
+    private val source = "tronclass"
+    private val identity = RequestIdentity("synthetic-cache-owner", 1)
     private fun dir() = File(System.getProperty("java.io.tmpdir"), "wzcache-${System.nanoTime()}")
     /** 假时钟：緩存的過期判據不靠真實時鐘，否則這類測試會隨時鐘抖動。 */
     // 起點必須是**真實現在**：文件的最後修改時間用的是系統時鐘，
@@ -60,22 +62,22 @@ class ResponseCacheTest {
     fun `过期就当没有，绝不播旧数据`() {
         val k = clock()
         val c = ResponseCache(dir(), k::at)
-        c.put("/api/todos", """{"todo_list":[]}""")
-        assertNotNull(c.get("/api/todos", 5_000))
+        c.put(source, identity, "/api/todos", """{"todo_list":[]}""")
+        assertNotNull(c.get(source, identity, "/api/todos", 5_000))
         k.advance(3_000)                                   // 過 3 秒
-        assertNull(c.get("/api/todos", 2_000))              // TTL 2 秒 ⇒ 當沒有
-        assertNotNull(c.get("/api/todos", 60_000))          // TTL 60 秒 ⇒ 還在
+        assertNull(c.get(source, identity, "/api/todos", 2_000))              // TTL 2 秒 ⇒ 當沒有
+        assertNotNull(c.get(source, identity, "/api/todos", 60_000))          // TTL 60 秒 ⇒ 還在
     }
 
     @Test
     fun `不同查询串是不同条目，不会把账单当成课表`() {
         val k = clock()
         val c = ResponseCache(dir(), k::at)
-        c.put("/api/todos?page=1", "A")
-        c.put("/api/todos?page=2", "B")
-        assertEquals("A", c.get("/api/todos?page=1", 60_000))
-        assertEquals("B", c.get("/api/todos?page=2", 60_000))
-        assertNull(c.get("/api/todos?page=3", 60_000))
+        c.put(source, identity, "/api/todos?page=1", "A")
+        c.put(source, identity, "/api/todos?page=2", "B")
+        assertEquals("A", c.get(source, identity, "/api/todos?page=1", 60_000))
+        assertEquals("B", c.get(source, identity, "/api/todos?page=2", 60_000))
+        assertNull(c.get(source, identity, "/api/todos?page=3", 60_000))
     }
 
     @Test
@@ -83,16 +85,16 @@ class ResponseCacheTest {
         val k = clock()
         val c = ResponseCache(dir(), k::at)
         val path = "/api/course/37/student/12/rollcalls?fields=中文&x=%7B%7D"
-        c.put(path, "OK")
-        assertEquals("OK", c.get(path, 60_000))
+        c.put(source, identity, path, "OK")
+        assertEquals("OK", c.get(source, identity, path, 60_000))
     }
 
     @Test
     fun `清除返回真的字节数，界面才敢说清了多少`() {
         val k = clock()
         val c = ResponseCache(dir(), k::at)
-        c.put("/api/todos", "x".repeat(4096))
-        c.put("/api/my-courses", "y".repeat(1024))
+        c.put(source, identity, "/api/todos", "x".repeat(4096))
+        c.put(source, identity, "/api/my-courses", "y".repeat(1024))
         assertEquals(2, c.entries())
         assertTrue(c.usedBytes() >= 5120)
         val freed = c.clearAll()
@@ -105,7 +107,7 @@ class ResponseCacheTest {
     fun `读不到的文件当没缓存，不抛给界面`() {
         val k = clock()
         val c = ResponseCache(dir(), k::at)
-        assertNull(c.get("/api/nothing", 60_000))
-        assertNull(c.get("/api/nothing/../weird", 60_000))
+        assertNull(c.get(source, identity, "/api/nothing", 60_000))
+        assertNull(c.get(source, identity, "/api/nothing/../weird", 60_000))
     }
 }

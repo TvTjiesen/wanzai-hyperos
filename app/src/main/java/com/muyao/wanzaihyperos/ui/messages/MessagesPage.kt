@@ -136,7 +136,7 @@ fun MessagesPage(
                     Text(
                         // ★ 取不到就是「—」，**不是 0**：显示 0 等于替服务端说「你没有未读」。
                         text = "未读 " +
-                            (unreadCount?.let { if (it > 99) "99+" else it.toString() } ?: "—") +
+                            (unreadCount?.toString() ?: "—") +
                             " 条",
                         style = MiuixTheme.textStyles.footnote2,
                         color = colors.onBackgroundVariant,

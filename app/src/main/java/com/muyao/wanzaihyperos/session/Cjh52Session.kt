@@ -113,13 +113,18 @@ class Cjh52Session(store: SecureStore) : StoredSession(store) {
      *   這樣它在單測裡是確定的，也不會在重算時悄悄變值。
      */
     fun save(token: String, nowMillis: Long) {
-        tokenValue = token
-        obtainedAtValue = nowMillis
-        activatedValue = false
-        store.write(KEY_TOKEN, token)
-        store.write(KEY_OBTAINED_AT, nowMillis.toString())
-        store.write(KEY_ACTIVATED, "false")
-        markLoaded()
+        synchronized(lock) {
+            persist(mapOf(
+                KEY_TOKEN to token,
+                KEY_OBTAINED_AT to nowMillis.toString(),
+                KEY_ACTIVATED to "false",
+            ))
+            tokenValue = token
+            obtainedAtValue = nowMillis
+            activatedValue = false
+            markLoaded()
+            markCredentialReplacement()
+        }
         notifyListeners()
     }
 
@@ -130,21 +135,25 @@ class Cjh52Session(store: SecureStore) : StoredSession(store) {
      * 從 WebView 讀回 token 之後呼叫。
      */
     fun markActivated() {
-        activatedValue = true
-        store.write(KEY_ACTIVATED, "true")
-        markLoaded()
+        synchronized(lock) {
+            ensureLoaded()
+            persist(mapOf(KEY_ACTIVATED to "true"))
+            activatedValue = true
+        }
         notifyListeners()
     }
 
     /** 清掉會話（token 失效或退出登錄時）。 */
     fun clear() {
-        tokenValue = null
-        obtainedAtValue = null
-        activatedValue = false
-        store.delete(KEY_TOKEN)
-        store.delete(KEY_OBTAINED_AT)
-        store.delete(KEY_ACTIVATED)
-        markLoaded()
+        synchronized(lock) {
+            persist(mapOf(
+                KEY_TOKEN to null,
+                KEY_OBTAINED_AT to null,
+                KEY_ACTIVATED to null,
+            ))
+            clearMemory()
+            markLoaded()
+        }
         notifyListeners()
     }
 

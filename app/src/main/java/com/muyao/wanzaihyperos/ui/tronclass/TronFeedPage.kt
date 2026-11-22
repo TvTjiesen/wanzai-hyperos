@@ -1,6 +1,27 @@
 package com.muyao.wanzaihyperos.ui.tronclass
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import com.muyao.wanzaihyperos.data.ListMeta
+import com.muyao.wanzaihyperos.net.HzcuException
+import com.muyao.wanzaihyperos.net.shortErrorText
+import com.muyao.wanzaihyperos.ui.design.AppCard
+import com.muyao.wanzaihyperos.ui.design.Dims
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,20 +74,36 @@ fun TronFeedPage(
 ) {
     val state by repository.state.collectAsState()
     val pageState = state.toPageState()
-    val feed = (state as? ListState.Content)?.items?.firstOrNull()
+    val content = state as? ListState.Content
+    val feed = content?.items?.firstOrNull()
+    val failures = listOfNotNull(
+        feed?.bulletinsError?.let { TronSourceFailure("课程公告", it) },
+        feed?.todosError?.let { TronSourceFailure("待交作业", it) },
+        feed?.coursesError?.let { TronSourceFailure("我的课程", it) },
+    )
+    val meta = content?.meta ?: (state as? ListState.Empty)?.meta ?: ListMeta()
+    val hasProblem = tronHasPartialProblem(meta, failures)
 
     LaunchedEffect(Unit) {
         if (state is ListState.FirstLoad) repository.refresh()
     }
 
-    if (feed == null || feed.isEmpty) {
+    if ((feed == null || feed.isEmpty) && !hasProblem) {
         StatePlaceholder(
-            state = pageState,
+            state = if (feed?.isEmpty == true) PageState.Empty else pageState,
             modifier = modifier,
-            detail = if (pageState == PageState.Empty) "目前没有动态" else null,
+            detail = if (feed?.isEmpty == true || pageState == PageState.Empty) "目前没有动态" else null,
             onAction = onFallbackToWeb,
             actionLabel = if (onFallbackToWeb != null) "改用网页版" else null,
         )
+        return
+    }
+
+    if (feed == null) {
+        AppList(modifier = modifier) {
+            item { TronPartialNotice(meta, failures, repository::refresh) }
+            item { HintText("动态尚未确认，不能据此判断没有公告、作业或课程。") }
+        }
         return
     }
 
@@ -77,6 +114,14 @@ fun TronFeedPage(
         .sortedBy { (name, _) -> if (name == "全校公告") 1 else 0 }
 
     AppList(modifier = modifier) {
+        if (hasProblem) {
+            item(key = "feed-partial") { TronPartialNotice(meta, failures, repository::refresh) }
+        }
+        if (feed.isEmpty) {
+            item(key = "feed-unconfirmed") {
+                HintText("动态尚未确认，不能据此判断没有公告、作业或课程。")
+            }
+        }
         // ── 課堂動態：稿上這一組叫「课堂动态／公告与待交」 ─────────────────
         item(key = "feed-head") {
             TronSection(
@@ -186,6 +231,73 @@ fun TronFeedPage(
             HintText(
                 "说明：“动态”是把公告、待交作业与我的课合在一起的视图 —— " +
                     "学在城院本身没有单独的“动态”接口，所以这里不会比原站更全。",
+            )
+        }
+    }
+}
+
+internal data class TronSourceFailure(val source: String, val error: HzcuException)
+
+internal fun tronHasPartialProblem(meta: ListMeta, failures: List<TronSourceFailure>): Boolean =
+    meta.hasRefreshProblem || failures.isNotEmpty()
+
+internal fun tronPartialTimeText(meta: ListMeta, zone: ZoneId = ZoneId.systemDefault()): String {
+    val time = meta.updatedAtMillis?.let {
+        DateTimeFormatter.ofPattern("MM-dd HH:mm").format(Instant.ofEpochMilli(it).atZone(zone))
+    } ?: "时间未知"
+    return "保留可显示资料 · 上次完整取得 $time · 本次未全部确认"
+}
+
+internal fun tronSourceEmptyText(source: String, error: HzcuException?, unconfirmed: Boolean): String =
+    if (error != null || unconfirmed) "$source 尚未确认，不能判断为空。"
+    else "目前没有$source"
+
+internal suspend fun tronRetryRead(refresh: suspend () -> Unit): String? = try {
+    refresh()
+    null
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (error: Exception) {
+    "重试未完成：${error.shortErrorText()}"
+}
+
+@Composable
+internal fun TronPartialNotice(
+    meta: ListMeta,
+    failures: List<TronSourceFailure>,
+    onRetry: suspend () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var retrying by remember { mutableStateOf(false) }
+    var retryFailure by remember { mutableStateOf<String?>(null) }
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(Dims.cardPadding)) {
+            Text("部分来源尚未确认", style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.error)
+            HintText(tronPartialTimeText(meta))
+            failures.forEach { failure ->
+                HintText("${failure.source}取数失败：${failure.error.shortErrorText()}")
+            }
+            if (failures.isEmpty()) {
+                HintText(meta.lastRefreshError?.let { "刷新未完成：${it.shortErrorText()}" }
+                    ?: "这份资料可能不是最新的。")
+            }
+            retryFailure?.let { HintText(it) }
+            Text(
+                text = if (retrying || meta.refreshing) "正在重新读取…" else "重试读取",
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .clickable(enabled = !retrying && !meta.refreshing, role = Role.Button,
+                        onClickLabel = "重新读取学在城院资料") {
+                        if (retrying || meta.refreshing) return@clickable
+                        retrying = true
+                        retryFailure = null
+                        scope.launch {
+                            try { retryFailure = tronRetryRead(onRetry) }
+                            finally { retrying = false }
+                        }
+                    }.padding(vertical = 12.dp),
             )
         }
     }

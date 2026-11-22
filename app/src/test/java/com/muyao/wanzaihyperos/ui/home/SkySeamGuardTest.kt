@@ -58,7 +58,7 @@ class SkySeamGuardTest {
         val text = code()
         assertTrue(
             "HomeSky 的 Canvas 没 `clipToBounds()`（相册照片会溢出画布 79px）",
-            "Canvas(modifier = modifier.fillMaxSize().clipToBounds())" in text,
+            "Canvas(modifier = backgroundModifier.fillMaxSize().clipToBounds())" in text,
         )
     }
 
@@ -146,15 +146,15 @@ class SkySeamGuardTest {
         )
         assertTrue(
             "淡入带没把 pageGradient 铺进离屏层（底色会与带下第一行不等）",
-            "drawRect(brush = pageGradient" in text,
+            "drawRect(brush = pageGradient" in album,
         )
         assertTrue(
             "淡入斜坡必须用 DstIn 的纵向 alpha 蒙版削出来",
-            "featherStops(Color.White)" in text && "blendMode = BlendMode.DstIn" in text,
+            "featherStops(Color.White)" in album && "blendMode = BlendMode.DstIn" in album,
         )
         assertTrue(
-            "削斜坡前必须开离屏层（saveLayer），否则 DstIn 会啃掉整块画布",
-            "canvas.saveLayer(Rect(0f, fadeStart, w, fadeEnd), Paint())" in text,
+            "削斜坡前必须开完整天空离屏层（saveLayer），不能回退到会留下采样亮线的窄带边界",
+            "canvas.saveLayer(Rect(0f, 0f, w, h), Paint())" in album,
         )
     }
 
@@ -187,30 +187,27 @@ class SkySeamGuardTest {
      * 改生产数字不改这条，立刻红。
      */
     @Test
-    fun `天空盒高度必须与测试常量同源`() {
+    fun `天空盒高度必须与生产测量和淡出函数同源`() {
         val page = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/HomeSectionPage.kt")
         assertTrue("找不到 ${page.absolutePath}", page.isFile)
         val text = page.readText(Charsets.UTF_8)
             .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
             .replace(Regex("""//[^\n]*"""), "")
-        // 2026-11-01：下拉时盒高要跟着长，那行 height(if (…)) 拆成了 `val skyBaseHeight = if (…)`。
-        // 抓的仍是同两个数：基线 dp（= canvasPx / 3.5）与「今日课程」关着那一档。
-        val m = Regex("""if \("courses" in UiPrefs\.homeModules\) ([\d.]+)\.dp else ([\d.]+)\.dp""")
-            .find(text)
-        assertTrue("HomeSectionPage 里找不到那句 if (\"courses\" …) N.dp else M.dp —— 结构变了就同步改这条守卫", m != null)
-        val withCourses = m!!.groupValues[1].toFloat()
-        assertEquals(
-            "天空盒高度 ${withCourses}dp × 3.5 ≠ 测试里的 canvasPx ${canvasPx}px ⇒ 判据与生产脱节",
-            withCourses * density,
-            canvasPx,
-            0f,
-        )
-        assertEquals(
-            "「今日课程」关着那一档仍是 150dp（没有「此刻」卡，切线不能穿过「要处理」那行）",
-            150f,
-            m.groupValues[2].toFloat(),
-            0f,
-        )
+        assertTrue("必须由测量的卡高倒算而非锁定旧288dp", text.contains("homeDepthCanvasHeight(depthCardTop, depthCardHeight, preset == SkyPreset.ALBUM && wallpaper != null)"))
+        assertTrue(text.contains("depthCardTop = depthTopInset.value + top"))
+        assertTrue(text.contains("depthCardHeight = height"))
+        assertTrue(text.contains("height(skyBaseHeight + pullExtra)"))
+        assertTrue("采样层必须与HomeSky羽化同页底", text.contains("ThemePageBackground(Modifier.fillMaxSize(), colors.background.luminance() < .5f)"))
+        for (scale in listOf(2f, 3.5f)) {
+            for (height in listOf(96f, 176f, 350f, 620f)) {
+                for (album in listOf(false, true)) {
+                    val top = 180f
+                    val h = com.muyao.wanzaihyperos.ui.home.redesign.homeDepthCanvasHeight(top, height, album)
+                    val endPx = h * scale * if (album) 0.80f else 0.78f
+                    assertEquals((top + height * 0.5f) * scale, endPx, 0.002f)
+                }
+            }
+        }
     }
 
     @Test

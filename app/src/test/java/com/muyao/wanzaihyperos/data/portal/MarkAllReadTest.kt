@@ -59,8 +59,9 @@ class MarkAllReadTest {
         // B7 §2 第 ⑤ 条：服务端总未读 304 而各组 noread 之和 302，本地算术只会越偏。
         val repo = source("app/src/main/java/com/muyao/wanzaihyperos/data/portal/PortalRepositories.kt")
         val impl = cut(repo.substringAfter("override suspend fun markAllRead"), "override suspend fun")
-        assertTrue("写成功后必须重取列表", "refreshMessages()" in impl)
-        assertTrue("不重取分组计数，胶囊上还挂着旧的未读数", "refreshGroups()" in impl)
+        assertTrue("写成功后必须重取原代次列表", "refreshMessages(token)" in impl)
+        assertTrue("不重取分组计数，胶囊上还挂着旧的未读数", "refreshGroups(groupToken ?: return false)" in impl)
+        assertTrue("过时代次不得重取或发布新账号数据", "if (!ok || !guard.isCurrent(token)) return false" in impl)
         assertTrue("不许本地减一", "unread - 1" !in impl && "unread--" !in impl)
     }
 

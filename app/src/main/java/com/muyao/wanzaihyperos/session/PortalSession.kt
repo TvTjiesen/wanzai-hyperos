@@ -99,35 +99,41 @@ class PortalSession(store: SecureStore) : StoredSession(store), PortalCredential
     // ---------------------------------------------------------------------------
 
     /**
-     * 登录成功后落盘。token 为空视为脏数据，**直接拒绝** ——
-     * 存进去只会让后面每个接口都 401，还不如让调用方立刻发现。
+     * 登录成功后同批落盘 token、用户、时间与 Cookie。null Cookie 保留已有值；
+     * 登录出口应传入此次 CAS Cookie，不要拆成两次存储调用。空 token 直接拒绝。
      */
-    fun save(accessToken: String, userCode: String? = null) {
+    fun save(accessToken: String, userCode: String? = null, portalCookiesJson: String? = null,
+        extraChanges: Map<String, String?> = emptyMap(), notify: Boolean = true) {
         val clean = accessToken.trim()
         require(clean.isNotEmpty()) { "ACCESS_TOKEN 为空，拒绝保存" }
-        store.write(KEY_ACCESS_TOKEN, clean)
-        store.write(KEY_USER_CODE, userCode)
-        val now = System.currentTimeMillis()
-        store.write(KEY_SAVED_AT, now.toString())
         synchronized(lock) {
+            val now = System.currentTimeMillis()
+            val cookies = portalCookiesJson ?: if (loaded) cookiesJson else store.read(KEY_PORTAL_COOKIES)
+            persist(mapOf(
+                KEY_ACCESS_TOKEN to clean,
+                KEY_USER_CODE to userCode,
+                KEY_SAVED_AT to now.toString(),
+                KEY_PORTAL_COOKIES to cookies,
+            ) + extraChanges)
             token = clean
             userCodeValue = userCode
             savedAtMillisValue = now
+            cookiesJson = cookies
             markLoaded()
         }
-        notifyListeners()
+        if (notify) notifyListeners()
     }
 
     /**
      * 落盘 Cookie（与 token 同一把锁、同一个加密库）。
      *
-     * 单独一个方法而不是并进 [save]：CAS 流程里 token 与 cookie 是**同一跳**拿到的，
-     * 但语义不同（一个是门户令牌、一个是会话凭据），分开存便于将来只续期其一。
+     * 仅用于单独续期 Cookie；CAS 登录出口必须使用 [save] 同批保存 token 与 Cookie。
      */
     override fun savePortalCookies(json: String) {
         if (json.isBlank()) return
-        store.write(KEY_PORTAL_COOKIES, json)
         synchronized(lock) {
+            ensureLoaded()
+            persist(mapOf(KEY_PORTAL_COOKIES to json))
             cookiesJson = json
         }
     }
@@ -140,13 +146,18 @@ class PortalSession(store: SecureStore) : StoredSession(store), PortalCredential
      */
     override fun saveAccessToken(accessToken: String, userCode: String?) = save(accessToken, userCode)
 
+    override fun savePortalSession(accessToken: String, userCode: String?, portalCookiesJson: String) =
+        save(accessToken, userCode, portalCookiesJson)
+
     /** 退出登录 / token 失效：内存与存储一起清。 */
     override fun clear() {
-        store.delete(KEY_ACCESS_TOKEN)
-        store.delete(KEY_USER_CODE)
-        store.delete(KEY_SAVED_AT)
-        store.delete(KEY_PORTAL_COOKIES)
         synchronized(lock) {
+            persist(mapOf(
+                KEY_ACCESS_TOKEN to null,
+                KEY_USER_CODE to null,
+                KEY_SAVED_AT to null,
+                KEY_PORTAL_COOKIES to null,
+            ))
             clearMemory()
             markLoaded()
         }

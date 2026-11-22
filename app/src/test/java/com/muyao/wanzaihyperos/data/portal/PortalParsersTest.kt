@@ -383,6 +383,15 @@ class PortalParsersTest {
         )
     }
 
+    @Test
+    fun unreadCountRejectsNegativeValuesWithoutInventingZero() {
+        listOf("""{"code":200,"data":-1}""", """{"code":200,"data":{"noread":-2}}""", """{"code":200,"total":-3}""").forEach {
+            assertNull(PortalParsers.parseUnreadCount(envelope(it)))
+        }
+        assertEquals(304, PortalParsers.parseUnreadCount(envelope("""{"code":200,"data":304}""")))
+        assertEquals(0, PortalParsers.parseUnreadCount(envelope("""{"code":200,"data":0}""")))
+    }
+
     // ---------------------------------------------------------------------------
     // tempcode
     // ---------------------------------------------------------------------------

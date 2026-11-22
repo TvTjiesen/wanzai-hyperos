@@ -43,11 +43,12 @@ sealed class HzcuException(
                 deepest = deepest.cause!!
                 guard++
             }
-            val inner = deepest.message?.take(160)
-            val head = message?.takeIf { it.isNotBlank() } ?: "请求失败"
-            val tail = if (deepest === this && inner.isNullOrBlank()) ""
+            val inner = deepest.message?.let { safeRequestText(it, 160) }
+            val head = safeRequestText(message?.takeIf { it.isNotBlank() } ?: "请求失败", 160)
+            val tail = if (deepest === this) ""
             else " · ${deepest.javaClass.simpleName}${inner?.let { ": $it" } ?: ""}"
-            return head + tail + (details?.take(120).let { if (it.isNullOrBlank()) "" else " · $it" })
+            val safeDetails = details?.let { safeRequestText(it, 120) }
+            return (head + tail + (safeDetails?.let { " · $it" } ?: "")).take(400)
         }
 
     /**
@@ -82,7 +83,7 @@ sealed class HzcuException(
         requestUri: String,
         val summary: String,
     ) : HzcuException(
-        "HTTP $statusCode ${Redaction.sanitizedRequestUri(requestUri)}；响应摘要 $summary",
+        "HTTP $statusCode ${Redaction.sanitizedRequestUri(requestUri)}；响应摘要 ${safeRequestText(summary, 120)}",
     )
 
     /** 连不上 / DNS 失败 / TLS 失败 / 连接被重置。**不是**登录失效。 */
@@ -185,7 +186,7 @@ val HzcuException?.isRetryable: Boolean
  */
 fun Throwable?.shortErrorText(): String = when (this) {
     null -> "未知错误"
-    is HzcuException -> message?.takeIf { it.isNotBlank() } ?: "请求失败"
+    is HzcuException -> safeRequestText(message?.takeIf { it.isNotBlank() } ?: "请求失败", 160)
     is java.net.SocketTimeoutException -> "请求超时"
     is java.net.UnknownHostException -> "网络连接失败"
     is java.io.IOException -> "网络连接失败"

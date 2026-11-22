@@ -84,6 +84,7 @@ enum class ScheduleSource(val label: String) {
     JIAOWU("教务系统"),
 }
 
+@kotlinx.serialization.Serializable
 data class TronScheduleSlot(
     val courseId: Int,
     val courseName: String,

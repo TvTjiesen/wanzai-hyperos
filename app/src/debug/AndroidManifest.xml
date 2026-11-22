@@ -10,6 +10,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <activity
+            android:name=".dev.HomeMotionLabActivity"
+            android:exported="true"
+            android:label="真实首页动效验收(仅模拟器)"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
+            android:name=".dev.AppearanceLabActivity"
+            android:exported="true"
+            android:label="外观恢复验收(仅模拟器)"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
+            android:name=".dev.HomePreviewActivity"
+            android:exported="true"
+            android:process=":home_preview"
+            android:label="首页上部离线示例(仅模拟器测试)"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
             android:name=".dev.BoardPreviewActivity"
             android:exported="true"
             android:label="课表排版预览(仅测试)"

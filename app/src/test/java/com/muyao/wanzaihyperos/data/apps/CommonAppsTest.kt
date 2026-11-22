@@ -123,15 +123,25 @@ class CommonAppsTest {
                 " `ui/home/HomePage.kt` 里，这一档就永远空转（第 1 轮 B-3 的根因）",
             text.contains("graph.frequent.refresh()") && text.contains("graph.frequent.state"),
         )
+        // 大字/窄屏会把格数降到 3 或 2（§14），所以常用排的格数 = min(算法上限, 当前列数)：
+        // 上限必须仍然来自 COMMON_LIMIT（写死 4 会让算法与界面分叉），降列只是显示约束。
         assertTrue(
-            "常用那一排每行几格必须引用 COMMON_LIMIT —— 写死 4 的话，改上限时算法与界面会分叉",
-            text.contains("chunked(COMMON_LIMIT)"),
+            "常用那一排每行几格必须以 COMMON_LIMIT 为上限 —— 写死 4 的话，改上限时算法与界面会分叉",
+            text.contains("val commonColumns = minOf(COMMON_LIMIT, gridColumns)"),
+        )
+        assertTrue(
+            "常用排要用 commonColumns 切行，不许绕开它写死列数",
+            text.contains("common.chunked(commonColumns)"),
         )
         // 常用那一排的**补位空格**也必须跟着同一个数：`chunked` 换了而 `repeat` 没换，
         // 半路就会歪一格（目录那两组每行几格是版式选择，不归这条管，所以只查常用那一排）。
         assertTrue(
-            "常用行的补位要写 repeat(COMMON_LIMIT - rowApps.size)，不许写字面 4",
-            text.contains("repeat(COMMON_LIMIT - rowApps.size)"),
+            "常用行的补位要写 repeat(commonColumns - rowApps.size)，不许写字面 4",
+            text.contains("repeat(commonColumns - rowApps.size)"),
+        )
+        assertTrue(
+            "大字/窄屏降列必须走 appGridColumns，而不是另写一套阈值",
+            text.contains("appGridColumns(configuration.screenWidthDp, configuration.fontScale)"),
         )
     }
 }

@@ -96,14 +96,16 @@ class PressRevealTest {
     @Test
     fun `首页焦点操作接原生按下响应并保减少动态退路`() {
         val body = source("main/ui/main/pages/HomeSectionPage.kt")
-        val fn = body.substringAfter("private fun FocusButton(").substringBefore("private fun TodayTimelineCard(")
+        val fn = body.substringAfter("private fun FocusButton(").substringBefore("internal fun TodayTimelineCard(")
         assertTrue("焦点操作没有委托 Glasmio 适配器", fn.contains("WanzaiButton(onClick = onClick, prominent = filled, modifier = modifier)"))
         assertTrue("签到和课表回调必须分别保留", body.contains("onClick = onOpenRollcall") && body.contains("onClick = onClick"))
         val adapter = source("main/ui/components/WanzaiGlasmioControls.kt")
             .substringAfter("fun WanzaiButton(").substringBefore("fun WanzaiTextButton(")
         assertTrue("动态闸门未消费", adapter.contains("rememberMotion().canMove"))
         assertTrue("原生与静态两支都必须收回调", Regex("onClick = onClick").findAll(adapter).count() == 2)
-        assertTrue("减少动态必须仍有可用静态按钮", adapter.contains("GlasmioButton(") && adapter.contains("ButtonDefaults.buttonColors("))
+        assertTrue("减少动态必须仍有可用静态按钮", adapter.contains("GlasmioButton(") && adapter.contains("GlassSurface("))
+        assertTrue("静态按钮仍须48dp并保持禁用和读屏语义", adapter.contains("heightIn(min = 48.dp)") &&
+            adapter.contains(".clickable(enabled = enabled, role = Role.Button, onClick = onClick)"))
         val nativeButton = java.io.File("../third_party/glasmio/glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlassButtons.kt").readText()
         assertTrue("原生按钮须把回调交给玻璃表面", nativeButton.contains("GlassSurface(") && nativeButton.contains("onClick = onClick"))
         val surface = java.io.File("../third_party/glasmio/glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/GlassSurface.kt").readText()
@@ -113,32 +115,22 @@ class PressRevealTest {
     }
 
     @Test
-    fun `码表与交错入场真的接在了会变的数字和会重排的列表上`() {
-        // 首页校园跑读数：刷新后会变的那个数
+    fun `码表与跟手层真的接在会变的数字和真实列表上`() {
         val home = source("main/ui/main/pages/HomeSectionPage.kt")
-        assertTrue("首页校园跑读数没有走码表，数字还是直接跳变", home.contains("OdometerText("))
-        // 数智体育页：同一件事的读数
+        assertTrue("首页校园跑读数没有走码表", home.contains("OdometerText("))
         val szty = source("main/ui/szty/SztyPage.kt")
         assertTrue("数智体育页的公里数没有走码表", szty.contains("OdometerText("))
-        // 两处交错入场：都必须建闸门并且真的把闸门传给了行
-        val pages = listOf(
-            Triple("main/ui/main/pages/NotifySectionPage.kt", "消息页", ".revealIn(gate,"),
-            Triple("main/ui/main/pages/AppsSectionPage.kt", "应用页", ".revealIn(revealGate,"),
-        )
-        for ((path, page, usage) in pages) {
-            val body = source(path)
-            assertTrue("$page 没有建闸门，交错入场等于没开", body.contains("rememberRevealGate()"))
-            assertTrue("$page 的闸门没交给任何一项", body.contains(usage))
+        listOf("NotifySectionPage", "AppsSectionPage").forEach { name ->
+            val page = source("main/ui/main/pages/$name.kt")
+            assertTrue("$name 必须使用当前可恢复的真实列表状态", page.contains("rememberSpringListEntrance(pilot.listState)"))
+            assertTrue("$name 的跟手状态未传给列表项", page.contains(".springListEntrance(entrance,"))
+            assertTrue("$name 不得把滚动重新变成整列入场", !page.contains(".revealIn("))
         }
-        // 闸门必须真的传进了消息行：只建不用是最容易发生的静默失效
-        val notify = source("main/ui/main/pages/NotifySectionPage.kt")
-        assertTrue("MessageGroup 没接闸门形参", notify.contains("gate: RevealGate"))
-        assertTrue(
-            "行上的 revealIn 必须带着闸门，不能改用别的参数名假装接了",
-            notify.contains("Modifier.revealIn(gate,"),
-        )
-        // 应用页的闸门同理：交出去了就必须真的用在格子上
-        val apps = source("main/ui/main/pages/AppsSectionPage.kt")
-        assertTrue("应用页建了闸门却没用它画格子", apps.contains(".revealIn(revealGate,"))
+        val spring = source("main/ui/design/SpringMotion.kt")
+        assertTrue(spring.contains("if (!active || !motion.canMove) return@LaunchedEffect"))
+        assertTrue(spring.contains("snapshotFlow { list.layoutInfo.visibleItemsInfo"))
+        assertTrue("静止列表不能持续请求动画帧", spring.contains("wake.receive()"))
+        assertTrue("绘制层也必须服从离屏及减少动态", spring.contains("if (!motion.canMove || !active) return this"))
+        assertTrue("跟手只改变载体位置，不改变文字尺寸", spring.contains("translationY = entrance.lag") && !spring.contains("scaleX = entrance"))
     }
 }

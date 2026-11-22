@@ -112,7 +112,10 @@ class AiBallStatesTest {
     fun 首页今天没课是待机() {
         assertEquals(
             AiBallState.Idle,
-            AiBallStates.ofHome(plan = plan(0, 0), loading = false, failure = null, ongoing = false),
+            AiBallStates.ofHome(
+                plan = plan(0, 0), loading = false, failure = null, ongoing = false,
+                todoFacts = HomeTaskFacts.Empty, rollcallFacts = HomeTaskFacts.Empty,
+            ),
         )
     }
 
@@ -120,7 +123,10 @@ class AiBallStatesTest {
     fun 首页课全上完是已完成() {
         assertEquals(
             AiBallState.Done,
-            AiBallStates.ofHome(plan = plan(0, 3), loading = false, failure = null, ongoing = false),
+            AiBallStates.ofHome(
+                plan = plan(0, 3), loading = false, failure = null, ongoing = false,
+                todoFacts = HomeTaskFacts.Empty, rollcallFacts = HomeTaskFacts.Empty,
+            ),
         )
     }
 
@@ -129,6 +135,45 @@ class AiBallStatesTest {
         assertEquals(
             AiBallState.Loading,
             AiBallStates.ofHome(plan = null, loading = false, failure = null, ongoing = false),
+        )
+    }
+
+    @Test
+    fun 首页课已上完但待办或签到未知不能报已完成() {
+        assertEquals(
+            AiBallState.Loading,
+            AiBallStates.ofHome(plan = plan(0, 3), loading = false, failure = null, ongoing = false),
+        )
+        for ((todos, rollcalls) in listOf(
+            HomeTaskFacts.Unknown to HomeTaskFacts.Empty,
+            HomeTaskFacts.Empty to HomeTaskFacts.Unknown,
+        )) {
+            assertEquals(
+                AiBallState.Loading,
+                AiBallStates.ofHome(
+                    plan = plan(0, 0), loading = false, failure = null, ongoing = false,
+                    todoFacts = todos, rollcallFacts = rollcalls,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun 等待签到优先于加载而真实任务失败仍给错误脸() {
+        assertEquals(
+            AiBallState.Waiting,
+            AiBallStates.ofHome(
+                plan = plan(0, 0), loading = true, failure = null, ongoing = false,
+                waitingRollcall = true,
+            ),
+        )
+        assertEquals(
+            AiBallState.Error,
+            AiBallStates.ofHome(
+                plan = plan(0, 0), loading = false, failure = null, ongoing = false,
+                todoFacts = HomeTaskFacts(HomeTaskFacts.Status.Failed),
+                rollcallFacts = HomeTaskFacts.Empty,
+            ),
         )
     }
 
@@ -152,6 +197,7 @@ class AiBallStatesTest {
             AiBallStates.ofHome(
                 plan = plan(1, 3), loading = false, failure = null, ongoing = false,
                 minutesToNextClass = 60,
+                todoFacts = HomeTaskFacts.Empty, rollcallFacts = HomeTaskFacts.Empty,
             ),
         )
     }
@@ -186,6 +232,7 @@ class AiBallStatesTest {
             AiBallStates.ofHome(
                 plan = plan(1, 3), loading = false, failure = null, ongoing = false,
                 minutesToNextClass = null,
+                todoFacts = HomeTaskFacts.Empty, rollcallFacts = HomeTaskFacts.Empty,
             ),
         )
     }

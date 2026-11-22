@@ -7,6 +7,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.LayoutCoordinates
+import com.muyao.wanzaihyperos.ui.design.MotionSourceLease
+import com.muyao.wanzaihyperos.ui.design.rememberMotionSourceStamp
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.tronclass.HomeworkRepository
 import com.muyao.wanzaihyperos.data.tronclass.RollcallRepository
@@ -35,6 +43,9 @@ import androidx.compose.runtime.collectAsState
 internal sealed interface TronSub {
     data object None : TronSub
     data object Rollcall : TronSub
+    data object Scanner : TronSub
+    data object Resources : TronSub
+    data class Members(val course: com.muyao.wanzaihyperos.data.tronclass.TronCourse) : TronSub
     data class Homework(val courseId: Int, val courseName: String) : TronSub
 
     /**
@@ -74,30 +85,70 @@ internal fun TronHomeContent(
     rollcallRepository: RollcallRepository,
     courseDetailRepository: com.muyao.wanzaihyperos.data.tronclass.CourseDetailRepository,
     scheduleRepository: com.muyao.wanzaihyperos.data.tronclass.ScheduleRepository,
+    membersRepository: com.muyao.wanzaihyperos.data.tronclass.TronMembersRepository,
+    resourcesRepository: com.muyao.wanzaihyperos.data.tronclass.TronResourcesRepository,
     onOpenWeb: () -> Unit,
     /** 目前打開的子頁（由外殼持有，見 [TronShellPage]）。 */
     subState: TronSub,
     /** 切換子頁。 */
     onSub: (TronSub) -> Unit,
     modifier: Modifier = Modifier,
+    onPresentationSettled: (TronSub) -> Unit = {},
 ) {
     // 子頁狀態由外殼 [TronShellPage] 持有：子頁打開時外殼收起自己的頂欄與標籤列，
     // 否則課程詳情會在學在城院的頂欄底下再畫一層頂欄（實機上是兩條返回箭頭）。
     val sub = subState
 
     val state by repository.state.collectAsState()
+    val courseBounds = remember { mutableMapOf<Int, LayoutCoordinates>() }
+    val sourceStamp = rememberMotionSourceStamp()
+    var sourceLease by remember { mutableStateOf<MotionSourceLease?>(null) }
+    var rootBounds by remember { mutableStateOf(Rect.Zero) }
+    val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 
     LaunchedEffect(Unit) {
         if (state is ListState.FirstLoad) repository.refresh()
     }
 
-    when (val s = sub) {
+    Box(Modifier.fillMaxSize().onGloballyPositioned { rootBounds = it.boundsInWindow() }) {
+    TronCourseReveal(sub, sourceLease, rootBounds, sourceStamp, onPresentationSettled) { shown ->
+    pageStates.SaveableStateProvider(shown.savedStateKey()) {
+    when (val s = shown) {
         TronSub.None -> TronHomeBody(
             repository = repository,
             onOpenRollcall = { onSub(TronSub.Rollcall) },
             onOpenSchedule = { onSub(TronSub.Schedule) },
-            onOpenCourse = { course -> onSub(TronSub.Course(course)) },
+            onOpenCourse = { course ->
+                sourceLease = MotionSourceLease.capture({ courseBounds[course.id] }, sourceStamp())
+                onSub(TronSub.Course(course))
+            },
+            onCourseBounds = { id, bounds ->
+                if (bounds == null) courseBounds.remove(id) else courseBounds[id] = bounds
+            },
+            onOpenScanner = { onSub(TronSub.Scanner) },
             onOpenWeb = onOpenWeb,
+            modifier = modifier,
+        )
+
+        TronSub.Scanner -> QrScannerPage(
+            onExit = { onSub(TronSub.None) },
+            onScanned = { raw ->
+                com.muyao.wanzaihyperos.data.tronclass.ScanHandoff.put(raw)
+                onSub(TronSub.Rollcall)
+            },
+            modifier = modifier,
+        )
+
+        TronSub.Resources -> TronResourcesPage(
+            repository = resourcesRepository,
+            onBack = { onSub(TronSub.None) },
+            modifier = modifier,
+        )
+
+        is TronSub.Members -> TronMembersPage(
+            repository = membersRepository,
+            course = s.course,
+            onBack = { onSub(TronSub.None) },
             modifier = modifier,
         )
 
@@ -112,11 +163,12 @@ internal fun TronHomeContent(
             ScheduleContent(
                 repository = scheduleRepository,
                 onBack = { onSub(TronSub.None) },
-                onOpenCourse = { id, name ->
+                onOpenCourse = { id, name, source ->
                     // 課表點課 → 進課程詳情。用**已取到的**課程清單那筆補齊教師等欄位：
                     // 課表格子本身只有課名與課號，不能自己造一個 TronCourse。
                     val known = (state as? ListState.Content)?.items?.firstOrNull()
                         ?.courses?.firstOrNull { it.id == id }
+                    sourceLease = MotionSourceLease.capture({ source }, sourceStamp())
                     onSub(TronSub.Course(
                         known ?: com.muyao.wanzaihyperos.data.tronclass.TronCourse(
                             id = id,
@@ -142,6 +194,7 @@ internal fun TronHomeContent(
                 onBack = { onSub(TronSub.None) },
                 // 「看全部作業」複用既有的作業頁（同一份資料不做兩個實作）。
                 onOpenHomework = { onSub(TronSub.Homework(s.course.id, s.course.name)) },
+                onOpenMembers = { onSub(TronSub.Members(s.course)) },
                 onOpenWeb = onOpenWeb,
                 modifier = modifier,
             )
@@ -177,10 +230,13 @@ internal fun TronHomeContent(
             HomeworkDetailBody(
                 repository = homeworkDetailRepository,
                 onOpenWeb = onOpenWeb,
-                header = { item { BackRow("返回", onBack = { onSub(TronSub.Homework(s.courseId, s.courseName)) }) } },
+                header = { item { BackRow("返回", onBack = { onSub(TronSub.None) }) } },
                 modifier = modifier,
             )
         }
+    }
+    }
+    }
     }
 }
 
@@ -201,11 +257,22 @@ fun TronFeedContent(
 fun TronMeContent(
     repository: TronMeRepository,
     onOpenWeb: () -> Unit,
+    onOpenResources: () -> Unit,
+    onOpenRollcall: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    TronMePage(
-        repository = repository,
-        modifier = modifier,
-        onFallbackToWeb = onOpenWeb,
-    )
+    androidx.compose.foundation.layout.Column(modifier) {
+        com.muyao.wanzaihyperos.ui.design.ActionRow(
+            title = "个人资源库",
+            subtitle = "我的文件夹与文件",
+            action = "查看",
+            onClick = onOpenResources,
+        )
+        TronMePage(
+            repository = repository,
+            modifier = Modifier.weight(1f),
+            onOpenRollcall = onOpenRollcall,
+            onFallbackToWeb = onOpenWeb,
+        )
+    }
 }

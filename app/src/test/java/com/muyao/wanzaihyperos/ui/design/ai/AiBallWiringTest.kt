@@ -30,7 +30,7 @@ class AiBallWiringTest {
     }
 
     @Test
-    fun 三个内容页各自在滚动标题内挂一只球() {
+    fun 三个内容页各自在滚动内容内挂一只球() {
         val pages = mapOf(
             "消息" to ("main/pages/NotifySectionPage.kt" to "largeTitleItem("),
             "应用" to ("main/pages/AppsSectionPage.kt" to "largeTitleItem("),
@@ -39,11 +39,17 @@ class AiBallWiringTest {
         pages.forEach { (name, entry) ->
             val src = code(entry.first)
             assertTrue("$name 页没有滚动标题入口", src.contains(entry.second))
-            assertTrue("$name 页标题未接真实状态球", src.contains("leading = { AiBall(state = ballState"))
+            assertTrue("$name 页标题未接真实状态球", Regex("leading\\s*=\\s*\\{\\s*AiBall\\(\\s*state\\s*=\\s*ballState").containsMatchIn(src))
             assertTrue("$name 页应只有一只内容层球", Regex("\\bAiBall\\(").findAll(src).count() == 1)
         }
         val title = code("main/pages/redesign/SettingsOverview.kt")
-        assertTrue("设置标题必须在 LazyList item 内消费 leading", title.contains("item(key = \"large_title\")") && title.contains("leading()"))
+        val settings = code("main/pages/SettingsSectionPage.kt")
+        assertTrue("设置A球必须在账号卡肩而非标题槽", settings.contains("SettingsConnectionCard(") && settings.contains("diameter = 64.dp, hitSlop = 4.dp"))
+        val heading = title.substringBefore("fun SettingsConnectionCard")
+        assertTrue("设置标题仍是LazyList item且不消费球", heading.contains("item(key = \"large_title\")") && !heading.contains("leading()"))
+        val card = title.substringAfter("fun SettingsConnectionCard").substringBefore("internal data class")
+        assertTrue("卡肩球须预留独立72dp区域，不能用offset覆盖卡片点击", card.contains("val ballBox = 72.dp") && card.contains("padding(top = ballBox / 2)") && card.contains("padding(start = 12.dp).size(ballBox)"))
+        assertTrue("卡肩球在卡片后绘制且不是玻璃", card.indexOf("{ leading() }") > card.indexOf("configuration.boundaryText()") && !card.contains("LiquidGlass"))
         assertTrue("自定义标题仍需上报真实高度，折叠不能失联", title.contains("pilot.titleHeightPx = it.height.toFloat()"))
         assertTrue("设置标题必须可被读屏识别", title.contains("heading()") && title.contains("IosTypography.largeTitle"))
     }
@@ -55,9 +61,15 @@ class AiBallWiringTest {
         //   「第」字起笔就贴页边距。前面塞一只 36dp 的球会把整行右移 40dp，与稿对不上。
         //   所以这一页的球是**故意拿掉的**，不是漏了：这条断言从「必须有」反过来钉「不许有」。
         val timetable = code("main/pages/TimetableSectionPage.kt")
+        // 空态插图（无课/无数据那块）可以用小球；页头第 1 行仍然不许有球。
+        val header = timetable.substringBefore("private fun TimetableEmpty")
         assertTrue(
             "课表页又长出一只球 —— 稿上这一页第 1 行只有「第 N 周 + ‹ 回到今天 ›」，没有球",
-            !timetable.contains("AiBall(") && !timetable.contains("AiBallRow("),
+            !header.contains("AiBall(") && !header.contains("AiBallRow("),
+        )
+        assertTrue(
+            "空态插图球只能出现在 TimetableEmpty 里",
+            Regex("\\bAiBall\\(").findAll(timetable).count() == 1 && timetable.substringAfter("private fun TimetableEmpty").contains("AiBall("),
         )
         // 纯函数本身留着（AiBallStatesTest 仍在验它），只是这一页不消费。
         assertTrue(
@@ -78,7 +90,11 @@ class AiBallWiringTest {
         expected.forEach { (rel, call) ->
             val src = code(rel)
             assertTrue("$rel 应该用 $call —— 那一页唯一说得出口的事实就是它", src.contains(call))
-            assertTrue("$rel 算出来的脸色没交给 ballState，球会停在默认值", src.contains("val ballState = $call"))
+            // 有的页面按筛选/状态分流（`val ballState = when { … -> ofCount(…) }`），
+            // 只要同一个 `ballState` 确实由它算出即可。
+            assertTrue("$rel 算出来的脸色没交给 ballState，球会停在默认值",
+                src.contains("val ballState = $call") ||
+                    (src.contains("val ballState = when {") && src.contains("-> $call")))
         }
     }
 
@@ -106,15 +122,27 @@ class AiBallWiringTest {
     }
 
     @Test
-    fun 首页的球在标题区而不是顶栏() {
+    fun 首页单球跨主卡边且不受课程开关删除() {
         val home = code("main/pages/HomeSectionPage.kt")
         assertTrue("首页没有 AiBall", home.contains("AiBall("))
         assertTrue("首页球的状态没用 ofHome 算", home.contains("AiBallStates.ofHome("))
-        // 2026-11-10：用户批准日期主导的 Glasmio 布局，状态球保留在滚动标题右侧。
-        val header = home.substringAfter("private fun HomeSkyHeader(").substringBefore("private fun FocusGlassCard(")
+        // D1：日期、卡片与单球共同滚动；关闭课程仅移除课程内容。
+        val header = home.substringAfter("internal fun HomeSkyHeader(").substringBefore("internal fun FocusGlassCard(")
         assertTrue("首页必须只有一只球，不能在卡内重复", Regex("\\bAiBall\\(").findAll(home).count() == 1)
         assertTrue("首页球必须消费真实 ballState", header.contains("state = ballState"))
-        assertTrue("紧凑及常规档都必须保留可见状态球", header.contains("diameter = if (compact) 64.dp else 76.dp"))
+        assertTrue("紧凑及常规档都保留主角球", header.contains("ballDiameter = if (compact) 96.dp else 104.dp"))
+        assertTrue("课程开关必须只传到内容分支", home.contains("courseEnabled = \"courses\" in UiPrefs.homeModules"))
+        assertTrue("球须绘制在两种内容分支之后", header.indexOf("AiBall(") > header.indexOf("courseContent(subline)"))
+        assertTrue("卡上沿必须穿过球中心", header.contains("padding(top = ballBox / 2)"))
+        // 方案三：默认布局不动，长按确认后才临时拖动；普通划动仍交父页面。
+        assertTrue("首页不能额外指定不同拖动范围", !header.contains("dragRange"))
+        val ball = code("design/ai/AiBall.kt")
+        assertTrue("短划不应由拖动探测器立即抢走", !ball.contains("detectDragGestures"))
+        assertTrue("长按后的临时捕获必须释放", ball.contains("HorizontalDragZones.releasePointers"))
+        assertTrue("不得恢复永久按球坐标豁免", !ball.contains("HorizontalDragZones.register("))
+        assertTrue("临近课提示必须说课程事实而非误报待办", header.contains("stateDescription = if") && header.contains("分钟后上课"))
+        assertTrue("真实说明仍可由页面提供", ball.contains("stateDescription: String? = null") && ball.contains("AiBallStatusTooltip("))
+        assertTrue("长按不能恢复换脸", !ball.contains("previewIndex") && !ball.contains("previewNext"))
         assertTrue("日期与状态球必须在同一滚动标题内容内", header.contains("now.monthValue") && header.contains("now.dayOfMonth") && header.contains("Modifier.weight(1f)"))
         // 一处状态只在屏幕上一个地方说：卡内那颗已经删了，不能再冒出来。
         assertTrue(

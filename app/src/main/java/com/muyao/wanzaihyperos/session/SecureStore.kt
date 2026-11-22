@@ -7,6 +7,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.muyao.wanzaihyperos.net.HzcuException
 import java.security.KeyStore
+import java.util.IdentityHashMap
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -31,6 +32,18 @@ interface SecureStore {
     fun write(key: String, value: String?)
 
     fun delete(key: String)
+
+    /**
+     * 同批持久化全部变更，null 表示删除；只有确认落盘后才返回。
+     * 不支持事务的实现必须拒绝多键操作，不能用逐键 write 冒充原子提交。
+     */
+    fun writeAtomically(changes: Map<String, String?>) {
+        when (changes.size) {
+            0 -> return
+            1 -> changes.entries.single().let { (key, value) -> write(key, value) }
+            else -> throw HzcuException.Storage("writeAtomically", "AtomicWriteUnsupported")
+        }
+    }
 }
 
 /**
@@ -66,46 +79,90 @@ interface SecureStore {
  * 3. 由 [StoredSession] 把登录态降级成 [SessionState.Unknown]。
  * 最坏结果是「要重新登录一次」，而不是把首页拖崩。
  */
-class EncryptedSecureStore private constructor(
+class EncryptedSecureStore internal constructor(
     private val prefs: SharedPreferences,
-    private val crypto: KeystoreCrypto,
+    private val encrypt: (String) -> String,
+    private val decrypt: (String) -> String,
 ) : SecureStore {
 
-    override fun read(key: String): String? {
-        val stored = prefs.getString(key, null) ?: return null
-        return try {
-            crypto.decrypt(stored)
-        } catch (error: Exception) {
-            // 见类注释「解不开怎么办」：先清掉这条永远解不开的密文，再上报。
-            prefs.edit().remove(key).commit()
-            throw HzcuException.Storage("read", error.javaClass.simpleName)
-        }
-    }
+    private val state = synchronized(states) { states.getOrPut(prefs) { PersistenceState() } }
+    private val lock = state.lock
+    private val uncertainKeys = state.uncertainKeys
 
-    override fun write(key: String, value: String?) {
-        if (value == null) {
-            delete(key)
-            return
-        }
-        val encoded = try {
-            crypto.encrypt(value)
-        } catch (error: Exception) {
-            throw HzcuException.Storage("write", error.javaClass.simpleName)
-        }
-        // 用 commit() 而不是 apply()：凭据落盘必须**确认成功**再往下走。
-        // apply() 是异步的，写失败时调用方以为存好了，重启后才发现要重新登录。
-        prefs.edit().putString(key, encoded).commit()
-    }
-
-    override fun delete(key: String) {
+    override fun read(key: String): String? = synchronized(lock) {
+        checkReadable(key)
+        val stored = storageOperation("read") { prefs.getString(key, null) } ?: return@synchronized null
         try {
-            prefs.edit().remove(key).commit()
+            decrypt(stored)
         } catch (error: Exception) {
-            throw HzcuException.Storage("delete", error.javaClass.simpleName)
+            val failure = HzcuException.Storage("read", error.javaClass.simpleName)
+            try {
+                commitChanges(mapOf(key to null), "delete")
+            } catch (cleanup: HzcuException.Storage) {
+                failure.addSuppressed(cleanup)
+            }
+            throw failure
         }
+    }
+
+    override fun write(key: String, value: String?) = synchronized(lock) {
+        commitChanges(mapOf(key to value), if (value == null) "delete" else "write")
+    }
+
+    override fun delete(key: String) = synchronized(lock) {
+        commitChanges(mapOf(key to null), "delete")
+    }
+
+    override fun writeAtomically(changes: Map<String, String?>) = synchronized(lock) {
+        commitChanges(changes, "writeAtomically")
+    }
+
+    private fun checkReadable(key: String) {
+        // SharedPreferences 在 commit 失败时也可能更新进程缓存，不能把它当作已落盘的数据。
+        if (key in uncertainKeys) throw HzcuException.Storage("read", "CommitOutcomeUnknown")
+    }
+
+    private fun commitChanges(changes: Map<String, String?>, op: String) {
+        if (changes.isEmpty()) return
+        if (uncertainKeys.isNotEmpty()) {
+            // 同值重试可能跳过磁盘；写其它源也会把失败缓存一起落盘。真实进程重启前禁止再写。
+            throw HzcuException.Storage(op, "CommitOutcomeUnknown")
+        }
+        // 在创建 Editor 前加密全部值：第 N 个加密失败时，前面的键也没有被写入。
+        val encoded = storageOperation(op) {
+            changes.mapValues { (_, value) -> value?.let(encrypt) }
+        }
+        try {
+            storageOperation(op) {
+                val editor = prefs.edit()
+                for ((key, value) in encoded) {
+                    if (value == null) editor.remove(key) else editor.putString(key, value)
+                }
+                if (!editor.commit()) throw HzcuException.Storage(op, "CommitFailed")
+            }
+        } catch (error: HzcuException.Storage) {
+            uncertainKeys.addAll(encoded.keys)
+            throw error
+        }
+    }
+
+    private inline fun <T> storageOperation(op: String, action: () -> T): T = try {
+        action()
+    } catch (error: HzcuException.Storage) {
+        throw error
+    } catch (error: Exception) {
+        throw HzcuException.Storage(op, error.javaClass.simpleName)
+    }
+
+    private class PersistenceState {
+        val lock = Any()
+        val uncertainKeys = mutableSetOf<String>()
     }
 
     companion object {
+        // Context 缓存同名 SharedPreferences，重开 wrapper 不能绕过进程缓存的不确定状态。
+        private val states = IdentityHashMap<SharedPreferences, PersistenceState>()
+
         /**
          * 城院凭据专用文件名。
          *
@@ -128,10 +185,14 @@ class EncryptedSecureStore private constructor(
          * **必须在后台线程首次调用**：首次会生成 Keystore 主密钥，
          * 在低端机上可能耗时上百毫秒。App 启动时用一个协程预热即可。
          */
-        fun open(context: Context): SecureStore = EncryptedSecureStore(
-            prefs = context.getSharedPreferences(PREFS_FILE_NAME, Context.MODE_PRIVATE),
-            crypto = KeystoreCrypto(MASTER_KEY_ALIAS),
-        )
+        fun open(context: Context): SecureStore {
+            val crypto = KeystoreCrypto(MASTER_KEY_ALIAS)
+            return EncryptedSecureStore(
+                prefs = context.getSharedPreferences(PREFS_FILE_NAME, Context.MODE_PRIVATE),
+                encrypt = crypto::encrypt,
+                decrypt = crypto::decrypt,
+            )
+        }
     }
 }
 
@@ -232,20 +293,25 @@ class InMemorySecureStore(
     initial: Map<String, String> = emptyMap(),
 ) : SecureStore {
 
-    private val values = LinkedHashMap<String, String>(initial)
+    private var values = LinkedHashMap<String, String>(initial)
+    private val lock = Any()
 
-    override fun read(key: String): String? = values[key]
+    override fun read(key: String): String? = synchronized(lock) { values[key] }
 
-    override fun write(key: String, value: String?) {
-        if (value == null) values.remove(key) else values[key] = value
-    }
+    override fun write(key: String, value: String?) = writeAtomically(mapOf(key to value))
 
-    override fun delete(key: String) {
-        values.remove(key)
+    override fun delete(key: String) = writeAtomically(mapOf(key to null))
+
+    override fun writeAtomically(changes: Map<String, String?>) = synchronized(lock) {
+        val next = LinkedHashMap(values)
+        for ((key, value) in changes) {
+            if (value == null) next.remove(key) else next[key] = value
+        }
+        values = next
     }
 
     /** 测试用：看看到底往「存储」里写了哪些键（**不是值**）。 */
-    fun keys(): Set<String> = values.keys.toSet()
+    fun keys(): Set<String> = synchronized(lock) { values.keys.toSet() }
 }
 
 /**
@@ -259,4 +325,7 @@ class FailingSecureStore(private val errorCode: String = "TestKeyStoreFailure") 
         throw HzcuException.Storage("write", errorCode)
 
     override fun delete(key: String) = throw HzcuException.Storage("delete", errorCode)
+
+    override fun writeAtomically(changes: Map<String, String?>) =
+        throw HzcuException.Storage("writeAtomically", errorCode)
 }

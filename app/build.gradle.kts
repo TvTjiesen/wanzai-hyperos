@@ -35,8 +35,18 @@ android {
     }
 
     buildTypes {
+        create("optimized") {
+            initWith(getByName("debug"))
+            matchingFallbacks += "debug"
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // 簽名配置（第四期準備）：key 與口令**都不在倉庫裡**
             //   - keystore：C:/Users/<user>/.wz-secret/wanzai-release.jks
             //   - 口令：keystore.properties（已被 .gitignore 擋住），或環境變數 WZ_KEYSTORE_PROPS

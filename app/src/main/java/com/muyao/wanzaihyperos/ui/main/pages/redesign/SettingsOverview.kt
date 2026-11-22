@@ -37,7 +37,7 @@ import io.github.neoruaa.glasmio.icons.SfIcon
 import io.github.neoruaa.glasmio.ui.GlasmioGroupedList
 import io.github.neoruaa.glasmio.ui.glasmioGroupedListSeparator
 
-fun LazyListScope.settingsTitleItem(pilot: PageChromePilot, leading: @Composable () -> Unit) {
+fun LazyListScope.settingsTitleItem(pilot: PageChromePilot) {
     item(key = "large_title") {
         Column(
             Modifier.fillMaxWidth()
@@ -52,10 +52,9 @@ fun LazyListScope.settingsTitleItem(pilot: PageChromePilot, leading: @Composable
                     style = IosTypography.largeTitle.copy(fontWeight = FontWeight.Bold),
                     color = GlasmioTheme.colors.content,
                 )
-                leading()
             }
             Text(
-                "连接校园，按你的方式使用。",
+                "让界面顺手，也让连接有据可查。",
                 style = IosTypography.subheadline,
                 color = GlasmioTheme.colors.secondaryContent,
             )
@@ -64,38 +63,63 @@ fun LazyListScope.settingsTitleItem(pilot: PageChromePilot, leading: @Composable
 }
 
 @Composable
-fun SettingsConnectionCard(summary: String, sourceCount: String, reading: Boolean, onClick: () -> Unit) {
+fun SettingsConnectionCard(
+    configuration: com.muyao.wanzaihyperos.data.account.AccountConfigurationSummary,
+    onClick: () -> Unit,
+    leading: @Composable () -> Unit,
+) {
     val colors = GlasmioTheme.colors
-    GlasmioGroupedList {
-        Column(
-            Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "查看账号与连接", onClick = onClick)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(48.dp).background(colors.accent.copy(alpha = 0.12f), GlasmioTheme.shapes.medium),
-                    contentAlignment = Alignment.Center,
-                ) { SfIcon("person.crop.circle", null, size = 28.dp, tint = colors.accent) }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("账号与连接", style = IosTypography.title2, color = colors.content)
-                    Text("各来源独立登录", style = IosTypography.subheadline, color = colors.secondaryContent)
+    // Reserve the entire hit box in this scrolling item; only the card is clickable.
+    val ballBox = 72.dp
+    Box(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().padding(top = ballBox / 2)) {
+            GlasmioGroupedList {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clickable(role = Role.Button, onClickLabel = "查看账号与连接", onClick = onClick)
+                        .heightIn(min = 116.dp).padding(horizontal = 18.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(start = 76.dp), verticalAlignment = Alignment.Top) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("账号与连接", style = IosTypography.title2, color = colors.content)
+                            Text(
+                                configuration.countText(),
+                                style = IosTypography.subheadline.merge(
+                                    TextStyle(fontFeatureSettings = Type.tabular),
+                                ),
+                                color = colors.accent,
+                            )
+                        }
+                        SfIcon("chevron.forward", null, size = 18.dp, tint = colors.accent)
+                    }
+                    Text(configuration.boundaryText(), style = IosTypography.subheadline, color = colors.secondaryContent)
                 }
-                SfIcon("chevron.forward", null, size = 18.dp, tint = colors.tertiaryContent)
             }
-            Text(
-                summary,
-                style = IosTypography.headline.merge(TextStyle(fontFeatureSettings = Type.tabular)),
-                color = colors.accent,
-            )
-            Text(
-                if (reading) "正在读取真实连接状态，不将未知视为未登录。" else "$sourceCount · 各系统的登录状态互不影响。",
-                style = IosTypography.footnote,
-                color = colors.secondaryContent,
-            )
+        }
+        Box(Modifier.padding(start = 12.dp).size(ballBox), contentAlignment = Alignment.Center) { leading() }
+    }
+}
+
+internal data class SettingsCacheClearPlan(val domain: String?, val entries: Int, val bytes: Long) {
+    val title: String get() = if (domain == null) "清理全部本地缓存？" else "清理「$domain」缓存？"
+
+    fun impactText(): String = "$entries 条 · ${settingsCacheSizeLabel(bytes)}。只删除本机读取缓存，不删除凭据、偏好、草稿或学校数据。下次读取可能重新取数，也可能离线不可用；取消不会删除。"
+
+    fun observedResult(domains: List<com.muyao.wanzaihyperos.net.CacheDomain>): String {
+        val remaining = domains.filter { domain == null || it.name == domain }.sumOf { it.entries }
+        return if (remaining == 0) {
+            "清理已执行，重新扫描未发现目标缓存；不将操作前大小当成实际释放量。"
+        } else {
+            "清理已执行，重新扫描仍有 $remaining 条目标缓存，可能未删净或有新读取；未报告全部清除。"
         }
     }
+}
+
+internal fun settingsCacheSizeLabel(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> "${(bytes / 104857.6).toLong() / 10.0} MB"
+    bytes > 0 -> "${(bytes + 1023) / 1024} KB"
+    else -> "0 KB"
 }
 
 @Composable

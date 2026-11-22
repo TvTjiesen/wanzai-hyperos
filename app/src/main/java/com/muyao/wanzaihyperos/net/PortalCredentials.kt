@@ -55,6 +55,9 @@ interface PortalCredentials {
      */
     fun saveAccessToken(accessToken: String, userCode: String?)
 
+    /** CAS 唯一成功出口：凭据与 Cookie 同一事务确认落盘后才发布登录态。 */
+    fun savePortalSession(accessToken: String, userCode: String?, portalCookiesJson: String)
+
     /** 退出登录：内存与存储一起清。 */
     fun clear()
 }

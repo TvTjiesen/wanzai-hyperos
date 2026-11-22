@@ -41,6 +41,7 @@ import com.muyao.wanzaihyperos.ui.design.SecondaryScaffold
 import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
@@ -85,6 +86,7 @@ fun AccountsPage(
     // 退出登录之后要重取一次快照（清完凭据，六行必须立刻变成"未登录"）
     var reload by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var loggingOut by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var logoutFeedback by remember { mutableStateOf<String?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(refreshKey, uiState.loggedIn, uiState.displayAccount, reload) {
         sources = withContext(Dispatchers.IO) {
@@ -127,13 +129,7 @@ fun AccountsPage(
         // 稿：「账号连接 / 校园账号 / 1 / 7 个来源已设置 · 不是服务器在线证明」。
         // 第三行那句是**反过来说明**的：写「登录成功」会让人以为别的来源跟着通了。
         run {
-            // 「已设置」只算三种确有其事的：有凭据、码已拿到但未激活、网页内独立登录。
-            // `Unknown`（还没读到）**不算**——把读不到说成「没设置」和说成「设置了」都是撒谎。
-            val done = sources.count {
-                it.status == AccountStatus.LoggedIn ||
-                    it.status == AccountStatus.ObtainedNotActivated ||
-                    it.status == AccountStatus.InWebOnly
-            }
+            val configuration = com.muyao.wanzaihyperos.data.account.accountConfigurationSummary(sources)
             // 返工总单 B6：首个区块标题左边挂一颗 44dp 的球（稿 `.account-head
             // .ball-button{justify-self:start}`）。脸色由本页真数据算：sources 还没
             // 读到任何一条 => Loading；有一条 Unknown => 仍算不知道；都有结果 => Idle。
@@ -145,6 +141,7 @@ fun AccountsPage(
                     state = AiBallStates.ofAccounts(sources.takeIf { it.isNotEmpty() }),
                     diameter = AiBall.DIAMETER_PAGE,
                     hitSlop = AiBall.INLINE_SLOP,
+                    stateDescription = configuration.countText() + "\n" + configuration.boundaryText(),
                 )
                 Spacer(Modifier.width(9.dp))
                 Column(Modifier.weight(1f)) {
@@ -165,7 +162,7 @@ fun AccountsPage(
                     modifier = Modifier.padding(top = 3.dp).semantics { heading() },
                 )
                 Text(
-                    text = done.toString() + " / " + sources.size + " 个来源已设置 · 不是服务器在线证明",
+                    text = configuration.countText() + "\n" + configuration.boundaryText(),
                     fontSize = Type.micro,
                     color = colors.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 2.dp),
@@ -190,7 +187,7 @@ fun AccountsPage(
         Spacer(Modifier.height(Dims.cardGap))
         if (sources.isEmpty()) {
             SettingGroup {
-                SettingRow(
+                com.muyao.wanzaihyperos.ui.main.pages.redesign.SettingsOverviewRow(
                     icon = SettingIcon.Shield,
                     tint = Tone.quiet,
                     title = "正在读取各系统的登录状态",
@@ -223,7 +220,7 @@ fun AccountsPage(
         // 这是**写操作里唯一不需要二次确认的**：它只清本机凭据，不向学校发任何请求。
         if (sources.any { it.status == AccountStatus.LoggedIn }) {
             SettingGroup {
-                SettingRow(
+                com.muyao.wanzaihyperos.ui.main.pages.redesign.SettingsOverviewRow(
                     icon = SettingIcon.Shield,
                     tint = Tone.warn,
                     title = if (loggingOut) "正在退出…" else "退出登录",
@@ -231,15 +228,28 @@ fun AccountsPage(
                     onClick = if (loggingOut) null else {
                         {
                             loggingOut = true
+                            logoutFeedback = null
                             scope.launch {
-                                runCatching { graph.logout() }
-                                reload++
-                                loggingOut = false
+                                try {
+                                    graph.logout()
+                                    logoutFeedback = "本机退出操作已完成；学校网页端不受影响。"
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    logoutFeedback = "未能确认退出完成：本机存储或清理失败，部分凭据可能仍在。请重试；不会报告已退出。"
+                                } finally {
+                                    reload++
+                                    loggingOut = false
+                                }
                             }
                         }
                     },
                 )
             }
+            Spacer(Modifier.height(Dims.cardGap))
+        }
+        logoutFeedback?.let { feedback ->
+            Text(text = feedback, fontSize = Type.body, color = colors.onSurfaceVariantSummary)
             Spacer(Modifier.height(Dims.cardGap))
         }
         }
@@ -253,7 +263,7 @@ fun AccountsPage(
 @Composable
 internal fun AccountSourceRow(source: AccountSource, onClick: (() -> Unit)?) {
     val colors = MiuixTheme.colorScheme
-    SettingRow(
+    com.muyao.wanzaihyperos.ui.main.pages.redesign.SettingsOverviewRow(
         icon = glyphFor(source),
         tint = tileTintFor(source.status),
         title = source.name,
@@ -261,8 +271,7 @@ internal fun AccountSourceRow(source: AccountSource, onClick: (() -> Unit)?) {
         // 拼成一整串时，11sp 下每行都在句中任意位置折出第二行、末尾吊着一两个字。
         subtitle = "${source.provides}\n${source.whereToLogin}",
         onClick = onClick,
-        // 六行**全部**要这个槽：不可点的那行只是槽里空着，右边缘才与另外几行在同一根线上。
-        trailingChevron = true,
+        trailingChevron = onClick != null,
         trailing = {
             val timeLine = source.timeText()
             Column(horizontalAlignment = Alignment.End) {

@@ -808,7 +808,19 @@ private class DrawBackdropNode(
                 else if (previous == null) {
                     luminanceSampleTransform = values.copyOf()
                     changed = true
-                } else if (!previous.contentEquals(values)) {
+                }
+                // Pure translation (scrolled content) changes where the probe samples but
+                // not what a static sky/gradient contains; the 16x16 probe average barely
+                // moves, so translating is not worth a re-record + readback per frame.
+                // Only a scale/rotation/skew change (a real content zoom) re-samples.
+                else if (!values.contentEquals(previous) &&
+                    (values[0] != previous[0] || values[1] != previous[1] ||
+                        values[2] != previous[2] || values[3] != previous[3] ||
+                        values[4] != previous[4] || values[5] != previous[5] ||
+                        values[6] != previous[6] || values[7] != previous[7] ||
+                        values[8] != previous[8] || values[9] != previous[9] ||
+                        values[10] != previous[10] || values[11] != previous[11] ||
+                        values[15] != previous[15])) {
                     values.copyInto(previous)
                     changed = true
                 }

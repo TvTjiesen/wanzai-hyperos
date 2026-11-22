@@ -3,9 +3,9 @@ package com.muyao.wanzaihyperos.ui.design.ai
 /**
  * AI 小球要表达的**十二件事**（不是十二种动画，是十二种事实）。
  *
- * 每一个都对应开源引擎 `grok-ball` 里一个**已有的表情 id**（MIT，github.com/tycoding/grok-ball）。
- * 括号里是引擎 id —— 矢量路径由 `tools/gen_ai_ball_glyphs.py` 从真实渲染 DOM 烘进来，
- * 不是照截图描的。
+ * 保留开源引擎 `grok-ball` 的状态 id 与动作归属（MIT，github.com/tycoding/grok-ball）。
+ * 眼形改为应用自己的安全平行胶囊策略，由 `tools/gen_ai_ball_glyphs.py` 生成并校验；
+ * 不再从旧渲染 DOM 导入眼环。表情只是表现，事实继续由业务数据与文字说明。
  *
  * 生命周期： [Sleep] 00 · [WakeUp] 01 · [Idle] 02 · [Curious] 03
  * 工作状态： [Thinking] 30 · [Busy] 32 · [Done] 33 · [Error] 34 · [Waiting] 35 · [Loading] 36 · [Searching] 40
@@ -34,9 +34,9 @@ package com.muyao.wanzaihyperos.ui.design.ai
  * 引擎还有 `13 惊讶` / `21 生气` / `17 慌张` / `12 失落`。不用，因为它们都是
  * 「AI 对你」的表情 —— 登录失效时给一张生气脸，等于 App 在骂用户。**错误只用 [Error]**。
  *
- * ⚠ [Idle] 与引擎的 `02`、[Loading] 与 `36` 是同一张脸 —— 已核：这两个表情的矢量路径
- * 逐字节相同（`tools/gen_ai_ball_glyphs.py` 打印的两条 `pts` 一致），只在 `y` 平移上差
- * 0.07 个球径单位。所以 [Loading] 必须靠「眼睛扫一次」与 [Idle] 区分，不能靠静止帧。
+ * [Idle] 与 [Loading] 现在具有不同静态开合与宽度，减少动态时也能区分。
+ * [Focus] 使用平行窄开眼形，不把眼睛向中间聚拢；未知与失败不会被替换成无课。
+ * 十二态始终保留，文字与来源事实负责解释表情不能表达的差别。
  */
 enum class AiBallState {
     Sleep,

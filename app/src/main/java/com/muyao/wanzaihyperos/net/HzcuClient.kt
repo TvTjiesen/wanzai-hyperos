@@ -1,6 +1,17 @@
 package com.muyao.wanzaihyperos.net
 
 import androidx.annotation.VisibleForTesting
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
@@ -53,6 +64,7 @@ class HzcuClient private constructor(
     private val portalBaseUrl: String,
     private val maxAttempts: Int,
     private val backoffBaseMs: Long,
+    private val epoch: AccountEpoch?,
 ) {
 
     companion object {
@@ -91,8 +103,10 @@ class HzcuClient private constructor(
             maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
             backoffBaseMs: Long = DEFAULT_BACKOFF_BASE_MS,
             httpClient: OkHttpClient? = null,
+            epoch: AccountEpoch? = null,
         ): HzcuClient {
             val jar = cookieJar
+            jar.bindEpoch(epoch)
             val client = httpClient ?: OkHttpClient.Builder()
                 .cookieJar(jar)
                 // 见类注释：CAS 要逐跳读 Location，自动跳转会把这个能力吃掉。
@@ -112,6 +126,7 @@ class HzcuClient private constructor(
                 portalBaseUrl = portalBaseUrl.trimEnd('/'),
                 maxAttempts = maxAttempts.coerceAtLeast(1),
                 backoffBaseMs = backoffBaseMs,
+                epoch = epoch,
             )
         }
 
@@ -132,7 +147,7 @@ class HzcuClient private constructor(
      * OkHttpClient 持有的是这个罐子的引用。
      */
     fun restoreCookieJar() {
-        cookieJar.loadFrom(credentials.portalCookiesJson())
+        publish(epoch?.token()) { cookieJar.loadFrom(credentials.portalCookiesJson()) }
     }
 
     /**
@@ -142,8 +157,21 @@ class HzcuClient private constructor(
      * 一次加密写入比一次网络请求还贵，而 `Set-Cookie` 在业务请求里极少变化。
      */
     fun persistCookieJar() {
-        val json = cookieJar.toJson()
-        if (json.isNotEmpty() && json != "{}") credentials.savePortalCookies(json)
+        publish(epoch?.token()) {
+            val json = cookieJar.toJson()
+            if (json.isNotEmpty() && json != "{}") credentials.savePortalCookies(json)
+        }
+    }
+
+    private fun requireCurrent(token: Long?) {
+        if (epoch != null && (token == null || !epoch.isCurrent(token))) {
+            throw CancellationException("Account changed")
+        }
+    }
+
+    private fun publish(token: Long?, action: () -> Unit) {
+        if (epoch == null) action()
+        else if (token == null || !epoch.publish(token, action)) throw CancellationException("Account changed")
     }
 
     // ---------------------------------------------------------------------------
@@ -165,12 +193,15 @@ class HzcuClient private constructor(
         context: String = "hzcu",
         maxAttempts: Int? = null,
     ): HzcuRawResponse {
+        val ownerToken = epoch?.token()
+        requireCurrent(ownerToken)
         val token = credentials.accessToken()
         val headers = if (!token.isNullOrEmpty()) mapOf("token" to token) else emptyMap()
         return send(
             HzcuRequest.url(portalBaseUrl + path, method = "GET", headers = headers),
             context = context,
             maxAttempts = maxAttempts,
+            ownerToken = ownerToken,
         )
     }
 
@@ -200,43 +231,62 @@ class HzcuClient private constructor(
         require(fields == null || jsonBody == null) {
             "fields 与 jsonBody 只能给一个：同一请求不可能既是 form 又是 JSON"
         }
-        // ★ **失效 → 免密续期 → 只重试一次**。
-        //
-        // 为什么挂在这里而不是各个仓库：`portalPost` 是门户功能唯一该用的方法（见上面注释），
-        // 挂在这个口 = 消息/新聞/待办/应用列表**一次全好**；挂在仓库层就是二十个现场，
-        // 漏一个就还是「有的页面会自己恢复、有的一直红」。
-        //
-        // 为什么只重试一次：续期本身也要打学校服务器。失败后继续循环 = 拿一个坏会话
-        // 反复敲门，撞 QPS 红线（本项目对 QPS 是有闸门的）。
+        val ownerToken = epoch?.token()
+        val readOnly = isPortalRead(path)
         var renewed = false
         while (true) {
-            val outcome = runCatching {
-                portalPostOnce(path, fields, jsonBody, context, attachToken, maxAttempts)
+            currentCoroutineContext().ensureActive()
+            requireCurrent(ownerToken)
+            val rejectedToken = credentials.accessToken()
+            val outcome = catchingActive {
+                portalPostOnce(path, fields, jsonBody, context, attachToken, maxAttempts, ownerToken, readOnly)
             }
+            requireCurrent(ownerToken)
             val error = outcome.exceptionOrNull() ?: return outcome.getOrThrow()
+            val ownedRenewer = renewSessionForOwner
             val renewer = renewSession
-            if (!attachToken || error !is HzcuException.LoginExpired || renewed || renewer == null) {
-                throw error
-            }
+            if (!readOnly || !attachToken || rejectedToken.isNullOrEmpty() || error !is HzcuException.LoginExpired || renewed ||
+                (ownedRenewer == null && renewer == null)) throw error
             renewed = true
-            renewLog("检测到门户失效（$context），尝试免密续期")
-            // ⚠️ 续期失败**必须留下原因**：原来这里 `runCatching{}.getOrDefault(false)`
-            //   会把异常整个吞掉，表现就是"探针明明触发了，日志里一个字都没有"，
-            //   等于把最难查的一种失败（静默不续）留给自己。
+            renewLog(safeRequestText("检测到门户失效（$context），尝试免密续期", 160))
             val ok = try {
-                // ★ **NonCancellable**：续期经常是在"页面已经离开组合、协程正在被取消"的时候
-                //   被触发的（真机实测就是这样：探针第一次触发就抛
-                //   `LeftCompositionCancellationException`）。不加这层，续期一进去就被取消，
-                //   和它要修的那个 bug 是同一个 —— 换 token 这件事不该看某一帧有没有人看页面。
-                kotlinx.coroutines.withContext(renewContext) { renewer() }
-            } catch (error: Throwable) {
-                renewLog("免密续期抛异常（${error.javaClass.simpleName}: ${error.message?.take(160)}）")
+                withContext(renewContext.minusKey(kotlinx.coroutines.Job)) {
+                    currentCoroutineContext().ensureActive()
+                    requireCurrent(ownerToken)
+                    renewalFlight.run(ownerToken) {
+                        requireCurrent(ownerToken)
+                        if (credentials.accessToken() != rejectedToken) true
+                        else if (ownedRenewer != null) ownedRenewer(ownerToken) else renewer!!.invoke()
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (storage: HzcuException.Storage) {
+                requireCurrent(ownerToken)
+                throw storage
+            } catch (failure: Throwable) {
+                requireCurrent(ownerToken)
+                renewLog(safeRequestText("免密续期抛异常（${failure.javaClass.simpleName}: ${failure.message}）", 160))
                 false
             }
+            currentCoroutineContext().ensureActive()
+            requireCurrent(ownerToken)
             renewLog(if (ok) "续期成功，重试一次" else "续期未成功，按原样抛出")
             if (!ok) throw error
         }
     }
+
+    private fun isPortalRead(path: String): Boolean = (
+        path.startsWith(HzcuEndpoints.PORTAL_BROADCAST_DETAIL_PATH + "/") &&
+            HzcuEndpoints.portalBroadcastDetailPath(path.substringAfterLast('/')) == path
+        ) || path.substringBefore('?') in setOf(
+        HzcuEndpoints.PORTAL_APP_GROUP_PATH, HzcuEndpoints.PORTAL_FREQUENT_APPS_PATH,
+        HzcuEndpoints.PORTAL_APP_SEARCH_PATH, HzcuEndpoints.PORTAL_UNREAD_COUNT_PATH,
+        HzcuEndpoints.PORTAL_TODO_COUNT_PATH, HzcuEndpoints.PORTAL_NEWS_GROUP_PATH,
+        HzcuEndpoints.PORTAL_NEWS_LIST_PATH, HzcuEndpoints.PORTAL_MESSAGE_GROUP_PATH,
+        HzcuEndpoints.PORTAL_MESSAGE_LIST_PATH, HzcuEndpoints.PORTAL_BROADCAST_LIST_PATH,
+        "/api/app/billlist/listmybill", "/api/app/billlist/listmyprebill", "/api/app/billlist/listmyfinishbill",
+    )
 
     /**
      * 门户 token 失效时的**免密续期**钩子，由组合根（`AppGraph`）注入
@@ -247,14 +297,11 @@ class HzcuClient private constructor(
      * 没注入时行为退回改动前 —— 失效就直接抛，不会更糟。
      */
     var renewSession: (suspend () -> Boolean)? = null
+    var renewSessionForOwner: (suspend (Long?) -> Boolean)? = null
+    private val renewalFlight = RequestSingleFlight<Long?, Boolean>()
 
-    /**
-     * 跑续期用的上下文。默认 `NonCancellable + IO`：续期经常在"页面已离开组合、
-     * 协程正在被取消"的时候才触发（真机实测），不加 NonCancellable 就会被自己要修的
-     * 那个 bug 取消掉。做成可注入是因为单测用 `runTest`，撞真实线程会不稳定。
-     */
-    var renewContext: kotlin.coroutines.CoroutineContext =
-        kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO
+    /** Optional dispatcher for renewal; the caller's cancellation is always retained. */
+    var renewContext: kotlin.coroutines.CoroutineContext = Dispatchers.IO
 
     /**
      * 诊断出口。**数据/网络层不能直接调 `android.util.Log`** —— JVM 单测里它是
@@ -294,11 +341,14 @@ class HzcuClient private constructor(
         context: String,
         attachToken: Boolean,
         maxAttempts: Int?,
+        ownerToken: Long?,
+        readOnly: Boolean,
     ): HzcuResponse {
+        requireCurrent(ownerToken)
         val token = if (attachToken) credentials.accessToken() else null
         // 探针放在取 token 之前：它要模拟的是「带着一个已经失效的 token 去打，服务端回 401」，
         // 而这条路径的下游（renewSession → 重试一次）和真实失效完全同一条。
-        if (attachToken && runCatching { debugForceExpire?.invoke() == true }.getOrDefault(false)) {
+        if (attachToken && catchingActive { debugForceExpire?.invoke() == true }.getOrDefault(false)) {
             throw HzcuException.LoginExpired(
                 "调试：模拟门户 token 失效",
                 details = "接口：$path（探针 wz_expire_probe）",
@@ -329,12 +379,14 @@ class HzcuClient private constructor(
             HzcuRequest.portalForm(portalBaseUrl, path, form, headers)
         }
 
-        val raw = send(request, context = context, maxAttempts = maxAttempts)
+        val raw = send(request, context = context, maxAttempts = maxAttempts, ownerToken = ownerToken, retryRead = readOnly)
         // 调试版才装：服务端原样回了什么（含写操作，例如「标已读」到底成没成）。
-        debugDump?.invoke(
+        publish(ownerToken) { debugDump?.invoke(
             path.trim('/').replace('/', '_').ifEmpty { "root" },
             "HTTP " + raw.statusCode + "\n" + raw.body,
         )
+        }
+        requireCurrent(ownerToken)
         return unwrap(raw, context = context, path = path)
     }
 
@@ -366,7 +418,7 @@ class HzcuClient private constructor(
         if (json == null) {
             // 网关挂了 / 被 WAF 拦时返回的是 HTML。先分清「其实是没登录」，
             // 再报「响应不是 JSON」—— 前者要引导重新登录，后者只要重试。
-            if (Redaction.bodyIndicatesAuthenticationFailure(raw.body)) {
+            if (TronRequestPolicy.authenticationFailure(raw.statusCode, raw.body, raw.location)) {
                 throw HzcuException.LoginExpired(
                     "登录状态已失效，请重新登录",
                     details = "接口：$path\nHTTP：${raw.statusCode}\n响应摘要：${Redaction.responseSummary(raw.body)}",
@@ -380,9 +432,7 @@ class HzcuClient private constructor(
 
         val code = json["code"].asIntOrNull() ?: raw.statusCode
         val success = json["success"].asBoolOrNull() ?: (code == HzcuEndpoints.CODE_OK)
-        val message = json["message"].asStringOrNull()
-            ?: json["msg"].asStringOrNull()
-            ?: ""
+        val message = safeRequestText(json["message"].asStringOrNull() ?: json["msg"].asStringOrNull() ?: "", 160)
 
         // 门户自己有一套 kickout 约定（被别处登录挤下线）。
         if (json["kickout"].asIntOrNull() == 1) {
@@ -435,19 +485,29 @@ class HzcuClient private constructor(
         request: HzcuRequest,
         context: String = "hzcu",
         maxAttempts: Int? = null,
+        ownerToken: Long? = epoch?.token(),
+        retryRead: Boolean = false,
     ): HzcuRawResponse {
-        val attempts = (maxAttempts ?: this.maxAttempts).coerceIn(1, this.maxAttempts)
+        val readOnly = request.method == "GET" || request.method == "HEAD" || retryRead
+        val attempts = if (readOnly) (maxAttempts ?: this.maxAttempts).coerceIn(1, this.maxAttempts) else 1
         var lastError: HzcuException? = null
 
         for (attempt in 1..attempts) {
+            currentCoroutineContext().ensureActive()
+            requireCurrent(ownerToken)
             if (attempt > 1) {
                 // 退避在闸门**之外**、限流在闸门**之内**：等待时间不占用别人的名额，
                 // 而重试的那一次仍然要重新排队，QPS 红线不被重试打穿。
                 delay(backoffFor(attempt))
             }
             try {
-                return rateLimiter.gate(request.rateLimitKey) { open(request) }
+                return rateLimiter.gate(request.rateLimitKey) {
+                    currentCoroutineContext().ensureActive()
+                    requireCurrent(ownerToken)
+                    open(request, ownerToken).also { requireCurrent(ownerToken) }
+                }
             } catch (error: HzcuException) {
+                requireCurrent(ownerToken)
                 // 认证类失败重试没有意义（还可能触发风控），直接上抛。
                 if (error.isAuthFailure || !error.isRetryable) throw error
                 lastError = error
@@ -462,7 +522,7 @@ class HzcuClient private constructor(
         return backoffBaseMs * factor
     }
 
-    private suspend fun open(request: HzcuRequest): HzcuRawResponse {
+    private suspend fun open(request: HzcuRequest, ownerToken: Long?): HzcuRawResponse {
         val builder = Request.Builder()
             .url(request.url)
             .header("User-Agent", USER_AGENT)
@@ -470,15 +530,25 @@ class HzcuClient private constructor(
         for ((name, value) in request.headers) builder.header(name, value)
         builder.method(request.method, encodeBody(request))
 
-        val call = httpClient.newCall(builder.build())
+        val scopedClient = httpClient.newBuilder()
+            .cookieJar(cookieJar.forRequest(epoch, ownerToken))
+            .retryOnConnectionFailure(false)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+        val call = scopedClient.newCall(builder.build())
         return try {
             withContext(Dispatchers.IO) {
-                call.execute().use { response ->
+                currentCoroutineContext().ensureActive()
+                requireCurrent(ownerToken)
+                execute(call).use { response ->
                     // 先取元数据再读正文：`string()` 会把 body 关掉。
                     // OkHttp 5 起 `Response.body` 是非空的，所以这里不用也无从做空判断。
                     val body = response.body
                     val contentType = body.contentType()?.toString()
                     val text = body.string()
+                    currentCoroutineContext().ensureActive()
+                    requireCurrent(ownerToken)
 
                     val raw = HzcuRawResponse(
                         statusCode = response.code,
@@ -500,17 +570,38 @@ class HzcuClient private constructor(
                     raw
                 }
             }
+        } catch (cancelled: CancellationException) {
+            call.cancel()
+            throw cancelled
         } catch (error: HzcuException) {
+            requireCurrent(ownerToken)
             throw error
         } catch (error: SocketTimeoutException) {
+            currentCoroutineContext().ensureActive()
+            requireCurrent(ownerToken)
             throw HzcuException.RequestTimeout(cause = error)
         } catch (error: IOException) {
+            currentCoroutineContext().ensureActive()
+            requireCurrent(ownerToken)
             // 消息里可能带完整 URL（含 query），所以只保留固定文案 + 异常类型。
             throw HzcuException.Transport(
                 details = "异常类型：${error.javaClass.simpleName}",
                 cause = error,
             )
         }
+    }
+
+    private suspend fun execute(call: Call): Response = suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, error: IOException) {
+                if (continuation.isActive) continuation.resumeWithException(error)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                continuation.resume(response) { _, value, _ -> value.close() }
+            }
+        })
     }
 
     /**

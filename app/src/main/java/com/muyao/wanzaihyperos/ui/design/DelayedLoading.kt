@@ -76,16 +76,16 @@ fun DelayedLoading(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        InfiniteProgressIndicator(
-            color = colors.primary,
-            modifier = Modifier.size(28.dp),
-        )
-        if (!label.isNullOrBlank()) {
+        if (rememberMotion().canMove) {
+            InfiniteProgressIndicator(color = colors.primary, modifier = Modifier.size(28.dp))
+        }
+        if (!label.isNullOrBlank() || !rememberMotion().canMove) {
             Spacer(Modifier.height(2.dp))
             Text(
-                text = label,
+                text = label?.takeIf { it.isNotBlank() } ?: "正在加载…",
                 style = MiuixTheme.textStyles.footnote1,
-                color = colors.onSurfaceVariantSummary,
+                color = if (rememberMotion().highContrast) colors.onSurface else colors.onSurfaceVariantSummary,
+                lineHeight = MiuixTheme.textStyles.footnote1.fontSize * 1.45f,
             )
         }
     }

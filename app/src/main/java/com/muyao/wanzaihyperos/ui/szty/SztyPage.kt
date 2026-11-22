@@ -106,6 +106,15 @@ fun SztyPage(
     // 与 JwPage / ZhgyGatePage 同一种写法：remember 住「现在有没有凭据」，
     // 存进去之后就地切换成内容（不必导航到另一个路由）。
     var hasCredential by remember { mutableStateOf(session.hasCredentialPair) }
+    var credentialRevision by remember { mutableStateOf(session.credentialRevision()) }
+    androidx.compose.runtime.DisposableEffect(session) {
+        val listener = {
+            hasCredential = session.hasCredentialPair
+            credentialRevision = session.credentialRevision()
+        }
+        session.addListener(listener)
+        onDispose { session.removeListener(listener) }
+    }
     var tokenInput by remember { mutableStateOf("") }
     var userIdInput by remember { mutableStateOf("") }
     var inputError by remember { mutableStateOf<String?>(null) }
@@ -151,8 +160,14 @@ fun SztyPage(
 
     val state by repository.state.collectAsState()
 
-    LaunchedEffect(hasCredential) {
-        if (hasCredential && state is ListState.FirstLoad) runCatching { repository.refresh() }
+    LaunchedEffect(hasCredential, credentialRevision) {
+        // ★ 冷启动播种出来的旧快照也要在进页后自己更新一次。
+        //   以前只认 FirstLoad：播种后状态是 Content(stale)，这一页永远不会自己去取，
+        //   屏幕上就一直挂着「这是上次存的」，除非用户手动下拉。
+        val current = state
+        if (hasCredential && (current is ListState.FirstLoad || current.metaOrNull?.stale == true)) {
+            com.muyao.wanzaihyperos.data.repo.catchingActive { repository.refresh() }
+        }
     }
 
     // 稿（sports.png）把三块只读内容做成三段式；默认落在「校园跑」。
@@ -167,7 +182,7 @@ fun SztyPage(
         onBack = onExit,
         scrollProgress = veilProgress,
         onRefresh = if (hasCredential) {
-            { scope.launch { runCatching { repository.refresh() } } }
+            { scope.launch { com.muyao.wanzaihyperos.data.repo.catchingActive { repository.refresh() } } }
         } else null,
         modifier = modifier,
     ) { innerPadding ->
@@ -259,7 +274,6 @@ fun SztyPage(
                                         userIdInput = ""
                                         inputError = null
                                         hasCredential = true
-                                        scope.launch { runCatching { repository.refresh() } }
                                     }
                                 }
                             },

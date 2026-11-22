@@ -26,7 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import com.muyao.wanzaihyperos.ui.home.collectAsVisibleStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,21 +35,32 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import com.muyao.wanzaihyperos.ui.design.slidingSelectionCarrier
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.graphicsLayer
@@ -92,6 +103,7 @@ import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.PeriodTimeEditor
 import com.muyao.wanzaihyperos.ui.design.Tone
 import com.muyao.wanzaihyperos.ui.design.Type
+import com.muyao.wanzaihyperos.ui.design.springPress
 import com.muyao.wanzaihyperos.ui.design.retrievalGlow
 import com.muyao.wanzaihyperos.ui.design.liquid.LargeTitle
 import com.muyao.wanzaihyperos.ui.design.liquid.LocalLargeTitle
@@ -150,8 +162,8 @@ fun TimetableSectionPage(
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
-    val state by graph.schedule.state.collectAsState()
-    val jwState by graph.jwTimetable.state.collectAsState()
+    val state by graph.schedule.state.collectAsVisibleStateWithLifecycle()
+    val jwState by graph.jwTimetable.state.collectAsVisibleStateWithLifecycle()
 
     // 目前教學週（由 schedule 自己算，它會問 `teachingWeeks()`）。
     // 提到這裡是因為**週切換那一行**也要用它：那行現在要寫「第 6 周 · 2026-2027学年第1学期」，
@@ -183,14 +195,14 @@ fun TimetableSectionPage(
     //
     // `0` = 目前教學週（由 schedule 自己算，它會問 `teachingWeeks()`）；
     // 正負數 = 相對偏移。**不重新請求資料** —— 資料本來就含全學期。
-    var weekOffset by remember { mutableIntStateOf(0) }
+    var weekOffset by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     /** 日程模式下看的是哪一天（1=周一…7=周日）。默认今天。 */
     // ★ 2026-10-31：初值**不再夹进 1..5**。以前夹的理由是「周条只到周五，6/7 进来无高亮」，
     //   代价是周六周日打开课表看到的是**周五的课表**：左边写着「周五」，而右边那颗
     //   「今天」药丸按下去切的却是周六 —— 字和事对不上。
     //   空的一天也是一条信息（见 `WeekLayout.columns`：「週三沒課」不能因為沒課就消失），
     //   周六就该说「周六没有课。」。周条的高亮另治（见 `WeekDateStrip` 里 `isSelected`）。
-    var selectedDay by remember {
+    var selectedDay by androidx.compose.runtime.saveable.rememberSaveable {
         mutableIntStateOf(LocalDate.now().dayOfWeek.value)
     }
     var picked by remember { mutableStateOf<TronScheduleSlot?>(null) }
@@ -213,16 +225,9 @@ fun TimetableSectionPage(
     // 這裡用的是**同一份 state、同一個 WeekLayout.forWeek**，不重新請求、不改狀態機。
     // 刻意不呼叫 UiPrefs.noteWeek：它會把週錨點寫盤，而點陣在載入態也會畫，
     // 一條只讀的裝飾條不該去改持久化狀態。
-    // ★ 独立审计 v3 #4 第 4 轮必修 4（N4）：这一页以前有**第二套 crawling 判法**
-    //   （`jwState is ListState.FirstLoad`），而 `SlotSource.kt` 自己就禁了那种写法。
-    //   只认 `isCrawling` 又会给本页留一帧空档（组合完 → LaunchedEffect 才发请求），
-    //   那一帧会画另一份 ⇒ 又是那个闪。所以这里说的是**一个可验证的事实**：
-    //   本页一进来必发这一发（:238 那个 `LaunchedEffect`），在它落回非 FirstLoad 之前，
-    //   "在路上"为真。这不是拿状态猜，是拿本页自己的意图记。
-    val jwWillFetch = remember { androidx.compose.runtime.mutableStateOf(true) }
-    androidx.compose.runtime.LaunchedEffect(jwState) {
-        if (jwState !is ListState.FirstLoad) jwWillFetch.value = false
-    }
+    val pageActive = com.muyao.wanzaihyperos.ui.design.liquid.LocalPageActive.current
+    val entryOwner = com.muyao.wanzaihyperos.ui.main.LocalPageEntryOwner.current
+    val jwWillFetch = remember(entryOwner) { androidx.compose.runtime.mutableStateOf(false) }
     val jwCrawlingNow = graph.jwTimetable.isCrawling.value || jwWillFetch.value
 
     val stripSchedule = (state as? ListState.Content)?.items?.firstOrNull()
@@ -248,15 +253,21 @@ fun TimetableSectionPage(
         com.muyao.wanzaihyperos.data.schedule.WeekLayout.forWeek(stripAllSlots, stripTargetWeek)
     }
 
-    LaunchedEffect(Unit) {
-        // 应用级作用域（`AppGraph.fetch`）：切走页面不该把课表请求取消，
-        // 更不该让取消被写成「取不到課表」。见 `AppGraph.ioScope` 注释。
-        graph.fetch { graph.schedule.refresh() }
-        // 教務那份**只在選了它時才爬**：它要走 WebView 兩段登入，
-        // 沒選就爬是白做一次登入（而且會把共用 WebView 導到課表頁）。
-        if (useJiaowu) {
-            graph.fetch { graph.jwTimetable.refresh() }
-        }
+    LaunchedEffect(pageActive, entryOwner, useJiaowu) {
+        if (!pageActive) return@LaunchedEffect
+        // Recheck on return and while visible, but retain cached content during refresh.
+        do {
+            if (useJiaowu) {
+                if (com.muyao.wanzaihyperos.data.schedule.shouldRefreshTimetable(graph.jwTimetable.state.value, System.currentTimeMillis())) {
+                    jwWillFetch.value = true
+                    graph.fetch {
+                        try { graph.jwTimetable.refresh() }
+                        finally { jwWillFetch.value = false }
+                    }.also { job -> job.invokeOnCompletion { jwWillFetch.value = false } }.join()
+                }
+            } else graph.fetch { graph.schedule.refreshIfNeeded() }.join()
+            kotlinx.coroutines.delay(15 * 60 * 1000L)
+        } while (true)
     }
 
     // ── 顶栏试点接线（T53）────────────────────────────────────────────
@@ -305,7 +316,7 @@ fun TimetableSectionPage(
     // 只在選了教務時才掛：掛著就多一個 WebView 的內存與進程成本，
     // 而他可能一學期都用不著那份來源。
     if (useJiaowu) {
-        JwHiddenEngine(graph.jwEngine)
+        JwHiddenEngine(graph.jwEngine, visible = com.muyao.wanzaihyperos.ui.main.LocalPageVisible.current)
     }
 
     LazyColumn(
@@ -320,7 +331,7 @@ fun TimetableSectionPage(
             //   再多加 38dp。多出来的那段是底栏覆盖不到的空白，但那是**已经上线的观感**，
             //   所以这里不悄悄减少它，只把「底栏实占」那部分换成同一份 pageBottomInsetDp()，
             //   于是底栏高度一改，这一页跟着动，不再各猜一个数。
-            bottom = pageBottomInsetDp(barVisible) + 38.dp,
+            bottom = pageBottomInsetDp(barVisible) + 12.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
     ) {
@@ -488,14 +499,14 @@ fun TimetableSectionPage(
         val bannerVerdict = jwVerdictOf(jwState, jwCrawlingNow, jwUsable)
         // 首屏（FirstLoad）由下面那张 `jw-pending` 单独说明；这张只在**已经有结论**时出现
         // （失败 / 登录失效 / 空的），否则两张卡会同时挂在屏上，各说各的。
-        val jwPending = useJiaowu && jwState is ListState.FirstLoad
+        val jwPending = useJiaowu && jwCrawlingNow && jwState is ListState.FirstLoad
         // ★★ 独立审计 v3 #4 第 1 轮 A-5：这句话以前**只问教务、不问学在城院有没有货**。
         //   教务 Failed、学在城院也 Failed 的那一屏，上面写"下面显示的是学在城院那份"，
         //   下面同一屏就是"取不到课表"——界面自己跟自己 contradiction。
         //   现在必须**兜底那份真的有货**才挂这张横幅；没有货就不该承诺"下面有"。
         val tronHasSlotsNow = (state as? ListState.Content)
             ?.items?.firstOrNull()?.slots?.isNotEmpty() == true
-        if (useJiaowu && !jwUsable && !jwPending && tronHasSlotsNow) {
+        if (useJiaowu && !jwUsable && jwState !is ListState.Empty && !jwPending && tronHasSlotsNow) {
             item(key = "jw-fallback") {
                 AppCard {
                     Column(Modifier.padding(Dims.cardPadding)) {
@@ -505,7 +516,7 @@ fun TimetableSectionPage(
                             // 剩下的两种要分开说：**教务给了结论、这周没课** 与 **这一次没取到**，
                             // 把后者说成"这周没课"是在替学校撒谎（红线：不编）。
                             text = com.muyao.wanzaihyperos.data.schedule
-                                .jwVerdictSentence(bannerVerdict) + "，下面显示的是“学在城院”那份",
+                                .jwVerdictSentence(bannerVerdict) + " · 显示学在城院课表",
                             fontSize = Type.body,
                             fontWeight = Type.weightBody,
                             color = colors.error,
@@ -588,9 +599,7 @@ fun TimetableSectionPage(
                         Spacer(Modifier.height(4.dp))
                         Text(
                             // 不藏「這一次會慢」：它要走一次網頁登入 + 等它自己把表格填完。
-                            text = "教务那份要走一次网页登录、再等它自己把表格渲染完，" +
-                                "第一次可能要十几秒。这一屏先不放另一份数据，" +
-                                "免得闪出几门你其实没上的课。",
+                            text = "首次同步需要一点时间",
                             fontSize = Type.caption,
                             color = colors.onSurfaceVariantSummary,
                         )
@@ -598,6 +607,9 @@ fun TimetableSectionPage(
                 }
             }
         } else when {
+            useJiaowu && jwState is ListState.Empty -> item(key = "confirmed-empty") {
+                TimetableEmpty("这一学期暂无课程")
+            }
             // ★ 判「这一屏有没有东西可画」用的是**内容**，不是「学在城院那支请求回没回」
             //   （业主 2026-10-20：「首先你就没解决刷新的问题，我不想每次进来都要看到他
             //    重新加载一遍」）。教务那份已经落盘、周次也能从锚点推出来时，
@@ -687,27 +699,12 @@ fun TimetableSectionPage(
 
                     // 「有的课还不知道几点」这句话要在**课表上**能解决，
                     // 不是让他自己去設定里翻（业主：「你课表和时间对不上」）。
-                    item(key = "clock-hint") {
-                        ClockHint(slots) { showClockEditor = true }
-                    }
 
                     if (slots.isEmpty()) {
                         item(key = "empty") {
-                            Text(
-                                if (bodyPick.jwVerdict == com.muyao.wanzaihyperos.data.schedule.JwVerdict.SETTLED_EMPTY) {
-                                    // 与上面那张横幅同一个 verdict：一个态只有一种说法（N1）。
-                                    // 只有教务**真的给了结论且是空的**才可以说这句话（第 3 轮必修 6）：
-                                    // 以前 `allSlots.isEmpty() && useJiaowu` 把"教务失败了 / 从没取过 /
-                                    // 空的是学在城院那份"都说成"教务那份是空的"。
-                                    "教务系统那份课表是空的（可能学校还没排这学期的课）。"
-                                } else {
-                                    "第 $targetWeek 周没有课程。"
-                                },
-                                style = TextStyle(fontFeatureSettings = Type.tabular),
-                                fontSize = Type.secondary,
-                                color = colors.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(Dims.cardPadding),
-                            )
+                            TimetableEmpty(if (allSlots.isEmpty() &&
+                                (jwResult?.unparsed.orEmpty().isNotEmpty() || schedule?.unparsed.orEmpty().isNotEmpty()))
+                                "暂无可显示的课程" else "第 $targetWeek 周无课")
                         }
                     } else if (uiState.timetableGrid) {
                         // ---- 本週課表板（五天全顯示、單層）--------------------
@@ -769,8 +766,8 @@ fun TimetableSectionPage(
                             )
                         }
                         item(key = "jw-fresh") {
-                            FreshnessLine(jwState, now = System.currentTimeMillis()) {
-                                graph.fetch { graph.jwTimetable.refresh() }
+                            FreshnessLine(if (fromJiaowu) jwState else state, now = System.currentTimeMillis()) {
+                                graph.fetch { if (fromJiaowu) graph.jwTimetable.refresh() else graph.schedule.refresh() }
                             }
                         }
                     } else {
@@ -782,12 +779,7 @@ fun TimetableSectionPage(
                             .sortedBy { it.periodStart }
                         if (daySlots.isEmpty()) {
                             item(key = "day-empty") {
-                                Text(
-                                    "${DAY_WEEK[selectedDay - 1]}没有课。",
-                                    fontSize = Type.secondary,
-                                    color = colors.onSurfaceVariantSummary,
-                                    modifier = Modifier.padding(start = 0.dp, top = 4.dp),
-                                )
+                                TimetableEmpty("${DAY_WEEK[selectedDay - 1]}无课")
                             }
                         } else {
                             // 一天的课装进**一张纸面卡**，行与行之间只留一条细线 ——
@@ -866,8 +858,8 @@ fun TimetableSectionPage(
                         }
                         // 秒开的代价必须写在屏幕上：这份是几点存的、要不要重取。
                         item(key = "jw-fresh-day") {
-                            FreshnessLine(jwState, now = System.currentTimeMillis()) {
-                                graph.fetch { graph.jwTimetable.refresh() }
+                            FreshnessLine(if (fromJiaowu) jwState else state, now = System.currentTimeMillis()) {
+                                graph.fetch { if (fromJiaowu) graph.jwTimetable.refresh() else graph.schedule.refresh() }
                             }
                         }
                     }
@@ -889,13 +881,13 @@ fun TimetableSectionPage(
                             AppCard {
                                 Column(Modifier.padding(Dims.cardPadding)) {
                                     Text(
-                                        "有 ${unknown.size} 段上课时间没认出格式（原样列在下面）",
+                                        "${unknown.size} 项课程时间待确认",
+                                        style = TextStyle(fontFeatureSettings = Type.tabular),
                                         fontSize = Type.summary,
                                         color = colors.error,
                                     )
                                     Text(
-                                        "没认出的那些**不会算进上面的门数** —— " +
-                                            "所以数字比教务系统里少时，先来看这一段。",
+                                        "以下课程尚未计入课表",
                                         fontSize = Type.caption,
                                         color = colors.onSurfaceVariantSummary,
                                     )
@@ -924,50 +916,6 @@ fun TimetableSectionPage(
                 )
             }
         }
-            // ── 页尾（稿 v2.1 `timetable.png` 底部三件）────────────────────────
-            // 稿上是折叠块「课表来源与缺失时间」+ 一排三个出口 + 一行来源小字。
-            // 稿里那句「合成教务课表」是评审用的说明，产品里换成这一屏真实的两份来源。
-            item(key = "source-details") {
-                Column(Modifier.fillMaxWidth().padding(top = 2.dp)) {
-                    Text(
-                        text = "课表来源与缺失时间",
-                        fontSize = Type.caption,
-                        fontWeight = Type.weightTitle,
-                        color = colors.onSurface,
-                    )
-                    Text(
-                        text = "课表只认教务那一份；教务还没取到时退回“学在城院”。" +
-                            "两份都不知道第几节几点时，只写节次，不猜时间。",
-                        fontSize = Type.micro,
-                        // 行高不写死：Type.micro 配全局 1.55 倍小字行距（写死 15sp 会多一处改不动的字号）。
-                        color = colors.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-            item(key = "bottom-actions") {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    TimetableFooterButton(text = "教务登录与成绩", onClick = onOpenJw)
-                    TimetableFooterButton(text = "补充节次时间", onClick = { showClockEditor = true })
-                    TimetableFooterButton(text = "学在城院 · 本周 / 全部", onClick = onOpenTron)
-                }
-            }
-            item(key = "calendar-source") {
-                val today = java.time.LocalDate.now()
-                val custom = UiPrefs.periodTimes.count { it.first.isNotBlank() || it.second.isNotBlank() }
-                Text(
-                    text = "第 " + baseWeek + " 周 · " +
-                        "%02d/%02d".format(today.monthValue, today.dayOfMonth) + " · " +
-                        if (custom > 0) "节次设置已同步" else "节次用学校时间",
-                    fontSize = Type.micro,
-                    color = colors.onSurfaceVariantSummary.copy(alpha = 0.8f),
-                    style = TextStyle(fontFeatureSettings = Type.tabular),
-                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                )
-            }
     }
     // 節次時間就地编辑：**存一次就落盘**（PeriodTimeEditor 每改一格就 save），
     // 所以这里不需要「保存」钮，也不会有「改了但忘了存」那种状态。
@@ -1027,7 +975,7 @@ fun TimetableSectionPage(
  * 之後每次刷課表都會報「页面还没准备好」。
  */
 @Composable
-private fun JwHiddenEngine(engine: com.muyao.wanzaihyperos.data.jw.JwEngine) {
+private fun JwHiddenEngine(engine: com.muyao.wanzaihyperos.data.jw.JwEngine, visible: Boolean) {
     AndroidView(
         modifier = Modifier.size(1.dp),
         factory = { ctx ->
@@ -1036,14 +984,12 @@ private fun JwHiddenEngine(engine: com.muyao.wanzaihyperos.data.jw.JwEngine) {
                 settings.domStorageEnabled = true
                 layoutParams = android.view.ViewGroup.LayoutParams(1, 1)
                 alpha = 0f
-                engine.attach(this)
+                if (visible) engine.attach(this)
             }
         },
-        update = { engine.attach(it) },
+        update = { if (visible) engine.attach(it) },
+        onRelease = { engine.release(it) },
     )
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { engine.detach() }
-    }
 }
 
 /**
@@ -1295,7 +1241,7 @@ internal fun Modifier.fullBleedHorizontal(startBleed: Dp, endBleed: Dp): Modifie
  */
 @Composable
 private fun FreshnessLine(
-    jwState: ListState<com.muyao.wanzaihyperos.data.jw.JwTimetableResult>,
+    jwState: ListState<*>,
     now: Long,
     onReload: () -> Unit,
 ) {
@@ -1313,18 +1259,13 @@ private fun FreshnessLine(
             //   `stale` 是"这份是上次存下来的"的意思（播种出来的快照天生就是 stale），
             //   而真在跑的只有 `meta.refreshing` —— 于是这一行长期对他说"正在取"，
             //   而那一刻**没有任何请求在跑**。界面不许说数据证明不了的话。
-            text = com.muyao.wanzaihyperos.data.agoLabel(meta?.updatedAtMillis, now) +
-                when {
-                    meta?.refreshing == true -> " · 正在重新取"
-                    stale -> " · 这是上次存的"
-                    else -> ""
-                },
+            text = com.muyao.wanzaihyperos.data.dataFreshnessLabel(meta ?: com.muyao.wanzaihyperos.data.ListMeta()),
             fontSize = Type.caption,
             color = colors.onSurfaceVariantSummary,
             modifier = Modifier.weight(1f),
         )
         Text(
-            text = "重取",
+            text = "刷新",
             fontSize = Type.caption,
             color = colors.primary,
             modifier = Modifier
@@ -1375,7 +1316,7 @@ private val WeekBoardMinRowHeight = 32.dp
  * ⇒ 还多出正好 140px，也就是板子明明"铺满"了、手指一滑还能再滚一小段（业主口径里的
  * "刚好铺满不用翻页"没达成）。406px = 116dp，往下取整到 120dp 保证一定不剩。
  */
-private val BoardBottomReserve = 120.dp
+private val BoardBottomReserve = 48.dp
 
 /**
  * 一格課（時間網格裡的一塊）。
@@ -1693,71 +1634,26 @@ private fun DayModeSwitch(
             }
         }
         Spacer(Modifier.width(8.dp))
-        // 板 `.seg{display:flex;padding:3px;border:1px solid var(--line);
-        // border-radius:999px;gap:1px}` ⇒ 外面这一圈是**容器**，里面两颗才轮流填墨底。
-        //
-        // 2026-11-07：把「外圈描边」从布局里拿出来，改成 `drawBehind` 画一条 30dp 高的胶囊。
-        // 因为 §4.2 要求每颗药丸的**可点区域 ≥44×44dp**，而可见胶囊只有 26dp ——
-        // 若把 44dp 直接做成布局高度，这圈描边会被撑到 48dp，整行比稿里那枚小胶囊胖一倍。
-        // 现在：布局高 44dp（触区），描边只在正中画 30dp（视觉），两者互不牵制。
-        Row(
-            modifier = Modifier
-                .height(ModePillTouch)
-                .drawBehind {
-                    val h = (ModePillHeight + 4.dp).toPx()
-                    val top = (size.height - h) / 2f
-                    drawRoundRect(
-                        color = colors.dividerLine,
-                        topLeft = Offset(0f, top),
-                        size = Size(size.width, h),
-                        cornerRadius = CornerRadius(h / 2f),
-                        style = Stroke(width = 1.dp.toPx()),
-                    )
-                },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(0.9.dp),
-        ) {
-            ModePill(firstLabel, selected = !weekMode, onClick = onFirst)
-            ModePill("整周", selected = weekMode, onClick = onWeek)
-        }
+        com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
+            labels = listOf(firstLabel, "整周"),
+            stableKeys = listOf("day", "week"),
+            selectedIndex = if (weekMode) 1 else 0,
+            onSelect = { if (it == 0) onFirst() else onWeek() },
+        )
     }
 }
 
 @Composable
-private fun ModePill(label: String, selected: Boolean, onClick: () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    // 2026-11-07 按 `screens/timetable.png` 复刻，三处对齐稿子：
-    //   ① 选中底从 `onBackground`（黑）改成 **`primary` 主色实底**、字用 `onPrimary` 白；
-    //   ② 未选中底是**白纸色 `surface`**（稿上「整周」那半是 (255,253,248) 的白，不是透明）；
-    //   ③ **两态同字重**（§4.2 明文）。旧版选中 weightTitle、未选 weightBody，
-    //      切一下字宽就变，整排左右横抖 —— `Type` 的四条硬规则第 1 条也禁止这么写。
-    // 视觉高 26dp（稿上 29px × 0.886 ≈ 26dp，落在 §4.2 的 24–28dp 区间），
-    // 但**触区上下各撑到 44dp**（§4.2「视觉与触区分开」）：
-    // 外层 Box 44dp 高、内层才 26dp 上色 —— 透明命中空间只在竖直方向，
-    // 左右两颗各自独立节点、不与日期格重叠。
-    Box(
-        modifier = Modifier
-            .height(ModePillTouch)
-            .clickable(onClickLabel = "切换到$label") { onClick() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .height(ModePillHeight)
-                .clip(RoundedCornerShape(50))
-                .background(if (selected) colors.primary else colors.surface)
-                .padding(horizontal = 11.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = label,
-                fontSize = Type.caption,
-                // §4.2：**两态相同字重**。切一下字宽就变，整排会左右横抖。
-                fontWeight = Type.weightBody,
-                color = if (selected) colors.onPrimary else colors.onSurfaceVariantSummary,
-                maxLines = 1,
-            )
-        }
+private fun TimetableEmpty(label: String) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        com.muyao.wanzaihyperos.ui.design.ai.AiBall(
+            state = com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Curious,
+            diameter = 88.dp, castShadow = false,
+            stateDescription = "$label\n点按看向你，双击转一圈，按住拖动",
+        )
+        Text(label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = Type.secondary)
     }
 }
 
@@ -1890,14 +1786,7 @@ private fun WeekDateStrip(
     //   （`DEEPSEEK-IMPLEMENTATION.md §4.1`：「七天条（周六周日保留）」）。
     //   于是「定义域洞」正式关闭：`selected` 本来就是 1..7，这里不再夹。
     val sel = selected.coerceIn(1, 7)
-
-    // ★ 离开这一页必须把登记撤掉 —— 不然那块矩形一直挂在排除表里，
-    //   其它页的"横滑切板块"就永久失灵（这种"修一处坏一处"本工程栽过）。
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose {
-            com.muyao.wanzaihyperos.ui.main.HorizontalDragZones.set("week-strip", null)
-        }
-    }
+    var dayBounds by remember(monday) { mutableStateOf<Map<Int, Rect>>(emptyMap()) }
 
     Row(
         // 板 `.weekstrip{display:flex;gap:5px;padding:6px 14px 10px;align-items:stretch}` ⇒ gap 4.4dp
@@ -1911,19 +1800,15 @@ private fun WeekDateStrip(
             .padding(horizontal = 0.dp, vertical = 2.dp)
             // 七格等分全宽：稿上七格中心 x = 43/94/145/195/246/297/347（392px 板）⇒ 间距 50.6px。
             .onSizeChanged { cellPx = it.width / 7f }
-            // ★ v3 #5：把自己登记成"这块区域的横向手势归我"。
-            //   切板块那条手势跑在 `PointerEventPass.Initial`（父层先看到），
-            //   不登记的话真机上横扫周条会被它抢走 —— 实测三下横扫人就到了设置页。
-            .onGloballyPositioned {
-                com.muyao.wanzaihyperos.ui.main.HorizontalDragZones.set("week-strip", it.boundsInRoot())
-            }
             // 只动合成层的 translationX，不动 padding/width —— 拖一下不许重测布局。
             .graphicsLayer { translationX = dragX.value }
+            .selectableGroup()
+            .slidingSelectionCarrier(selected, dayBounds[selected], colors.primary)
             .pointerInput(sel, cellPx) {
                 if (cellPx <= 0f) return@pointerInput
                 val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                     // 抬手速度的样本（毫秒时间戳 + **累计位移**）—— 见下面那段注释与 [releaseVelocityOf]。
                     //
                     // ★★ 第 5 轮真机审计的**真根因**（靠 `wz-motion` 那行日志定位，不是猜的）：
@@ -1953,7 +1838,7 @@ private fun WeekDateStrip(
                     var releaseVelocity = 0f
                     try {
                         while (true) {
-                            val event = awaitPointerEvent()
+                            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             val dxIn = change.position.x - change.previousPosition.x
                             // ★★ 第 3 轮真机审计 **Block 头条**：抬手速度的取法整个换掉。
@@ -1995,14 +1880,14 @@ private fun WeekDateStrip(
                                 //   竖向先赢 ⇒ 交还给列表；横向先赢 ⇒ 这一排接管。
                                 //   ⚠️ 抢到的判据一律用 **`drag`（本次手势的位移）**，不用 `base + drag`：
                                 //     接手时条子可能正停在 −65，用总位移会让"手指才动 1px"就判成横向大幅拖拽。
-                                if (abs(dyTotal) > slop * 1.5f && abs(dyTotal) > abs(drag) * 1.2f) {
+                                if (abs(dyTotal) > slop && abs(dyTotal) > abs(drag) * 1.2f) {
                                     break
                                 }
                                 if (change.isConsumed) {
                                     // 已经被别人（列表惯性/父层）吃掉 ⇒ 不抢。
                                     break
                                 }
-                                if (abs(drag) > slop * 1.5f && abs(drag) > abs(dyTotal) * 1.2f) {
+                                if (abs(drag) > slop && abs(drag) > abs(dyTotal) * 1.2f) {
                                     claimed = true
                                 } else if (!change.pressed) {
                                     // 轻点（没到横向阈值就抬起）⇒ 既不切天也不回弹动画，交给 clickable。
@@ -2017,6 +1902,7 @@ private fun WeekDateStrip(
                                 //   以前 `if (!change.pressed)` 一律当同一件事，被系统取消的手势
                                 //   照样提交切日 + 发触感。这里能走到这一步说明已经 claimed 且
                                 //   这个 pointer 自己还活着 ⇒ 是用户真放的手。
+                                change.consume()
                                 val v = releaseVelocityOf(samples, change.uptimeMillis)
                                 releaseVelocity = v
                                 // ★★ 第 5 轮真机审计：注入用的 evdev 内核时间戳**本身不可靠**
@@ -2126,6 +2012,7 @@ private fun WeekDateStrip(
             //   手势那套判据仍然用夹过的 `sel`（定义域洞那条注释在上面），两者分工不同。
             val isSelected = day == selected
             val isToday = day == today
+            val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
             // ★ 2026-11-07 按 `screens/timetable.png` 复刻：
             //   选中 = **主色实底竖胶囊**（稿上 49×78px ⇒ 43×69dp，圆角 = 半宽）、**没有阴影**；
             //   未选中 = **完全无底色无描边**，只有灰字。
@@ -2133,16 +2020,13 @@ private fun WeekDateStrip(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .then(
-                        if (isSelected) {
-                            Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(colors.primary)
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .clickable(onClickLabel = "查看" + DAY_WEEK[day - 1]) { onSelect(day) }
+                    .onGloballyPositioned { coordinates ->
+                        val next = coordinates.boundsInParent()
+                        if (dayBounds[day] != next) dayBounds = dayBounds + (day to next)
+                    }
+                    .selectable(selected = isSelected, role = Role.Tab,
+                        interactionSource = press, indication = null) { onSelect(day) }
+                    .semantics { contentDescription = "查看" + DAY_WEEK[day - 1] }
                     // 稿上胶囊高 69dp、宽 43dp；这里用上下 10dp 内衬 + 三行字自然撑到 ~64dp，
                     // 七列各自 1/7 宽（本机 347dp ⇒ 每格 49.5dp），比稿略宽但不挤。
                     .padding(vertical = 10.dp),
@@ -2550,6 +2434,7 @@ internal fun SlotZoomOverlay(
     val progress = remember(slot) { androidx.compose.animation.core.Animatable(0f) }
     var panelRect by remember { mutableStateOf<Rect?>(null) }
     val motionSpec = com.muyao.wanzaihyperos.ui.design.Motion
+    val surfaceColor = MiuixTheme.colorScheme.surface
     LaunchedEffect(slot) {
         haptics.tick()
         if (motion.canMove) {
@@ -2596,22 +2481,29 @@ internal fun SlotZoomOverlay(
                         size = Size(c.size.width.toFloat(), c.size.height.toFloat()),
                     )
                 }
-                .graphicsLayer {
+                .drawWithContent {
                     val target = panelRect
                     val from = anchor
-                    if (target != null && from != null && from.width > 1f && target.width > 1f) {
-                        val t = progress.value
-                        // 等比缩放：取宽高比里更小的那个，免得先被撑变形再回正。
-                        val s0 = minOf(from.width / target.width, from.height / target.height)
-                            .coerceIn(0.06f, 1f)
-                        val s = ZoomMotion.scaleAt(s0, t)
-                        scaleX = s
-                        scaleY = s
-                        translationX = from.center.x + (target.center.x - from.center.x) * t - target.center.x
-                        translationY = from.center.y + (target.center.y - from.center.y) * t - target.center.y
-                        alpha = ZoomMotion.alphaAt(t, closing)
+                    val t = progress.value
+                    // 载体 + 裁切（共享过渡只动外框，**文字保持原排版**）：
+                    // graphicsLayer scaleX/Y 会把整卡连字一起拉伸，动画途中字号忽大忽小（实测）。
+                    val frame =
+                        if (motion.canMove && target != null && from != null && from.width > 1f && target.width > 1f)
+                            motionRevealRect(
+                                from.translate(-target.left, -target.top),
+                                Rect(0f, 0f, size.width, size.height),
+                                t,
+                            )
+                        else null
+                    if (frame == null) {
+                        drawContent()
+                    } else {
+                        val corner = CornerRadius(12.dp.toPx() * (1f - t.coerceIn(0f, 1f)))
+                        drawRoundRect(surfaceColor, frame.topLeft, frame.size, corner)
+                        clipPath(Path().apply { addRoundRect(RoundRect(frame, corner)) }) { this@drawWithContent.drawContent() }
                     }
-                },
+                }
+                .graphicsLayer { alpha = ZoomMotion.alphaAt(progress.value, closing) },
         ) {
             SlotDetailCard(slot = slot, onClose = onClose)
         }

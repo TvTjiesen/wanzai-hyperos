@@ -2,6 +2,8 @@ package com.muyao.wanzaihyperos.data.tronclass
 
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.failWith
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
 import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startRefresh
@@ -57,9 +59,10 @@ interface HomeworkRepository {
 class LiveHomeworkRepository(
     private val client: TronclassClient,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : HomeworkRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<ClassHomework>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<ClassHomework>> = _state.asStateFlow()
 
@@ -68,48 +71,118 @@ class LiveHomeworkRepository(
 
     private val inFlight = Mutex()
 
+    private data class CacheKey(val owner: Long, val courseId: Int)
+    private val snapshots = linkedMapOf<CacheKey, ListState<ClassHomework>>()
+    @Volatile private var activeReadToken: Long? = null
+
     @Volatile
     private var courseIdValue: Int = 0
 
+    // Called only within the owner publication boundary.
+    private fun rememberSelected() {
+        if (courseIdValue <= 0) return
+        val key = CacheKey(epoch.token(), courseIdValue)
+        val settled = when (val state = _state.value) {
+            is ListState.Content -> state.copy(meta = state.meta.copy(refreshing = false, loadingMore = false))
+            is ListState.Empty -> state.copy(meta = state.meta.copy(refreshing = false, loadingMore = false))
+            else -> null
+        }
+        snapshots.remove(key)
+        if (settled != null) snapshots[key] = settled
+        while (snapshots.size > 8) snapshots.remove(snapshots.keys.first())
+    }
+
     override val currentCourseId: Int get() = courseIdValue
 
+    init {
+        epoch.registerReset {
+            guard.invalidate()
+            snapshots.clear()
+            activeReadToken = null
+            courseIdValue = 0
+            _courseName.value = ""
+            _state.value = ListState.FirstLoad
+        }
+    }
+
     override suspend fun load(courseId: Int, courseName: String) {
-        courseIdValue = courseId
-        _courseName.value = courseName
-        // 換課就**清空重載**：留著上一門課的作業比空白更糟
-        //（使用者會以為這門課有那些作業）。
-        _state.value = ListState.FirstLoad
-        refresh()
+        if (courseId <= 0) return
+        var token: Long? = null
+        epoch.publishData(epoch.token()) {
+            _courseName.value = courseName
+            if (courseIdValue == courseId && activeReadToken == guard.current) return@publishData
+            if (courseIdValue != courseId) {
+                rememberSelected()
+                courseIdValue = courseId
+                _state.value = snapshots[CacheKey(epoch.token(), courseId)] ?: ListState.FirstLoad
+            }
+            token = guard.begin()
+            activeReadToken = token
+            _state.value = _state.value.startRefresh()
+        }
+        token?.let { refresh(it, forceRefresh = false) }
     }
 
     override suspend fun refresh() {
-        val courseId = courseIdValue
-        if (courseId <= 0) return
-        inFlight.withLock {
-            val token = guard.begin()
+        var token: Long? = null
+        epoch.publishData(epoch.token()) {
+            if (courseIdValue <= 0 || activeReadToken == guard.current) return@publishData
+            token = guard.begin()
+            activeReadToken = token
             _state.value = _state.value.startRefresh()
+        }
+        token?.let { refresh(it, forceRefresh = true) }
+    }
 
-            val result = runCatching {
-                val homeworks = client.homeworks(courseId)
-                // ★ 狀態那支**獨立 runCatching**：它掛了不該讓整份作業清單消失。
-                //   取不到就是「不知道交了沒」，界面照那個講。
-                val statuses = runCatching { client.homeworkStatus(courseId) }
-                    .getOrDefault(emptyMap())
-                homeworks.map { ClassHomework(it, statuses[it.id]) }
-            }
+    private fun failRead(error: HzcuException) {
+        val state = _state.value
+        _state.value = if (error is HzcuException.LoginExpired) when (state) {
+            is ListState.Content -> state.copy(meta = state.meta.copy(
+                refreshing = false, loadingMore = false, stale = true, lastRefreshError = error,
+            ))
+            is ListState.Empty -> state.copy(meta = state.meta.copy(
+                refreshing = false, loadingMore = false, stale = true, lastRefreshError = error,
+            ))
+            else -> state.failWith(error)
+        } else state.failWith(error)
+    }
 
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = { list ->
-                    _state.value.settleFirstPage(list, clock()) { h -> h.homework.id }
-                },
-                onFailure = {
-                    _state.value.failWith(
-                        if (it is HzcuException) it
-                        else HzcuException.Parse("作业数据解析失败", cause = it),
+    private suspend fun refresh(token: Long, forceRefresh: Boolean) {
+        try {
+            inFlight.withLock {
+                if (!guard.isCurrent(token)) return
+                val course = courseIdValue
+                val result = catchingActive {
+                    val homeworks = client.homeworks(course, forceRefresh = forceRefresh)
+                    if (!guard.isCurrent(token)) return
+                    // A failed status lookup still means unknown, never unsubmitted.
+                    val statusResult = catchingActive { client.homeworkStatus(course, forceRefresh) }
+                    statusResult.exceptionOrNull()?.let { if (it is HzcuException.LoginExpired) throw it }
+                    val statuses = statusResult.getOrDefault(emptyMap())
+                    homeworks.map { ClassHomework(it, statuses[it.id]) }
+                }
+                guard.publish(token) {
+                    result.fold(
+                        onSuccess = { list ->
+                            _state.value = _state.value.settleFirstPage(list, clock()) { h -> h.homework.id }
+                        },
+                        onFailure = {
+                            failRead(if (it is HzcuException) it else HzcuException.Parse("作业数据解析失败", cause = it))
+                        },
                     )
-                },
-            )
+                    rememberSelected()
+                }
+            }
+        } finally {
+            guard.publish(token) {
+                _state.value = when (val state = _state.value) {
+                    is ListState.Content -> state.copy(meta = state.meta.copy(refreshing = false, loadingMore = false))
+                    is ListState.Empty -> state.copy(meta = state.meta.copy(refreshing = false, loadingMore = false))
+                    else -> state
+                }
+                activeReadToken = null
+                rememberSelected()
+            }
         }
     }
 }

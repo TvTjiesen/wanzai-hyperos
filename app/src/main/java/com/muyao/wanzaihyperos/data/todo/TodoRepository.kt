@@ -2,7 +2,8 @@ package com.muyao.wanzaihyperos.data.todo
 
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.failWith
-import com.muyao.wanzaihyperos.data.hasSettled
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
 import com.muyao.wanzaihyperos.data.startRefresh
 import com.muyao.wanzaihyperos.data.portal.PortalBillBucket
@@ -11,7 +12,6 @@ import com.muyao.wanzaihyperos.net.HzcuException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -64,27 +64,30 @@ class LiveTodoRepository(
     private val bills: PortalBillRepository,
     private val tron: com.muyao.wanzaihyperos.net.TronclassClient,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : TodoRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<TodoBoard>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<TodoBoard>> = _state.asStateFlow()
     private val inFlight = Mutex()
 
+    init { epoch.registerReset { guard.invalidate(); _state.value = ListState.FirstLoad } }
+
     override suspend fun refresh() {
         inFlight.withLock {
             val token = guard.begin()
-            _state.value = _state.value.startRefresh()
+            val previousState = _state.value as? ListState.Content
+            val previous = previousState?.items?.firstOrNull()
+            guard.publish(token) { _state.value = _state.value.startRefresh() }
 
             // ---- 來源 1：門戶的待辦 ----------------------------------------
             //
             // 回一個 SourceResult 而不是裸清單：要把「還有下一頁」一起帶出來。
-            val portalResult = runCatching {
+            val portalResult = catchingActive {
                 bills.selectBucket(PortalBillBucket.TODO)
-                // 等倉庫真的落定（它自己是單飛 + StaleGuard 的）。
-                // 用 hasSettled 而不是「!= Loading」：ListState 裡根本沒有 Loading，
-                // 未落定的態是 FirstLoad。
-                val s = bills.state.first { it.hasSettled }
+                // selectBucket completes its refresh, including failed/expired outcomes.
+                val s = bills.state.value
                 when (s) {
                     is ListState.Content -> {
                         val mapped = s.items.map { it.toTodoItem() }
@@ -96,10 +99,16 @@ class LiveTodoRepository(
                             items = mapped,
                             total = if (s.meta.hasMore) null else mapped.size,
                             hasMore = s.meta.hasMore,
+                            error = s.meta.lastRefreshError?.let(::shortReason)
+                                ?: if (s.meta.stale) "这是上次取得的待办，当前结果未确认" else null,
                         )
                     }
-                    is ListState.Empty ->
-                        SourceResult(source = TodoSource.PORTAL, items = emptyList(), total = 0)
+                    is ListState.Empty -> SourceResult(
+                        source = TodoSource.PORTAL, items = emptyList(),
+                        total = if (s.meta.stale || s.meta.lastRefreshError != null) null else 0,
+                        error = s.meta.lastRefreshError?.let(::shortReason)
+                            ?: if (s.meta.stale) "这是上次取得的待办，当前结果未确认" else null,
+                    )
                     is ListState.SessionExpired -> throw HzcuException.LoginExpired("门户登录状态已失效")
                     is ListState.Failed -> throw s.error
                     else -> throw HzcuException.Transport("门户待办未返回结果")
@@ -114,7 +123,7 @@ class LiveTodoRepository(
             //
             // 失敗時仍給 null 而不是空清單：空清單在界面上是「0 條作業」，
             // 那等於斷言「你沒作業」；而失敗時我們**不知道**。
-            val tronResult = runCatching {
+            val tronResult = catchingActive {
                 val list = tron.todos()
                 SourceResult(
                     source = TodoSource.TRONCLASS,
@@ -129,21 +138,21 @@ class LiveTodoRepository(
                     tronResult.getOrElse { e ->
                         SourceResult(
                             source = TodoSource.TRONCLASS,
-                            items = null,
+                            items = previous?.groups?.firstOrNull { it.source == TodoSource.TRONCLASS }?.items,
                             error = shortReason(e),
                         )
                     },
                     portalResult.getOrElse { e ->
                         SourceResult(
                             source = TodoSource.PORTAL,
-                            items = null,
+                            items = previous?.groups?.firstOrNull { it.source == TodoSource.PORTAL }?.items,
                             error = shortReason(e),
                         )
                     },
                 ),
             )
 
-            if (!guard.isCurrent(token)) return
+            guard.publish(token) {
             _state.value = when {
                 board.allFailed -> _state.value.failWith(
                     portalResult.exceptionOrNull()?.let {
@@ -156,13 +165,20 @@ class LiveTodoRepository(
                 else -> ListState.Content(
                     items = listOf(board),
                     meta = com.muyao.wanzaihyperos.data.ListMeta(
-                        updatedAtMillis = clock(),
-                        stale = _state.value.hasSettled,
+                        updatedAtMillis = if (board.groups.any { it.failed }) previousState?.meta?.updatedAtMillis else clock(),
+                        stale = board.groups.any { it.failed },
+                        lastRefreshError = if (board.groups.any { it.failed })
+                            (portalResult.exceptionOrNull() ?: tronResult.exceptionOrNull())?.tronTodoFailure()
+                                ?: HzcuException.Transport("部分待办来源尚未确认") else null,
                     ),
                 )
             }
+            }
         }
     }
+
+    private fun Throwable.tronTodoFailure(): HzcuException =
+        this as? HzcuException ?: HzcuException.Transport("部分待办取数失败")
 
     /**
      * 把異常收成一句**給使用者看**的短話。

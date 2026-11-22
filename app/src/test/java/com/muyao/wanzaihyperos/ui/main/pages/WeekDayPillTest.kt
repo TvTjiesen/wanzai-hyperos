@@ -58,7 +58,7 @@ class WeekDayPillTest {
     @Test
     fun `选中那天就是今天，不夹到周五`() {
         val body = code()
-        val i = body.indexOf("var selectedDay by remember")
+        val i = body.indexOf("var selectedDay by androidx.compose.runtime.saveable.rememberSaveable")
         assertTrue("没找到 selectedDay 的声明", i >= 0)
         val window = body.substring(i, (i + 260).coerceAtMost(body.length))
         assertTrue(

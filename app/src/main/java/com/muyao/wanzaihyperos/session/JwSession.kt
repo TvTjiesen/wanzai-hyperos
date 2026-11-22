@@ -76,32 +76,41 @@ class JwSession(store: SecureStore) : StoredSession(store) {
     val hasCredentialPair: Boolean get() = !account().isNullOrBlank() && !password().isNullOrBlank()
 
     fun save(account: String, password: String, nowMillis: Long) {
-        accountValue = account
-        passwordValue = password
-        lastLoginValue = nowMillis
-        store.write(KEY_ACCOUNT, account)
-        store.write(KEY_PASSWORD, password)
-        store.write(KEY_LAST_LOGIN, nowMillis.toString())
-        markLoaded()
+        synchronized(lock) {
+            persist(mapOf(
+                KEY_ACCOUNT to account,
+                KEY_PASSWORD to password,
+                KEY_LAST_LOGIN to nowMillis.toString(),
+            ))
+            accountValue = account
+            passwordValue = password
+            lastLoginValue = nowMillis
+            markLoaded()
+            markCredentialReplacement()
+        }
         notifyListeners()
     }
 
     /** 只更新「上次成功登入」時間（登入流程成功後呼叫）。 */
     fun markLogin(nowMillis: Long) {
-        lastLoginValue = nowMillis
-        store.write(KEY_LAST_LOGIN, nowMillis.toString())
-        markLoaded()
+        synchronized(lock) {
+            ensureLoaded()
+            persist(mapOf(KEY_LAST_LOGIN to nowMillis.toString()))
+            lastLoginValue = nowMillis
+        }
         notifyListeners()
     }
 
     fun clear() {
-        accountValue = null
-        passwordValue = null
-        lastLoginValue = null
-        store.delete(KEY_ACCOUNT)
-        store.delete(KEY_PASSWORD)
-        store.delete(KEY_LAST_LOGIN)
-        markLoaded()
+        synchronized(lock) {
+            persist(mapOf(
+                KEY_ACCOUNT to null,
+                KEY_PASSWORD to null,
+                KEY_LAST_LOGIN to null,
+            ))
+            clearMemory()
+            markLoaded()
+        }
         notifyListeners()
     }
 
@@ -114,6 +123,7 @@ class JwSession(store: SecureStore) : StoredSession(store) {
     }
 
     override fun clearMemory() {
+        invalidateCredential()
         accountValue = null
         passwordValue = null
         lastLoginValue = null

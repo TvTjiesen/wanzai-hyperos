@@ -164,16 +164,16 @@ object PortalParsers {
      */
     fun parseUnreadCount(envelope: JsonObject): Int? {
         // 形态 A：data 直接是数字。
-        envelope["data"].asIntOrNull()?.let { return it }
+        envelope["data"].asIntOrNull()?.takeIf { it >= 0 }?.let { return it }
         // 形态 B：data 是对象，里面有计数字段。
         envelope["data"].asObjectOrNull()?.let { data ->
             for (key in UNREAD_COUNT_KEYS) {
-                data[key].asIntOrNull()?.let { return it }
+                data[key].asIntOrNull()?.takeIf { it >= 0 }?.let { return it }
             }
         }
         // 形态 C：计数在信封顶层。
         for (key in UNREAD_COUNT_KEYS) {
-            envelope[key].asIntOrNull()?.let { return it }
+            envelope[key].asIntOrNull()?.takeIf { it >= 0 }?.let { return it }
         }
         return null
     }

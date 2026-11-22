@@ -44,17 +44,88 @@ import kotlin.coroutines.resume
 class JwEngine(private val baseUrl: String = BASE) {
 
     private var webView: WebView? = null
+    private var cleanupRegistration: AutoCloseable? = null
+    private val work = com.muyao.wanzaihyperos.ui.web.CleanupWorkSet()
+    private val transactions = kotlinx.coroutines.sync.Mutex()
+    private var boundSession: com.muyao.wanzaihyperos.session.JwSession? = null
+    private var credentialRevision = -1L
+    private var preparedRevision = -1L
+    private var attachmentRevision = 0L
+
+    internal val contextRevision: Long get() = attachmentRevision
+
+    internal suspend fun <T> run(action: suspend () -> T): T = work.run {
+        transactions.lock()
+        try { action() } finally { transactions.unlock() }
+    }
+
+    internal fun bind(session: com.muyao.wanzaihyperos.session.JwSession) {
+        if (boundSession === session) return
+        check(boundSession == null)
+        boundSession = session
+        credentialRevision = session.credentialRevision()
+        session.addListener {
+            val current = session.credentialRevision()
+            if (current != credentialRevision) {
+                credentialRevision = current
+                work.cancelAll()
+            }
+        }
+    }
+
+    internal suspend fun prepareCredential(revision: Long) {
+        if (preparedRevision == revision) return
+        withContext(Dispatchers.Main) {
+            webView?.stopLoading()
+            val cookies = android.webkit.CookieManager.getInstance()
+            val paths = listOf("/", "/xtgl", "/jwglxt", "/jwglxt/xtgl")
+            val host = android.net.Uri.parse(baseUrl).host ?: return@withContext
+            for (path in paths) {
+                val url = baseUrl + path + "/login_slogin.html"
+                val names = cookies.getCookie(url).orEmpty().split(';').map { it.substringBefore('=').trim() }
+                    .filter { it.isNotBlank() }.distinct()
+                for (name in names) for (cookiePath in paths) for (domain in listOf("", "; Domain=$host")) {
+                    suspendCancellableCoroutine<Unit> { cont ->
+                        cookies.setCookie(url, "$name=; Max-Age=0; Path=$cookiePath$domain") {
+                            if (cont.isActive) cont.resume(Unit)
+                        }
+                    }
+                }
+            }
+            cookies.flush()
+        }
+        if (boundSession?.credentialRevision() != revision) throw kotlinx.coroutines.CancellationException("JW account changed")
+        preparedRevision = revision
+    }
 
     /** 每次 fetch 一個唯一 key（見 [fetchText] 的兩步做法）。 */
     private var nextFetchId = 0
 
     /** 由 Compose 的 `AndroidView` 建立後交進來。 */
     fun attach(view: WebView) {
+        if (webView === view || com.muyao.wanzaihyperos.ui.web.WebViewCleanup.isStopped(view)) return
+        if (webView != null) detach()
         webView = view
+        view.settings.javaScriptEnabled = true
+        view.settings.blockNetworkLoads = false
+        cleanupRegistration = com.muyao.wanzaihyperos.ui.web.WebViewCleanup.register(this) { detach(permanent = true) }
     }
 
-    fun detach() {
+    fun detach(permanent: Boolean = false) {
+        attachmentRevision++
+        val view = webView
         webView = null
+        cleanupRegistration?.close()
+        cleanupRegistration = null
+        work.cancelAll()
+        view?.let { com.muyao.wanzaihyperos.ui.web.WebViewCleanup.stop(it, permanent) }
+    }
+
+    fun release(view: WebView) {
+        try {
+            if (webView === view) detach(permanent = true)
+            else com.muyao.wanzaihyperos.ui.web.WebViewCleanup.stop(view)
+        } finally { view.destroy() }
     }
 
     val isAttached: Boolean get() = webView != null
@@ -74,7 +145,9 @@ class JwEngine(private val baseUrl: String = BASE) {
      *
      * @return 等到回 true；逾時回 false（呼叫方據此報錯，而不是靜默失敗）。
      */
-    suspend fun awaitAttached(timeoutMs: Long = ATTACH_TIMEOUT_MS): Boolean {
+    suspend fun awaitAttached(timeoutMs: Long = ATTACH_TIMEOUT_MS): Boolean = work.run { awaitAttachedActive(timeoutMs) }
+
+    private suspend fun awaitAttachedActive(timeoutMs: Long): Boolean {
         if (webView != null) return true
         var waited = 0L
         while (waited < timeoutMs) {
@@ -101,14 +174,16 @@ class JwEngine(private val baseUrl: String = BASE) {
      *   超时返回 false，调用方那一段会按「这一次没读到」结算，状态与 isCrawling 一起落地。
      *   （`login()` 本来就有 `repeat(LOGIN_POLLS)` 的轮询上限，只有爬取链上这两处没有。）
      */
-    suspend fun load(url: String): Boolean = try {
-        withTimeout(LOAD_TIMEOUT_MS) {
+    suspend fun load(url: String): Boolean = work.run { loadActive(url) }
+
+    private suspend fun loadActive(url: String): Boolean = try {
+        if (!JwOriginPolicy.isTrustedUrl(url)) false else withTimeout(LOAD_TIMEOUT_MS) {
             withContext(Dispatchers.Main) {
                 val view = webView ?: return@withContext false
                 suspendCancellableCoroutine { cont ->
                     view.webViewClient = object : WebViewClient() {
                         override fun onPageFinished(v: WebView?, u: String?) {
-                            if (cont.isActive) cont.resume(true)
+                            if (cont.isActive) cont.resume(JwOriginPolicy.isTrustedUrl(u.orEmpty()))
                         }
                     }
                     view.loadUrl(url)
@@ -139,7 +214,11 @@ class JwEngine(private val baseUrl: String = BASE) {
      * 界面上會長得一模一樣（都是「登入已失效」），**根本沒法排查**。
      * 把原因帶出來同時解決了排查與體驗。
      */
-    suspend fun login(account: String, password: String, loginPath: String = "/xtgl/login_slogin.html"): JwFailure? {
+    suspend fun login(account: String, password: String, loginPath: String = "/xtgl/login_slogin.html"): JwFailure? =
+        work.run { loginActive(account, password, loginPath) }
+
+    private suspend fun loginActive(account: String, password: String, loginPath: String): JwFailure? {
+        if (!JwOriginPolicy.isLoginPath(loginPath)) return JwFailure.PageNotLoaded("受信登录页")
         val loaded = load(baseUrl + loginPath)
         if (!loaded) return JwFailure.PageNotLoaded(loginPath)
         // 等它的 JS 就緒（公鑰是 ajax 取的非同步）
@@ -153,7 +232,7 @@ class JwEngine(private val baseUrl: String = BASE) {
         //
         // 這種情況的正確答案是「已經登入，不必再登」，而不是失敗。
         // （而且它會發生在每一次「登入過之後再進來」——正是最常見的路徑。）
-        if (currentUrl().contains("index_initMenu")) return null
+        if (JwOriginPolicy.isLoginSuccess(currentUrl(), loginPath)) return null
 
         // ★ 填值 + 觸發它自己的 handler。
         //   送出的必須是 `hidMm`（頁面有兩個 name="mm"，真正送出的是隱藏那個），
@@ -161,6 +240,7 @@ class JwEngine(private val baseUrl: String = BASE) {
         val js = """
             (function(){
               try {
+                if (!${JwOriginPolicy.documentGuardJs} || window.location.pathname !== ${jsString(loginPath)}) return 'untrusted-document';
                 var $ = window.jQuery;
                 if (!$) return 'no-jquery';
                 var y = document.querySelector('#yhm');
@@ -182,11 +262,11 @@ class JwEngine(private val baseUrl: String = BASE) {
         repeat(LOGIN_POLLS) { attempt ->
             withContext(Dispatchers.Main) { kotlinx.coroutines.delay(LOGIN_POLL_MS) }
             val url = currentUrl()
-            if (url.contains("index_initMenu")) return null
+            if (JwOriginPolicy.isLoginSuccess(url, loginPath)) return null
             // 還停在登入頁 → 失敗（密碼錯／次數限制），提早結束
             if (url.contains("login_slogin") && attempt > 8) return JwFailure.BadCredential
         }
-        return if (currentUrl().contains("index_initMenu")) null else JwFailure.BadCredential
+        return if (JwOriginPolicy.isLoginSuccess(currentUrl(), loginPath)) null else JwFailure.BadCredential
     }
 
     /**
@@ -207,47 +287,65 @@ class JwEngine(private val baseUrl: String = BASE) {
      * 1. 起一個 fetch，把結果與完成旗標寫進 `window`；
      * 2. 用 `evaluateJavascript` **輪詢**那個旗標，拿到才回。
      */
-    suspend fun fetchText(path: String, formBody: String? = null): String? {
+    suspend fun fetchText(path: String, formBody: String? = null): String? = work.run { fetchTextActive(path, formBody) }
+
+    private suspend fun fetchTextActive(path: String, formBody: String?): String? {
+        val requestPath = JwOriginPolicy.requestPath(path) ?: return null
         val key = "__jwFetch_${nextFetchId++}"
+        val view = withContext(Dispatchers.Main) { webView }
         val fetchCall = if (formBody == null) {
-            "fetch(${jsString(path)}, { credentials: 'include' }).then(r => r.text())"
+            "fetch(requestUrl.href, { credentials: 'include', mode: 'same-origin', redirect: 'error', signal: controller.signal }).then(r => r.text())"
         } else {
             """
-            fetch(${jsString(path)}, {
+            fetch(requestUrl.href, {
               method: 'POST',
               headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
                          'X-Requested-With': 'XMLHttpRequest' },
-              credentials: 'include',
+              credentials: 'include', mode: 'same-origin', redirect: 'error', signal: controller.signal,
               body: ${jsString(formBody)}
             }).then(r => r.text())
             """.trimIndent()
         }
         val kickoff = """
             (function(){
-              window.$key = { done: false, text: null };
-              $fetchCall.then(function(t){ window.$key = { done: true, text: t }; })
-                          .catch(function(e){ window.$key = { done: true, text: '__ERR__' + String(e).slice(0,120) }; });
+              if (!${JwOriginPolicy.documentGuardJs}) return 'untrusted-document';
+              var requestUrl = new URL(${jsString(requestPath)}, window.location.href);
+              if (requestUrl.origin !== window.location.origin) return 'untrusted-request';
+              var controller = new AbortController();
+              var result = { done: false, text: null, controller: controller };
+              window.$key = result;
+              $fetchCall.then(function(t){ if (window.$key === result) { result.done = true; result.text = t; } })
+                          .catch(function(e){ if (window.$key === result) { result.done = true; result.text = '__ERR__' + String(e).slice(0,120); } });
               return 'started';
             })()
         """.trimIndent()
-        if (evalJsDecoded(kickoff) != "started") return null
+        try {
+            if (evalJsDecoded(kickoff) != "started") return null
 
-        // 輪詢取回（上限約 20 秒；這個站偶爾慢）
-        repeat(FETCH_POLLS) {
-            withContext(Dispatchers.Main) { kotlinx.coroutines.delay(FETCH_POLL_MS) }
-            val probe = """
-                (function(){
-                  var r = window.$key;
-                  if (!r) return '__PENDING__';
-                  if (!r.done) return '__PENDING__';
-                  delete window.$key;
-                  return r.text === null ? '__ERR__no-text' : r.text;
-                })()
-            """.trimIndent()
-            val out = evalJsDecoded(probe)
-            if (out != null && out != "__PENDING__") return out
+            // 輪詢取回（上限約 20 秒；這個站偶爾慢）
+            repeat(FETCH_POLLS) {
+                withContext(Dispatchers.Main) { kotlinx.coroutines.delay(FETCH_POLL_MS) }
+                val probe = """
+                    (function(){
+                      var r = window.$key;
+                      if (!r) return '__PENDING__';
+                      if (!r.done) return '__PENDING__';
+                      delete window.$key;
+                      return r.text === null ? '__ERR__no-text' : r.text;
+                    })()
+                """.trimIndent()
+                val out = evalJsDecoded(probe)
+                if (out != null && out != "__PENDING__") return out
+            }
+            return null
+        } finally {
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main) {
+                if (webView === view) view?.evaluateJavascript(
+                    "(function(){ var r=window.$key; if(r && r.controller) r.controller.abort(); delete window.$key; })()",
+                    null,
+                )
+            }
         }
-        return null
     }
 
     /**
@@ -279,7 +377,9 @@ class JwEngine(private val baseUrl: String = BASE) {
      * 跑一段 JS 并拿回**解码后**的原文。同样必须带超时（理由见 [load]）。
      * 超时/没挂载都返回 null，调用方那条会照实记一句「没读到内容」。
      */
-    private suspend fun evalJsDecoded(script: String): String? = try {
+    private suspend fun evalJsDecoded(script: String): String? = work.run { evalJsDecodedActive(script) }
+
+    private suspend fun evalJsDecodedActive(script: String): String? = try {
         withTimeout(EVAL_TIMEOUT_MS) {
             withContext(Dispatchers.Main) {
                 val view = webView ?: return@withContext null

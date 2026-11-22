@@ -44,6 +44,8 @@ import com.muyao.wanzaihyperos.ui.design.SettingSectionLabel
 import com.muyao.wanzaihyperos.ui.design.Tone
 import com.muyao.wanzaihyperos.ui.design.Type
 import com.muyao.wanzaihyperos.ui.design.rememberScrollProgress
+import com.muyao.wanzaihyperos.ui.design.liquid.LocalNavBarVisible
+import com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -98,7 +100,7 @@ fun RemindersPage(
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
-                bottom = innerPadding.calculateBottomPadding(),
+                bottom = pageBottomInsetDp(LocalNavBarVisible.current),
             ),
         ) {
             item(key = "reminder-rows") {

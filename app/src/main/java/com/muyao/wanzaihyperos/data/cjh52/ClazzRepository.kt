@@ -3,6 +3,8 @@ package com.muyao.wanzaihyperos.data.cjh52
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52UserContext
 import com.muyao.wanzaihyperos.data.failWith
+import com.muyao.wanzaihyperos.data.repo.AccountEpoch
+import com.muyao.wanzaihyperos.data.repo.catchingActive
 import com.muyao.wanzaihyperos.data.repo.StaleGuard
 import com.muyao.wanzaihyperos.data.settleFirstPage
 import com.muyao.wanzaihyperos.data.startRefresh
@@ -77,18 +79,27 @@ interface ClazzRepository {
 class LiveClazzRepository(
     private val client: Cjh52Client,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val epoch: AccountEpoch = AccountEpoch(),
 ) : ClazzRepository {
 
-    private val guard = StaleGuard()
+    private val guard = StaleGuard(epoch)
     private val _state = MutableStateFlow<ListState<ClazzInfo>>(ListState.FirstLoad)
     override val state: StateFlow<ListState<ClazzInfo>> = _state.asStateFlow()
     private val inFlight = Mutex()
 
+    init {
+        epoch.registerReset {
+            guard.invalidate()
+            _state.value = ListState.FirstLoad
+        }
+    }
+
     override suspend fun refresh() {
+        val token = guard.begin()
         inFlight.withLock {
-            val token = guard.begin()
-            _state.value = _state.value.startRefresh()
-            val result = runCatching {
+            if (!guard.isCurrent(token)) return
+            if (!guard.publish(token) { _state.value = _state.value.startRefresh() }) return
+            val result = catchingActive {
                 val me: Cjh52UserContext = client.currentUser()
                 if (me.clazzSid.isEmpty()) {
                     throw com.muyao.wanzaihyperos.net.HzcuException.Parse("门户没有返回班级 sid")
@@ -100,11 +111,12 @@ class LiveClazzRepository(
                 ClazzParser.parse(data)
                     ?: throw com.muyao.wanzaihyperos.net.HzcuException.Parse("班级详情缺少 clazz")
             }
-            if (!guard.isCurrent(token)) return
-            _state.value = result.fold(
-                onSuccess = { _state.value.settleFirstPage(listOf(it), clock()) { c -> c.name } },
-                onFailure = { _state.value.failWith(it.asCjh52Failure()) },
-            )
+            guard.publish(token) {
+                _state.value = result.fold(
+                    onSuccess = { _state.value.settleFirstPage(listOf(it), clock()) { c -> c.name } },
+                    onFailure = { _state.value.failWith(it.asCjh52Failure()) },
+                )
+            }
         }
     }
 }

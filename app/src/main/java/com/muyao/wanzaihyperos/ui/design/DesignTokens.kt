@@ -275,14 +275,14 @@ object Type {
     val largeTitle = 34.sp
 
     /** 日期主导的首页：两种密度共用一组可调刻度。 */
-    val homeDate = 38.sp
-    val homeDateCompact = 32.sp
-    val lineHomeDate = 44.sp
-    val lineHomeDateCompact = 38.sp
-    val homeFocus = 28.sp
-    val homeFocusCompact = 24.sp
-    val lineHomeFocus = 34.sp
-    val lineHomeFocusCompact = 30.sp
+    val homeDate = 26.sp
+    val homeDateCompact = 24.sp
+    val lineHomeDate = 32.sp
+    val lineHomeDateCompact = 30.sp
+    val homeFocus = 20.sp
+    val homeFocusCompact = 18.sp
+    val lineHomeFocus = 25.sp
+    val lineHomeFocusCompact = 23.sp
 
     /** 沉浸態標題、品牌名。 */
     val displayTitle = 26.sp
@@ -333,6 +333,7 @@ object Type {
 
     /** 副行的行高（`caption` 11sp × 1.45，正好落在 `LINE_HEIGHT_BODY` 上）。 */
     val lineCaption = 16.sp
+    val lineHomeStatus = 18.sp
 
     /** 行高倍數：正文。 */
     const val LINE_HEIGHT_BODY = 1.45f

@@ -86,6 +86,8 @@ object AiBallStates {
          * **算不出来就不触发** —— 认不出时间的课不许猜（见 `data/schedule/TodayPlan.kt` 档头）。
          */
         minutesToNextClass: Int? = null,
+        todoFacts: HomeTaskFacts = HomeTaskFacts.Unknown,
+        rollcallFacts: HomeTaskFacts = HomeTaskFacts.Unknown,
     ): AiBallState = when {
         failure != null -> AiBallState.Error
         waitingRollcall -> AiBallState.Waiting
@@ -96,11 +98,30 @@ object AiBallStates {
         minutesToNextClass != null && minutesToNextClass in 0..59 -> AiBallState.Focus
         urgentTodo -> AiBallState.Focus
         plan == null -> AiBallState.Loading
+        todoFacts.status == HomeTaskFacts.Status.Failed ||
+            rollcallFacts.status == HomeTaskFacts.Status.Failed -> AiBallState.Error
+        todoFacts.status == HomeTaskFacts.Status.Unknown ||
+            rollcallFacts.status == HomeTaskFacts.Status.Unknown -> AiBallState.Loading
+        todoFacts.status == HomeTaskFacts.Status.Items -> AiBallState.Focus
         fetching -> AiBallState.Thinking
         plan.totalToday > 0 && plan.remaining.isEmpty() -> AiBallState.Done
         isDeepNight(hour) -> AiBallState.Sleep
         isEarlyMorning(hour) -> AiBallState.WakeUp
         else -> AiBallState.Idle
+    }
+
+    fun homeFactText(
+        state: AiBallState,
+        todoFacts: HomeTaskFacts,
+        rollcallFacts: HomeTaskFacts,
+    ): String? = when {
+        state == AiBallState.Waiting || state == AiBallState.Busy -> null
+        todoFacts.status == HomeTaskFacts.Status.Failed -> "待办来源取数失败，请查看待办"
+        rollcallFacts.status == HomeTaskFacts.Status.Failed -> "签到来源取数失败，请查看签到"
+        todoFacts.status == HomeTaskFacts.Status.Unknown -> "待办还未确认，请查看待办"
+        rollcallFacts.status == HomeTaskFacts.Status.Unknown -> "签到还未确认，请查看签到"
+        todoFacts.status == HomeTaskFacts.Status.Items -> "还有待办需要查看"
+        else -> null
     }
 
     /**
@@ -170,7 +191,7 @@ object AiBallStates {
         nowMillis: Long,
         withinMs: Long = URGENT_WINDOW_MS,
     ): Boolean = items.orEmpty().any { t ->
-        t.sortTimeMillis?.let { it <= nowMillis + withinMs } == true
+        t.hasDeadline && t.sortTimeMillis?.let { it <= nowMillis + withinMs } == true
     }
 
     /** 「快到期」的窗口：24 小时。 */
