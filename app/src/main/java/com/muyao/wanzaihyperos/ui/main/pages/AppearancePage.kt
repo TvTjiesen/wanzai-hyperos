@@ -11,8 +11,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -23,7 +21,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -31,9 +28,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -46,6 +41,7 @@ import com.muyao.wanzaihyperos.data.UiPrefs
 import com.muyao.wanzaihyperos.ui.AppThemeMode
 import com.muyao.wanzaihyperos.ui.components.WanzaiButton
 import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog
+import com.muyao.wanzaihyperos.ui.components.WanzaiSlider
 import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton
 import com.muyao.wanzaihyperos.ui.design.*
 import com.muyao.wanzaihyperos.ui.home.*
@@ -694,40 +690,33 @@ private fun AppearanceSlider(label: String, value: Int, max: Int, onChange: (Int
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(label, fontSize = 13.sp); ValueSlider(value, max, true, onChange) }
 }
 
+/**
+ * 数值滑杆。
+ *
+ * 内部本轮改走 [WanzaiSlider]（vendor 的液态玻璃滑杆）：原来这里是自绘 Canvas —
+ * 一根 4dp 实色轨道加一个圆点，和全站玻璃控件不是一套材质，三档（液态/磨砂/关）
+ * 对它也完全无效。现在轨道与手柄的材质由 vendor 按统一 appearance 决定。
+ *
+ * **保留的行为**：拖动过程中持续回调 [onPreview]（用于实时预览模糊半径/透明度），
+ * 松手才回调 [onChange]（真正落盘）。
+ * **放弃的行为**：原来拖动被系统取消（指针离开）会回滚到旧值；vendor 滑杆没有取消回调，
+ * 现在会保留最后拖动到的值。这个差异只在这类边界手势下出现，且用户看得见数值本身。
+ */
 @Composable
 internal fun ValueSlider(value: Int, max: Int, percent: Boolean = false, onChange: (Int) -> Unit, onPreview: (Int) -> Unit = {}) {
-    val colors = MiuixTheme.colorScheme
-    var width by remember { mutableIntStateOf(0) }
-    var local by remember { mutableFloatStateOf(value.toFloat()) }
     val latestChange by rememberUpdatedState(onChange)
     val latestPreview by rememberUpdatedState(onPreview)
-    val latestValue by rememberUpdatedState(value)
-    LaunchedEffect(value) { local = value.toFloat() }
-    fun update(x: Float) { if (width > 1) { local = (x / width).coerceIn(0f, 1f) * max; latestPreview(local.roundToInt()) } }
+    // vendor 滑杆自己维护拖动中的临时值，这里只记最后一次，松手时落盘。
+    var latest by remember(max) { mutableIntStateOf(value) }
+    LaunchedEffect(value) { latest = value }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.weight(1f).height(48.dp).onSizeChanged { width = it.width }.semantics {
-            progressBarRangeInfo = ProgressBarRangeInfo(local, 0f..max.toFloat())
-            setProgress { target -> local = target.coerceIn(0f, max.toFloat()); latestChange(local.roundToInt()); true }
-        }.pointerInput(max) { detectTapGestures { position -> update(position.x); latestChange(local.roundToInt()) } }
-        .pointerInput(max) { detectHorizontalDragGestures(
-            onDragStart = { update(it.x) }, onHorizontalDrag = { change, _ -> change.consume(); update(change.position.x) },
-            onDragEnd = { latestChange(local.roundToInt()) }, onDragCancel = { local = latestValue.toFloat(); latestPreview(latestValue) },
-        ) }) {
-            Canvas(Modifier.fillMaxSize()) {
-                val y = size.height / 2
-                val fraction = (local / max.coerceAtLeast(1)).coerceIn(0f, 1f)
-                val height = 4.dp.toPx()
-                drawRoundRect(colors.onSurfaceVariantSummary.copy(alpha = .18f), Offset(0f, y - height / 2), Size(size.width, height), CornerRadius(height))
-                drawRoundRect(colors.primary, Offset(0f, y - height / 2), Size(size.width * fraction, height), CornerRadius(height))
-                val radius = 8.dp.toPx()
-                val knobX = (size.width * fraction).coerceIn(radius, (size.width - radius).coerceAtLeast(radius))
-                // 圆点原来是纯 surface 色：浅色主题下 surface 与页面底几乎同色，
-                // 手柄落在浅色轨道上直接看不见（滑杆像没有手柄）。补一圈 primary 描边。
-                drawCircle(colors.surface, radius, Offset(knobX, y))
-                drawCircle(colors.primary, radius, Offset(knobX, y),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
-            }
-        }
-        Text(if (percent) "${local.roundToInt()}%" else local.roundToInt().toString(), modifier = Modifier.width(42.dp), fontSize = 12.sp)
+        WanzaiSlider(
+            value = value,
+            max = max,
+            onValueChange = { next -> latest = next; latestPreview(next) },
+            onValueChangeFinished = { latestChange(latest) },
+            modifier = Modifier.weight(1f),
+        )
+        Text(if (percent) "$latest%" else latest.toString(), modifier = Modifier.width(42.dp), fontSize = 12.sp)
     }
 }

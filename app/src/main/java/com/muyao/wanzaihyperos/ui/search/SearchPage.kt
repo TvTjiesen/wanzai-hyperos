@@ -46,7 +46,7 @@ import top.yukonga.miuix.kmp.basic.InputField
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.IconButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiIconButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -148,10 +148,10 @@ fun SearchPage(
                 title = "搜索应用",
 color = Color.Transparent,
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    WanzaiIconButton(label = "返回", onClick = onBack) {
                         Icon(
                             imageVector = MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
+                            contentDescription = null,
                             tint = colors.onBackground,
                             modifier = Modifier.size(22.dp),
                         )

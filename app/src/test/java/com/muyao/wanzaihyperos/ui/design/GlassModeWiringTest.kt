@@ -314,6 +314,8 @@ class GlassModeWiringTest {
             GlassSurfaceId.SearchButton, GlassSurfaceId.SearchReturnCapsule, GlassSurfaceId.HomeFocusCard, GlassSurfaceId.HomeQuickTray, GlassSurfaceId.AppearanceChoice, GlassSurfaceId.WallpaperThumbnail -> "GlassSurface("
             GlassSurfaceId.CommonSwitch -> "GlasmioSwitch("
             GlassSurfaceId.CommonButton -> "GlasmioButton("
+            GlassSurfaceId.CommonSlider -> "GlasmioSlider("
+            GlassSurfaceId.CommonIconButton -> "GlasmioIconButton("
             GlassSurfaceId.OverlayDialog -> "GlasmioAlertDialog("
             GlassSurfaceId.TopBarBlur -> "drawPlainBackdrop("
             GlassSurfaceId.SecondaryTopBarBlur -> "progressiveBlurBackdrop("
@@ -365,6 +367,19 @@ class GlassModeWiringTest {
                 val native = functionCode(vendor("ui", "GlassButtons.kt"), "GlasmioButton")
                 assertTrue("button 必须把采样选择交给已审计 renderer", "GlassSurface(" in native && "sampleBackdrop = sampleBackdrop" in native)
                 assertTrue("减动效按钮保持材质与静态点击，不建立弹簧手势", "rememberMotion().canMove" in code && "GlassSurface(" in code && ".clickable(enabled = enabled, role = Role.Button, onClick = onClick)" in code && "ButtonDefaults" !in code)
+            }
+            GlassSurfaceId.CommonSlider -> {
+                // 滑杆的材质在 vendor 的 GlasmioSlider 里（轨道/手柄各自按 appearance 决定是否采样），
+                // 适配器只做 Int↔Float 换算与高度收口，不许自己画画 —— 自己画就又分叉出一套材质。
+                val native = functionCode(vendor("ui", "GlassControls.kt"), "GlasmioSlider")
+                assertTrue("slider 必须读取统一 appearance", "LocalGlassAppearance.current" in native)
+                assertTrue("slider 实底必须停止采样", "emptyBackdrop()" in native && "appearance.usesBackdrop" in native)
+                assertTrue("slider 不许在适配器里另画一套轨道", "Canvas(" !in code && "drawRoundRect" !in code)
+            }
+            GlassSurfaceId.CommonIconButton -> {
+                val native = functionCode(vendor("ui", "GlassButtons.kt"), "GlasmioIconButton")
+                assertTrue("icon button 必须走已审计的 GlassSurface", "GlassSurface(" in native && "sampleBackdrop = sampleBackdrop" in native)
+                assertTrue("图标按钮必须有无文字可读的语义描述", "contentDescription = label" in code)
             }
             GlassSurfaceId.OverlayDialog -> {
                 val native = vendor("ui", "IosAlerts.kt")

@@ -52,7 +52,7 @@ import com.muyao.wanzaihyperos.ui.design.Type
 import androidx.compose.ui.viewinterop.AndroidView
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiIconButton
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -316,17 +316,17 @@ fun WebShellPage(
 color = Color.Transparent,
                     subtitle = subtitle ?: hostOf(currentUrl),
                     navigationIcon = {
-                        IconButton(onClick = { denyPendingCapture(); onExit() }) {
+                        WanzaiIconButton(label = "返回", onClick = { denyPendingCapture(); onExit() }) {
                             Icon(
                                 imageVector = MiuixIcons.ChevronBackward,
-                                contentDescription = "返回",
+                                contentDescription = null,
                                 tint = colors.onBackground,
                                 modifier = Modifier.size(22.dp),
                             )
                         }
                     },
                     actions = {
-                        IconButton(onClick = {
+                        WanzaiIconButton(label = "重新加载", onClick = {
                             denyPendingCapture()
                             if (!boundaryStopped && !publishWebAction {
                                     if (onReload == null) webView?.reload() else onReload()
@@ -334,7 +334,7 @@ color = Color.Transparent,
                         }) {
                             Icon(
                                 imageVector = MiuixIcons.Refresh,
-                                contentDescription = "重新加载",
+                                contentDescription = null,
                                 tint = colors.onBackground,
                                 modifier = Modifier.size(20.dp),
                             )
@@ -344,19 +344,19 @@ color = Color.Transparent,
                         //   想換帳號或不想再留著時只能重裝 App（實際踩過）。
                         //   所以把它做成頂欄上一個明確的按鈕，而不是藏起來。
                         if (onClearCredential != null) {
-                            IconButton(onClick = { denyPendingCapture(); onClearCredential() }) {
+                            WanzaiIconButton(label = "清除已保存的登录信息", onClick = { denyPendingCapture(); onClearCredential() }) {
                                 Icon(
                                     imageVector = MiuixIcons.Delete,
-                                    contentDescription = "清除已保存的登录信息",
+                                    contentDescription = null,
                                     tint = colors.onBackground,
                                     modifier = Modifier.size(20.dp),
                                 )
                             }
                         }
-                        IconButton(onClick = { denyPendingCapture(); onExit() }) {
+                        WanzaiIconButton(label = "关闭", onClick = { denyPendingCapture(); onExit() }) {
                             Icon(
                                 imageVector = MiuixIcons.Close,
-                                contentDescription = "关闭",
+                                contentDescription = null,
                                 tint = colors.onBackground,
                                 modifier = Modifier.size(20.dp),
                             )

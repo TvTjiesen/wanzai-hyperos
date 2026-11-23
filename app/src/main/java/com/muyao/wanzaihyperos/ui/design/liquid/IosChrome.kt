@@ -49,7 +49,7 @@ import com.muyao.wanzaihyperos.ui.design.Type
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiIconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.blur.blur
@@ -371,10 +371,10 @@ fun IosTopBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (canGoBack) {
-                    IconButton(onClick = onBack) {
+                    WanzaiIconButton(label = "返回", onClick = onBack) {
                         Icon(
                             MiuixIcons.ChevronBackward,
-                            contentDescription = "返回",
+                            contentDescription = null,
                         )
                     }
                 } else {

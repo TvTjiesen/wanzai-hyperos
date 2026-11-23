@@ -38,7 +38,7 @@ import io.github.neoruaa.glasmio.ui.GlasmioGroupedList
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiIconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
@@ -538,29 +538,29 @@ fun SecondaryScaffold(
                     // 不是猜的。
                     color = Color.Transparent,
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
+                        WanzaiIconButton(label = "返回", onClick = onBack) {
                             Icon(
                                 imageVector = MiuixIcons.ChevronBackward,
-                                contentDescription = "返回",
+                                contentDescription = null,
                                 modifier = Modifier.size(Dims.iconNav),
                             )
                         }
                     },
                     actions = {
                         if (onSearch != null) {
-                            IconButton(onClick = onSearch) {
+                            WanzaiIconButton(label = "搜索", onClick = onSearch) {
                                 Icon(
                                     imageVector = MiuixIcons.Search,
-                                    contentDescription = "搜索",
+                                    contentDescription = null,
                                     modifier = Modifier.size(Dims.iconNav),
                                 )
                             }
                         }
                         if (onRefresh != null) {
-                            IconButton(onClick = onRefresh) {
+                            WanzaiIconButton(label = "刷新", onClick = onRefresh) {
                                 Icon(
                                     imageVector = MiuixIcons.Refresh,
-                                    contentDescription = "刷新",
+                                    contentDescription = null,
                                     modifier = Modifier.size(Dims.iconNav),
                                 )
                             }

@@ -21,6 +21,8 @@ enum class GlassSurfaceId(
     HomeQuickTray("首页快捷按钮", "ui/home/redesign/HomeDashboard.kt", GlassStack.GLASMIO, siteFunction = "HomeQuickAction", drawSites = 4),
     CommonSwitch("公共开关", "ui/components/WanzaiGlasmioControls.kt", GlassStack.GLASMIO, siteFunction = "WanzaiSwitch", drawSites = 2),
     CommonButton("公共按钮", "ui/components/WanzaiGlasmioControls.kt", GlassStack.GLASMIO, siteFunction = "WanzaiButton", drawSites = 2),
+    CommonSlider("公共滑杆", "ui/components/WanzaiGlasmioControls.kt", GlassStack.GLASMIO, siteFunction = "WanzaiSlider"),
+    CommonIconButton("公共图标按钮", "ui/components/WanzaiGlasmioControls.kt", GlassStack.GLASMIO, siteFunction = "WanzaiIconButton"),
     OverlayDialog("公共弹层", "ui/components/WanzaiGlasmioControls.kt", GlassStack.GLASMIO, siteFunction = "WanzaiOverlayDialog", drawSites = 2),
     AppearanceChoice("外观选项", "ui/main/pages/AppearancePage.kt", GlassStack.GLASMIO, GlassSurfaceKind.NOT_GLASS, "AppearanceChoice", drawSites = 0),
     WallpaperThumbnail("壁纸缩略图", "ui/main/pages/AppearancePage.kt", GlassStack.GLASMIO, GlassSurfaceKind.NOT_GLASS, "WallpaperThumbnail", drawSites = 0),

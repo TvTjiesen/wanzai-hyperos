@@ -25,7 +25,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiIconButton
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton as TextButton
@@ -89,8 +89,8 @@ fun WebTargetPage(app: AppGraph, route: Route.Web, onExit: () -> Unit) {
                     title = route.title,
                     color = Color.Transparent,
                     navigationIcon = {
-                        IconButton(onClick = onExit) {
-                            Icon(MiuixIcons.ChevronBackward, "返回", tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(22.dp))
+                        WanzaiIconButton(label = "返回", onClick = onExit) {
+                            Icon(MiuixIcons.ChevronBackward, null, tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(22.dp))
                         }
                     },
                 )
