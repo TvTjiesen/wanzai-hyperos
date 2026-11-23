@@ -134,11 +134,10 @@ class AiBallWiringTest {
         assertTrue("课程开关必须只传到内容分支", home.contains("courseEnabled = \"courses\" in UiPrefs.homeModules"))
         assertTrue("球须绘制在两种内容分支之后", header.indexOf("AiBall(") > header.indexOf("courseContent(subline)"))
         assertTrue("卡上沿必须穿过球中心", header.contains("padding(top = ballBox / 2)"))
-        // 2026-11-23 用户选择：接回 25a0832^ 的拖拽手感（大球按住即跟手、松手 300ms 回弹），
-        // 首页布局保持不动；静止长按看状态仍由确认后的临时捕获负责。
+        // 方案三：默认布局不动，长按确认后才临时拖动；普通划动仍交父页面。
         assertTrue("首页不能额外指定不同拖动范围", !header.contains("dragRange"))
         val ball = code("design/ai/AiBall.kt")
-        assertTrue("大球拖拽必须接回", ball.contains("detectDragGestures") && ball.contains("DRAG_RANGE"))
+        assertTrue("短划不应由拖动探测器立即抢走", !ball.contains("detectDragGestures"))
         assertTrue("长按后的临时捕获必须释放", ball.contains("HorizontalDragZones.releasePointers"))
         assertTrue("不得恢复永久按球坐标豁免", !ball.contains("HorizontalDragZones.register("))
         assertTrue("临近课提示必须说课程事实而非误报待办", header.contains("stateDescription = if") && header.contains("分钟后上课"))

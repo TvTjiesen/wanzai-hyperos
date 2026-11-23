@@ -4,7 +4,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.VectorConverter
-import androidx.compose.animation.core.animate
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.animation.core.spring
@@ -12,13 +11,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.size
@@ -271,47 +267,9 @@ fun AiBall(
     val describeTap = "让小球看一眼"
     val describeLong = "查看当前状态"
 
-    // 原样接回 25a0832^ 的拖拽手感：只有首页那颗大球（>=96dp）能拖，按住即跟手，
-    // 松手 300ms 弹性回弹。静止长按看状态由上面的手势单独负责，两者互不抢。
-    val canDrag = diameter >= AiBall.DIAMETER_FIELD
-    DisposableEffect(canDrag) {
-        onDispose { if (canDrag) HorizontalDragZones.set(AiBall.DRAG_ZONE_KEY, null) }
-    }
-    var dragX by remember { mutableFloatStateOf(0f) }
-    var dragY by remember { mutableFloatStateOf(0f) }
-    val scope = rememberCoroutineScope()
-    fun settleBack() {
-        val x0 = dragX
-        val y0 = dragY
-        if (x0 == 0f && y0 == 0f) return
-        scope.launch {
-            animate(0f, 1f, animationSpec = tween(300, easing = FastOutSlowInEasing)) { t, _ ->
-                dragX = x0 * (1f - t); dragY = y0 * (1f - t)
-            }
-            dragX = 0f; dragY = 0f
-        }
-    }
-
     Box(
         modifier = modifier
             .size(diameter + hitSlop * 2)
-            .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
-            .onGloballyPositioned { coordinates ->
-                if (canDrag) HorizontalDragZones.set(AiBall.DRAG_ZONE_KEY, coordinates.boundsInRoot())
-            }
-            .pointerInput(canDrag) {
-                if (!canDrag) return@pointerInput
-                val limit = AiBall.DRAG_RANGE.toPx()
-                detectDragGestures(
-                    onDragEnd = { settleBack() },
-                    onDragCancel = { settleBack() },
-                    onDrag = { change, delta ->
-                        change.consume()
-                        dragX = (dragX + delta.x).coerceIn(-limit, limit)
-                        dragY = (dragY + delta.y).coerceIn(-limit, limit)
-                    },
-                )
-            }
             .pointerInput(enabled, motion.canMove, diameter, hitSlop) {
                 if (!enabled) return@pointerInput
                 awaitEachGesture {
@@ -374,7 +332,13 @@ fun AiBall(
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                 if (event.changes.count { it.pressed } > 1 || change.isConsumed) break
-                                heldOffset = change.position - down.position
+                                // 统一成一套：长按确认之后才跟手拖，幅度收在 12dp 内（液态微动，不飞走）。
+                                val (lx, ly) = AiBallDrag.limit(
+                                    (change.position - down.position).x,
+                                    (change.position - down.position).y,
+                                    AiBall.DRAG_RANGE.toPx(),
+                                )
+                                heldOffset = Offset(lx, ly)
                                 observe(change.position)
                                 change.consume()
                                 if (!change.pressed) { released = true; break }
@@ -420,6 +384,8 @@ fun AiBall(
         Canvas(
             modifier = Modifier
                 .size(diameter)
+                // 长按之后才有的那一小段跟手位移：vendor 的 tanh 只做形变，这里承担真实位移。
+                .offset { IntOffset(visualOffset.x.roundToInt(), visualOffset.y.roundToInt()) }
                 .graphicsLayer {
                     applyGlassDragScale(
                         pressProgress = if (moving) dragPress.value else 0f,
@@ -613,9 +579,8 @@ object AiBall {
     /** 行内球与右侧文字的视觉间隙（球自己还有 3dp 外扩，合起来 6dp）。 */
     val INLINE_GAP = 3.dp
 
-    /** 拖拽允许离开原位的范围（旧手感：56dp 内跟手，松手回弹）。 */
-    val DRAG_RANGE = 56.dp
-    const val DRAG_ZONE_KEY = "aiBallField"
+    /** 长按之后可跟手微动的范围：只做液态形变，不让球飞出标题行。 */
+    val DRAG_RANGE = 12.dp
 
     /** 环宽。裸球对纸面只有 1.05:1，没有这条环它就不存在。 */
     val RING_WIDTH = 1.dp

@@ -106,9 +106,7 @@ class SectionPagerWiringTest {
         assertTrue(gesture.contains("aiBallPressDecision("))
         assertTrue(gesture.contains("viewConfiguration.touchSlop"))
         assertTrue(ball.contains("HorizontalDragZones.releasePointers(captureOwner)"))
-        // 2026-11-23 用户选择：接回 25a0832^ 的拖拽（登记豁免矩形 + detectDragGestures），
-        // 长按确认仍走 claimPointer 临时捕获，两套机制并存，互不取代。
-        assertTrue(ball.contains("HorizontalDragZones.set(AiBall.DRAG_ZONE_KEY"))
-        assertTrue(ball.contains("detectDragGestures"))
+        assertFalse(ball.contains("HorizontalDragZones.set("))
+        assertFalse(ball.contains("detectDragGestures"))
     }
 }
