@@ -311,7 +311,11 @@ fun AiBall(
                             AiBallPressDecision.CANCEL
                         }
                         val last = currentEvent.changes.firstOrNull { it.id == down.id }
-                        val confirmed = result == AiBallPressDecision.HOLD || (result == null && last != null &&
+                        // 按下就能直接拖：手指一挪就进与「静止长按后拖」完全相同的那个跟手分支，
+                        // 不必先等 450ms。效果（12dp 限幅、液态形变、松手回弹、状态浮签）一字未改。
+                        val dragged = last != null && last.pressed &&
+                            (last.position - down.position).getDistance() > viewConfiguration.touchSlop
+                        val confirmed = dragged || result == AiBallPressDecision.HOLD || (result == null && last != null &&
                             aiBallPressDecision(
                                 AiBallDrag.HOLD_MS, (last.position - down.position).getDistance(),
                                 viewConfiguration.touchSlop, last.pressed,
@@ -332,7 +336,7 @@ fun AiBall(
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                 if (event.changes.count { it.pressed } > 1 || change.isConsumed) break
-                                // 统一成一套：长按确认之后才跟手拖，幅度收在 12dp 内（液态微动，不飞走）。
+                                // 同一套跟手效果：按下就拖 / 静止长按后拖都走这里，幅度收在 12dp 内（液态微动，不飞走）。
                                 val (lx, ly) = AiBallDrag.limit(
                                     (change.position - down.position).x,
                                     (change.position - down.position).y,
