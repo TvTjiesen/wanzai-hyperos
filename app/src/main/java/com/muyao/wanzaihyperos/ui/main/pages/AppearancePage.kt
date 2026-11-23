@@ -28,6 +28,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -544,8 +545,12 @@ internal fun AppearanceChoice(label: String, selected: Boolean, enabled: Boolean
     // （selectionDepth）——半透明的底会让阴影透出来，选中格因此显成一坨**脏灰**，
     // 真机像素采样是 #B5B7BF 的灰带 + #E3E5ED 的心，看着像按下去没弹起来。
     // 改成与卡面 surface 先混合成实色再画，阴影就透不过来；配一圈同色描边表达选中。
+    // 混色比例按卡面亮度分档：深色卡面 #222324 上叠 14% 主色只差 Δ1.27（肉眼读不出），
+    // 选中信息就全压在一条 1dp 描边上；深色档提到 26% 才有「这块被选中了」的观感。
+    val darkSurface = colors.surface.luminance() < 0.5f
+    val selectionMix = if (darkSurface) .26f else .14f
     val selectionFill: Color = if (selected)
-        androidx.compose.ui.graphics.lerp(colors.surface, colors.primary, .14f) else Color.Transparent
+        androidx.compose.ui.graphics.lerp(colors.surface, colors.primary, selectionMix) else Color.Transparent
     val selectionTint by androidx.compose.animation.animateColorAsState(
         selectionFill,
         animationSpec = if (canMove) androidx.compose.animation.core.spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow) else androidx.compose.animation.core.snap(),
@@ -559,7 +564,11 @@ internal fun AppearanceChoice(label: String, selected: Boolean, enabled: Boolean
     Row(modifier.fillMaxWidth().heightIn(min = 48.dp)
         .graphicsLayer { shadowElevation = 1.5.dp.toPx() * selectionDepth; shape = sampleShape; clip = true }
         .background(selectionTint, sampleShape)
-        .then(if (selected) Modifier.border(1.dp, colors.primary.copy(alpha = .45f), sampleShape) else Modifier)
+        // 描边是选中态的第二重信号：深色档下 1dp/45% 的对比只有 2.68:1（低于非文本 3:1），
+        // 半像素还会被上面的 clip 削掉，所以深色档加粗到 1.5dp、提到 65%。
+        .then(if (selected) Modifier.border(
+            if (darkSurface) 1.5.dp else 1.dp,
+            colors.primary.copy(alpha = if (darkSurface) .65f else .45f), sampleShape) else Modifier)
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick).semantics { this.selected = selected }
         // 三格并排时（跟随系统/浅色/深色）每格实际只有 ~99dp，原来左右各 12dp 内边距加
         // 紧贴文字的 ✓，把「跟随系统」挤成「跟随/系统」两行、还把格撑得比别人高。

@@ -78,16 +78,22 @@ internal fun ThemeExpandableSection(
 internal fun Modifier.themeSegment(last: Boolean): Modifier {
     val surface = MiuixTheme.colorScheme.surface
     val transition = LocalThemeSectionTransition.current
+    // 卡面圆角只走统一 token：原来这里写死 24dp，与外观页其它卡面的 Dims.cardCorner(18dp)
+    // 在同一屏里相差 6dp，相邻两个 item 的边一眼能看出错开；CornerTierTest 不扫本文件，抓不到。
+    val corner = Dims.cardCorner
     if (transition == null) {
         // 不挂在 ThemeExpandableSection 里的段落（「概览」「首页布局」）以前直接 return this，
         // 内容就裸铺在页面底色上：既没有卡面，左右边缘也和下面的折叠卡对不齐。
-        return background(surface, RoundedCornerShape(24.dp))
+        // 补 clip：另一分支有 clipToBounds()，这里若只画底色不裁，将来内容溢出会「底色圆角、
+        // 内容直角」地穿帮。
+        val shape = RoundedCornerShape(corner)
+        return clip(shape).background(surface, shape)
     }
     val state = transition.segmentProgress("SegmentedProgress")
     // 同一张卡片的连续分段：顶角必须贴齐标题（0dp），中间各行也不能各自带圆角 ——
     // 否则每行左右各留一个圆角豁口，整块看起来像一排互相错开的色块。
     val shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp,
-        bottomStart = if (last) 24.dp else 0.dp, bottomEnd = if (last) 24.dp else 0.dp)
+        bottomStart = if (last) corner else 0.dp, bottomEnd = if (last) corner else 0.dp)
     return clipToBounds().layout { measurable, constraints ->
         val placeable = measurable.measure(constraints.copy(minHeight = 0))
         val height = (placeable.height * state.value.coerceIn(0f, 1f)).roundToInt()
