@@ -118,18 +118,26 @@ class AiBallInteractionTest {
         val claim = source.indexOf("HorizontalDragZones.claimPointer")
         assertTrue(confirmation > source.indexOf("withTimeoutOrNull(AiBallDrag.HOLD_MS)"))
         assertTrue(claim > confirmation)
-        assertFalse(source.substring(0, claim).contains(".consume()"))
+        // 只在「静止长按确认」那段里验「认领前不消费」；大球拖拽探测器另有自己的 consume。
+        val holdGesture = source.substringAfter("awaitEachGesture {").substringBefore("} finally")
+        assertFalse(holdGesture.substring(0, holdGesture.indexOf("HorizontalDragZones.claimPointer")).contains(".consume()"))
         assertTrue(source.contains("== AiBallPressDecision.CANCEL"))
         assertTrue(source.contains("interaction = aiBallStatusInteraction(interaction)"))
         assertTrue(source.contains("delay(AiBallDrag.TIP_MS)"))
         assertTrue(source.contains("HorizontalDragZones.releasePointers(captureOwner)"))
         assertTrue(source.contains("applyGlassDragScale("))
         assertTrue(source.contains("offset = visualOffset"))
-        assertFalse(source.contains("detectDragGestures"))
+        // 2026-11-23 用户选择：原样恢复 25a0832^ 的拖拽手感（跟手 + 300ms 回弹），
+        // 与「静止长按看状态」并存。旧拖拽只认首页大球，不恢复换脸。
+        assertTrue(source.contains("detectDragGestures"))
+        assertTrue(source.contains("val canDrag = diameter >= AiBall.DIAMETER_FIELD"))
+        assertTrue(source.contains("HorizontalDragZones.set(AiBall.DRAG_ZONE_KEY"))
+        assertTrue(source.contains("onDragEnd = { settleBack() }"))
+        assertTrue(source.contains("tween(300, easing = FastOutSlowInEasing)"))
+        assertTrue(source.contains("rememberCoroutineScope"))
         assertFalse(source.contains("previewIndex"))
         assertFalse(source.contains("previewNext"))
         assertFalse(source.contains("PRESS_SCALE"))
-        assertFalse(source.contains("rememberCoroutineScope"))
         assertTrue(source.contains("lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)"))
         assertTrue(source.contains("val moving = enabled && motion.canMove"))
         assertTrue(source.contains("if (moving) gazeX.value"))
@@ -138,28 +146,5 @@ class AiBallInteractionTest {
         assertTrue(source.contains("AiBall.actOnce(shown, gazeX, gazeY, blink)"))
         val parent = File("src/main/java/com/muyao/wanzaihyperos/ui/main/SwipeToSwitchSection.kt").readText()
         assertTrue(parent.indexOf("isPointerCaptured(change.id.value)") < parent.indexOf("dx += change.position.x"))
-    }
-
-    @Test fun draggedBallParksInsteadOfReturningToOrigin() {
-        val source = File("src/main/java/com/muyao/wanzaihyperos/ui/design/ai/AiBall.kt").readText()
-        assertTrue(source.contains("var parkedOffset by remember { mutableStateOf(Offset.Zero) }"))
-        assertTrue(source.contains("var dragged = false"))
-        // 按下即拖（原有手势优先）：CANCEL 被改判成拖球，而不是丢掉手势。
-        assertTrue(source.contains("return@withTimeoutOrNull AiBallPressDecision.HOLD"))
-        assertTrue(source.contains("if (dragged) {"))
-        // 静止到超时才弹状态浮签；拖球路径不设 HOLD。
-        // 从 else if (confirmed) 起算，避开 showStatus() 里更早的那次 aiBallStatusInteraction。
-        val confirmed = source.indexOf("else if (confirmed)")
-        assertTrue(confirmed > 0)
-        assertTrue(source.indexOf("if (dragged) {", confirmed) <
-            source.indexOf("interaction = aiBallStatusInteraction(interaction)", confirmed))
-        assertTrue(source.contains("AiBallDrag.limit("))
-        assertTrue(source.contains("parkedOffset = Offset(lx, ly)"))
-        assertTrue(source.contains("parkedOffset + heldOffset"))
-        assertTrue(source.contains("else -> parkedOffset"))
-        // 拖过就走 cancel() 停住，静止长按仍走 release() 回弹，两条路径都在源码里。
-        val parked = source.indexOf("if (held && dragged)")
-        val bounced = source.indexOf("} else if (held) interaction = interaction.release()")
-        assertTrue(parked >= 0 && bounced > parked)
     }
 }
