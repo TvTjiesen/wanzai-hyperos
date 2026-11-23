@@ -46,18 +46,40 @@ internal fun ThemeOverviewPreview(appearance: AppearanceSettings, image: LoadedW
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("主题效果预览", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Text("壁纸、容器背景与主题色", fontSize = 12.sp, color = colors.onSurfaceVariantSummary)
+                // 这里原先是两条没有任何文字的纯色条（primary / primaryContainer）：
+                // 读者只看到一深一浅两块方糖，既不知道代表什么，也分不清哪个是主色 ——
+                // 正是业主说的「奇怪的色块」。改成带标注的小色卡，信息不减但能自解释。
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.weight(1f).height(26.dp).background(colors.primary, RoundedCornerShape(9.dp)))
-                    Box(Modifier.weight(1f).height(26.dp).background(colors.primaryContainer, RoundedCornerShape(9.dp)))
+                    listOf("主色" to colors.primary, "容器色" to colors.primaryContainer).forEach { (label, fill) ->
+                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(Modifier.size(14.dp).clip(RoundedCornerShape(5.dp)).background(fill))
+                            Text(label, fontSize = 11.sp, color = colors.onSurfaceVariantSummary)
+                        }
+                    }
                 }
             }
+            // 下面这一排同理：原来是 4 个空白的灰色圆角块（appearance.modules.take(4) 只用来占位），
+            // 看起来像是没加载出内容的破图。改成写模块名的胶囊，刚好也是这块「预览」要表达的信息。
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                appearance.modules.take(4).forEach { _ ->
-                    Box(Modifier.weight(1f).height(32.dp).background(colors.surface.copy(alpha = .9f), RoundedCornerShape(12.dp)))
+                appearance.modules.take(4).forEach { module ->
+                    Box(Modifier.weight(1f).height(32.dp).clip(RoundedCornerShape(12.dp))
+                        .background(colors.surface.copy(alpha = .9f)), contentAlignment = Alignment.Center) {
+                        Text(moduleLabel(module), fontSize = 11.sp, color = colors.onSurfaceVariantSummary)
+                    }
                 }
             }
         }
     }
+}
+
+/** 与 `HomeLayoutPage` 的模块名保持一致；未知 id 直接回显，避免静默丢信息。 */
+private fun moduleLabel(id: String): String = when (id) {
+    "courses" -> "课程"
+    "todos" -> "待办"
+    "rollcall" -> "签到"
+    "szty" -> "校园跑"
+    else -> id
 }
 
 @Composable

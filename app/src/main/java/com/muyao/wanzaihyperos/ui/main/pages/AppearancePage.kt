@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -231,7 +232,7 @@ fun AppearancePage(
             }
             item(key = "section-home") {
                 ThemeExpandableSection("首页壁纸", "顶部壁纸、裁切与显示", SettingIcon.House, "home" in expandedSections, !busy, { toggleSection("home") }) {
-                    AppearanceSection("系统自带壁纸", last = false) {
+                    AppearanceSection("系统自带壁纸") {
                         VisualChoice("晴海 · 原画", "海湾、帆船与雏菊", selected?.id == "builtin-sea", !busy, Modifier.fillMaxWidth().wallpaperMotionBounds { wallpaperSources["builtin-sea"] = it }, {
                             Image(androidx.compose.ui.res.painterResource(com.muyao.wanzaihyperos.R.drawable.wallpaper_sea),
                                 "原绘海湾壁纸", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -281,7 +282,7 @@ fun AppearancePage(
                     ThemeSettingSegment {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("System" to "跟随系统", "Light" to "浅色", "Dark" to "深色").forEach { (id, label) ->
-                                AppearanceChoice(label, current.theme == id, !busy, Modifier.weight(1f)) { current = current.copy(theme = id) }
+                                AppearanceChoice(label, current.theme == id, !busy, Modifier.weight(1f), showCheck = false) { current = current.copy(theme = id) }
                             }
                         }
                     }
@@ -295,6 +296,11 @@ fun AppearancePage(
                     }
                     var hexInput by rememberSaveable(current.customization.accentHex) { mutableStateOf(current.customization.accentHex) }
                     ThemeSettingSegment {
+                        // ⚠️ 这里用 material3 的 OutlinedTextField 是**有意的**：它在 Miuix/玻璃
+                        // 主题下确实会画出一条跟主题不同的描边，但换成 Miuix 的 TextField 后
+                        // 真机实测更糟 —— 大号灰底圆角块 + 占位文字悬在中间，比原样更突兀。
+                        // 「输入框统一」属于液态玻璃接口统一那一批（m18833：等批准后实施），
+                        // 这里保持原样，不在 UI bug 修复里夹带。
                         androidx.compose.material3.OutlinedTextField(value = hexInput, onValueChange = { value ->
                             hexInput = value.take(7)
                             if (value.matches(Regex("#[0-9a-fA-F]{6}"))) current = current.copy(customization = current.customization.copy(accentHex = value, dynamicColor = false))
@@ -303,7 +309,7 @@ fun AppearancePage(
                     ThemeSettingSegment {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("tonal" to "柔和", "vivid" to "鲜明", "neutral" to "中性").forEach { (id, label) ->
-                                AppearanceChoice(label, current.customization.colorStyle == id, !busy, Modifier.weight(1f)) {
+                                AppearanceChoice(label, current.customization.colorStyle == id, !busy, Modifier.weight(1f), showCheck = false) {
                                     current = current.copy(customization = current.customization.copy(colorStyle = id))
                                 }
                             }
@@ -312,8 +318,18 @@ fun AppearancePage(
                     ThemeSettingSegment {
                         Text("柔和：浅色调的选中区域；鲜明：增强选中区域的颜色；中性：灰阶强调，减少彩色。下方预览展示实际主色与选中色块。", fontSize = 12.sp, lineHeight = 18.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.weight(1f).height(32.dp).background(colors.primary, RoundedCornerShape(Dims.chipCorner)))
-                            Box(Modifier.weight(1f).height(32.dp).background(colors.primaryContainer, RoundedCornerShape(Dims.chipCorner)))
+                            // 原来这里是两条没有文字的纯色条：读者只看到一深一浅两个方块，
+                            // 既不知道它代表什么，也分不清哪条是主色。色块下补一行说明让它自解释；
+                            // 文字放在色块外面而不是压在上面，动态取色/亮暗切换时也不会糊成一片。
+                            listOf(
+                                "主色" to colors.primary,
+                                "容器色" to colors.primaryContainer,
+                            ).forEach { (label, fill) ->
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Box(Modifier.fillMaxWidth().height(28.dp).clip(RoundedCornerShape(Dims.chipCorner)).background(fill))
+                                    Text(label, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
+                                }
+                            }
                         }
                     }
                     ThemeSettingSegment {
@@ -324,7 +340,7 @@ fun AppearancePage(
                     listOf("indigo" to "靛蓝", "blue" to "蓝色", "teal" to "青绿", "purple" to "紫色", "rose" to "玫红", "orange" to "橙色").chunked(3).forEach { row ->
                         ThemeSettingSegment {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                row.forEach { (id, label) -> AppearanceChoice(label, current.customization.accent == id && !current.customization.dynamicColor, !busy, Modifier.weight(1f)) {
+                                row.forEach { (id, label) -> AppearanceChoice(label, current.customization.accent == id && !current.customization.dynamicColor, !busy, Modifier.weight(1f), showCheck = false) {
                                     current = current.copy(customization = current.customization.copy(accent = id, dynamicColor = false, accentHex = ""))
                                 } }
                             }
@@ -458,6 +474,9 @@ fun AppearancePage(
                 }
             })
     }
+    // ⚠️ 这里仍是 material3 的 AlertDialog + TextButton：白底、直角、Material 蓝字，
+    // 在这套玻璃/Miuix 主题里确实像另一个 app 的弹窗。但换成自绘确认卡属于
+    // 「控件统一」那一批（m18833：等批准后实施），不在这里夹带。
     if (confirmReset) androidx.compose.material3.AlertDialog(onDismissRequest = { confirmReset = false },
         title = { androidx.compose.material3.Text("恢复默认外观？") },
         text = { androidx.compose.material3.Text("立即恢复默认外观。图库、账号和学习数据保留。") },
@@ -472,7 +491,10 @@ fun AppearancePage(
 private fun VisualChoice(label: String, detail: String, selected: Boolean, enabled: Boolean, modifier: Modifier,
     sample: @Composable BoxScope.() -> Unit, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    Column(modifier.clip(RoundedCornerShape(Dims.cardCorner)).background(if (selected) colors.primary.copy(alpha = .10f) else colors.background)
+    // 未选中时原来是 colors.background 实底：卡片本身已经是 surface 底，于是每个
+    // 选项都变成一块深浅不一的方贴片，一排看过去像没对齐的色块。未选中留透明，
+    // 只让选中的那一项浮起来。
+    Column(modifier.clip(RoundedCornerShape(Dims.cardCorner)).background(if (selected) colors.primary.copy(alpha = .10f) else Color.Transparent)
         .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick).semantics { this.selected = selected }
         .padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(Dims.wallpaperTileCorner)), content = sample)
@@ -515,11 +537,17 @@ private fun VisualChoice(label: String, detail: String, selected: Boolean, enabl
 }
 
 @Composable
-internal fun AppearanceChoice(label: String, selected: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier, subtitle: String? = null, onClick: () -> Unit) {
+internal fun AppearanceChoice(label: String, selected: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier, subtitle: String? = null, showCheck: Boolean = true, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
     val canMove = rememberMotion().canMove
+    // 选中底原来用 primary 的 10% 透明度压在卡面上，可下面还有一层 graphicsLayer 阴影
+    // （selectionDepth）——半透明的底会让阴影透出来，选中格因此显成一坨**脏灰**，
+    // 真机像素采样是 #B5B7BF 的灰带 + #E3E5ED 的心，看着像按下去没弹起来。
+    // 改成与卡面 surface 先混合成实色再画，阴影就透不过来；配一圈同色描边表达选中。
+    val selectionFill: Color = if (selected)
+        androidx.compose.ui.graphics.lerp(colors.surface, colors.primary, .14f) else Color.Transparent
     val selectionTint by androidx.compose.animation.animateColorAsState(
-        if (selected) colors.primary.copy(alpha = .10f) else Color.Transparent,
+        selectionFill,
         animationSpec = if (canMove) androidx.compose.animation.core.spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow) else androidx.compose.animation.core.snap(),
         label = "appearance-selection",
     )
@@ -531,13 +559,21 @@ internal fun AppearanceChoice(label: String, selected: Boolean, enabled: Boolean
     Row(modifier.fillMaxWidth().heightIn(min = 48.dp)
         .graphicsLayer { shadowElevation = 1.5.dp.toPx() * selectionDepth; shape = sampleShape; clip = true }
         .background(selectionTint, sampleShape)
+        .then(if (selected) Modifier.border(1.dp, colors.primary.copy(alpha = .45f), sampleShape) else Modifier)
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick).semantics { this.selected = selected }
-        .padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        // 三格并排时（跟随系统/浅色/深色）每格实际只有 ~99dp，原来左右各 12dp 内边距加
+        // 紧贴文字的 ✓，把「跟随系统」挤成「跟随/系统」两行、还把格撑得比别人高。
+        // 内边距收到 8dp、✓ 隔开 6dp，四字标签就能单行放下（不许用 maxLines 截断：
+        // SettingsPlanTest 明确禁止省略号式截断）。
+        .padding(horizontal = 8.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(label, fontSize = 14.sp, color = if (!enabled) colors.onSurfaceVariantSummary else if (selected) colors.primary else colors.onSurface)
             if (!subtitle.isNullOrBlank()) Text(subtitle, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
         }
-        if (selected) Text("✓", color = colors.primary)
+        // ✓ 是可选的：并排的分段控件（跟随系统/浅色/深色、柔和/鲜明/中性、六个主题色）
+        // 每格只有 ~97dp，塞下 ✓ 就会把四字标签挤成两行、还把该格撑得比别人高；
+        // 这类格子靠「淡底 + 描边」已经足够表达选中，不需要再加一个勾。
+        if (selected && showCheck) Text("✓", color = colors.primary, modifier = Modifier.padding(start = 6.dp))
     }
 }
 
@@ -563,6 +599,9 @@ internal fun AppearanceSectionHeader(
             stateDescription = if (expanded) "已展开" else "已折叠"
         },
         onClick = toggle.takeIf { enabled },
+        // 箭头是固定 20dp 的图标尾件：mini 屏 347dp + 1.15 倍字号会把它挤到副标题下面，
+        // 变成左对齐的一只小箭头（业主报的「展开箭头偏左」），这里强制留在行尾。
+        trailingInline = true,
         trailing = {
             Canvas(Modifier.size(20.dp).graphicsLayer { rotationZ = if (animate) angle else if (expanded) 180f else 0f }) {
                 val left = Offset(size.width * .25f, size.height * .4f)
@@ -586,6 +625,8 @@ private fun AppearanceToggle(title: String, summary: String, checked: Boolean, e
                 Text(title, fontSize = 15.sp, color = colors.onSurface)
                 Text(summary, fontSize = 12.sp, lineHeight = 17.sp, color = colors.onSurfaceVariantSummary)
             }
+            // 开关样式统一（WanzaiSwitch / Glasmmio 药丸）属于液态玻璃接口统一那一批，
+            // m18833 要求等批准后实施，这里保持 Miuix 原生 Switch 不改。
             top.yukonga.miuix.kmp.basic.Switch(checked = checked, onCheckedChange = null, enabled = enabled)
         }
     }
@@ -652,7 +693,12 @@ internal fun ValueSlider(value: Int, max: Int, percent: Boolean = false, onChang
                 drawRoundRect(colors.onSurfaceVariantSummary.copy(alpha = .18f), Offset(0f, y - height / 2), Size(size.width, height), CornerRadius(height))
                 drawRoundRect(colors.primary, Offset(0f, y - height / 2), Size(size.width * fraction, height), CornerRadius(height))
                 val radius = 8.dp.toPx()
-                drawCircle(colors.surface, radius, Offset((size.width * fraction).coerceIn(radius, (size.width - radius).coerceAtLeast(radius)), y))
+                val knobX = (size.width * fraction).coerceIn(radius, (size.width - radius).coerceAtLeast(radius))
+                // 圆点原来是纯 surface 色：浅色主题下 surface 与页面底几乎同色，
+                // 手柄落在浅色轨道上直接看不见（滑杆像没有手柄）。补一圈 primary 描边。
+                drawCircle(colors.surface, radius, Offset(knobX, y))
+                drawCircle(colors.primary, radius, Offset(knobX, y),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
             }
         }
         Text(if (percent) "${local.roundToInt()}%" else local.roundToInt().toString(), modifier = Modifier.width(42.dp), fontSize = 12.sp)

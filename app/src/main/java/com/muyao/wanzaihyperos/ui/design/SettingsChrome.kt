@@ -413,10 +413,17 @@ fun SettingRow(
      * 六行里有一行不可点，看不出区别就会被当成按坏了（v3 #8 复审）。
      */
     trailingChevron: Boolean = false,
+    /**
+     * 窄屏／大字号下尾件默认掉到副标题下面（[settingAccessoryBelow]）—— 那是给
+     * 「状态 + 时间」这类**文字**尾件留宽的。但**图标式**尾件（展开箭头 `▾`）宽度固定
+     * 20dp，掉到左边会变成「副标题下面孤零零一只箭头」，跟行的可点区也对不上，
+     * 所以这类尾件显式要求留在行尾。
+     */
+    trailingInline: Boolean = false,
 ) {
     val colors = GlasmioTheme.colors
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-    val accessoryBelow = settingAccessoryBelow(configuration.screenWidthDp, configuration.fontScale)
+    val accessoryBelow = !trailingInline && settingAccessoryBelow(configuration.screenWidthDp, configuration.fontScale)
     val accessory: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (trailing != null) {

@@ -56,12 +56,16 @@ internal fun ThemeExpandableSection(
     val transition = updateTransition(expanded, label = "ThemeSection")
     val progress = transition.segmentProgress("SegmentedHeader").value.coerceIn(0f, 1f)
     Column(Modifier.fillMaxWidth()) {
+        // 展开到底时标题卡的下沿必须收成直角：段落的顶角也是 0，两边圆角对着彼此会在
+        // 卡片左右两侧留下两个 6dp 的凹口（看着像卡面被啃掉一块）。
+        val headerBottom = (24f - 24f * progress).dp
         AppearanceSectionHeader(title, summary, icon, expanded, enabled, toggle,
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp,
-                bottomStart = (24f - 18f * progress).dp, bottomEnd = (24f - 18f * progress).dp))
+                bottomStart = headerBottom, bottomEnd = headerBottom))
         if (expanded || transition.currentState || transition.isRunning) {
             val accessibility = if (expanded) Modifier else Modifier.semantics { hideFromAccessibility() }
-            val gap = (2f * progress).dp
+            // 完全展开时缝隙归零，否则同色的卡面之间会露出一条 2dp 的页面底色细线。
+            val gap = (2f * (1f - progress)).dp
             CompositionLocalProvider(LocalThemeSectionTransition provides transition) {
                 Column(Modifier.fillMaxWidth().then(accessibility).padding(top = gap),
                     verticalArrangement = Arrangement.spacedBy(gap), content = content)
@@ -72,15 +76,23 @@ internal fun ThemeExpandableSection(
 
 @Composable
 internal fun Modifier.themeSegment(last: Boolean): Modifier {
-    val transition = LocalThemeSectionTransition.current ?: return this
+    val surface = MiuixTheme.colorScheme.surface
+    val transition = LocalThemeSectionTransition.current
+    if (transition == null) {
+        // 不挂在 ThemeExpandableSection 里的段落（「概览」「首页布局」）以前直接 return this，
+        // 内容就裸铺在页面底色上：既没有卡面，左右边缘也和下面的折叠卡对不齐。
+        return background(surface, RoundedCornerShape(24.dp))
+    }
     val state = transition.segmentProgress("SegmentedProgress")
-    val bottomRadius = if (last) 24.dp else 6.dp
+    // 同一张卡片的连续分段：顶角必须贴齐标题（0dp），中间各行也不能各自带圆角 ——
+    // 否则每行左右各留一个圆角豁口，整块看起来像一排互相错开的色块。
+    val shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp,
+        bottomStart = if (last) 24.dp else 0.dp, bottomEnd = if (last) 24.dp else 0.dp)
     return clipToBounds().layout { measurable, constraints ->
         val placeable = measurable.measure(constraints.copy(minHeight = 0))
         val height = (placeable.height * state.value.coerceIn(0f, 1f)).roundToInt()
         layout(placeable.width, constraints.constrainHeight(height)) { placeable.placeRelative(0, 0) }
-    }.background(MiuixTheme.colorScheme.surface,
-        RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = bottomRadius, bottomEnd = bottomRadius))
+    }.background(surface, shape)
 }
 
 @Composable
@@ -107,6 +119,9 @@ internal fun ThemeOptionMenu(
             SettingRow(
                 icon = SettingIcon.Screen, tint = MiuixTheme.colorScheme.onSurface,
                 title = title, subtitle = selected, onClick = toggle.takeIf { enabled },
+                // 与折叠卡标题同一处理：尾件是固定宽度的箭头，窄屏／大字号下掉到副标题
+                // 下面会变成左对齐的孤零零一只箭头（业主报的「展开箭头偏左」）。
+                trailingInline = true,
             )
         },
     ) { childBackdrop, close ->
@@ -133,7 +148,8 @@ internal fun ThemePagerMenu(
     val source = io.github.neoruaa.glasmio.glass.rememberGlasmioMenuAnchorState()
     Box(Modifier.fillMaxWidth().glasmioMenuAnchor(source)) {
         SettingRow(icon = SettingIcon.Screen, tint = MiuixTheme.colorScheme.onSurface,
-            title = "页面切换手势", subtitle = selected, onClick = { open = true }.takeIf { enabled })
+            title = "页面切换手势", subtitle = selected, onClick = { open = true }.takeIf { enabled },
+            trailingInline = true)
     }
     if (open) {
         val choices = options.take(3).mapIndexed { index, label ->
