@@ -37,7 +37,6 @@ import io.github.neoruaa.glasmio.glass.render.backdrops.layerBackdrop
 import io.github.neoruaa.glasmio.ui.GlasmioGroupedList
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -275,11 +274,11 @@ fun ActionRow(
     onClick: () -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-    ) {
+    // 改用 AppCard（26dp 连续圆角 + GlasmioGroupedList）而不是裸 Card：本文件里
+    // 「正确的承载材质」早就写好了，只是 ActionRow / ResultBanner / BackRow 三个
+    // 共享容器没跟上，于是 46 个调用点整片是扁纸片。AppCard 不产生 GlassSurface(
+    // 绘制点，所以不进 GlassModeWiringTest 的登记链。
+    AppCard(modifier = modifier, onClick = onClick) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -342,7 +341,8 @@ fun ResultBanner(
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
-    Card(modifier = modifier.fillMaxWidth()) {
+    // 同 ActionRow：状态横幅也是共享容器，改这一处让 13 个调用点一起换承载材质。
+    AppCard(modifier = modifier) {
         Text(
             text = message,
             style = MiuixTheme.textStyles.body1,
@@ -598,11 +598,8 @@ fun BackRow(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { onBack() },
-    ) {
+    // 同 ActionRow：返回条也是共享容器，改这里让 6 处调用一起换承载材质。
+    AppCard(modifier = modifier, onClick = onBack) {
         Text(
             text = "‹ $label",
             style = MiuixTheme.textStyles.body1,
