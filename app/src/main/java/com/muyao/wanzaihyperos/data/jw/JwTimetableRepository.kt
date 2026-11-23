@@ -126,8 +126,12 @@ class LiveJwTimetableRepository(
                     // 課表頁先載進來：① 的 xnm/xqm 要從它的 #xnm/#xqm 讀
                     //（靜態 select，onPageFinished 就有；不依賴 XHR），
                     // ② 也要用它已經渲染好的表格 —— 兩條路共用這一次載入。
-                    engine.load(JwFeature.TIMETABLE.pageUrl(JwEngine.BASE))
-                    val term = readTerm()
+                    //
+                    // 載入失敗就不要再去讀學期了：`readTerm` 有 6 秒預算，頁面還在登錄頁上
+                    // 時那 6 秒純屬白等；直接讓 ① 空跑、落到 ② 讀表格，行為與「學期讀不到」一致。
+                    val pageLoaded = engine.load(JwFeature.TIMETABLE.pageUrl(JwEngine.BASE))
+                    if (!pageLoaded) dumpDebug(token, ownerToken, "load", "false")
+                    val term = if (pageLoaded) readTerm() else Term("", "")
 
                     // ── 路徑 ①：個人課表 JSON 介面 ───────────────────────────
                     val jsonText = engine.fetchText(jsonUrl(), formBody(term))
@@ -172,6 +176,13 @@ class LiveJwTimetableRepository(
                             //   `saveSnapshot(token, ownerToken, dom)`，于是**一次失败把上一次那份好课表盖掉了**，
                             //   首页随即退回学在城院那份（同一节次出现两门课）。
                             //   失败不该有写快照的权限。
+                            //
+                            // 这条条件**不要**简化成 `slots.isNotEmpty()`（2026-11-23 审查误判过）：
+                            // 三个分支各自有意义 ——
+                            //   slots 非空               → 有内容，落盘（与路径 ① 一致）
+                            //   slots 空 且 unparsed 空  → **本周真没课**，是成功的空结果，也要落盘
+                            //                              （否则冷启动从 Empty 退成 FirstLoad）
+                            //   slots 空 且 unparsed 有 → 解析全失败，不落盘
                             if (parsed.slots.isNotEmpty() || parsed.unparsed.isEmpty()) {
                                 saveSnapshot(token, ownerToken, Json.encodeToString(parsed))
                             }
@@ -256,18 +267,35 @@ class LiveJwTimetableRepository(
         // 那不是页面没加载好（`readyState` 已是 complete、`#xnm`/`#xqm` 都在），
         // 是 WebView 刚切换文档后主线程那段回调被吞了。所以这里必须重试，
         // 否则 `xnm`/`xqm` 全空 ⇒ 介面只回 `null` ⇒ 白白落回读表格。
-        var raw: String? = null
-        for (attempt in 0 until 4) {
-            val got = engine.eval(script)
-            if (!got.isNullOrBlank()) { raw = got; break }
-            if (attempt < 3) kotlinx.coroutines.delay(1200)
+        //
+        // 两个约束，改之前先看清：
+        // 1. 判定要放在**解析之后**。脚本永远回非空 JSON（`{"xnm":"","xqm":""}`），
+        //    只判「返回值非空」的话，「回调回来了但 select 还没初始化、值为空串」
+        //    这一同样会导致接口回 null 的情形一次都不重试。
+        // 2. 整段要有**总时限**。`evalJsDecodedActive` 的 EVAL_TIMEOUT_MS 是 15s 且
+        //    超时返回 null 而不抛，4 次裸循环最坏 63.6s，而 JwEngine 是全 App 单例共用
+        //    （考勤/成绩同时刷新会被拖住）。这里给 6s 预算，用满就当没读到、走路径 ②。
+        val term = kotlinx.coroutines.withTimeoutOrNull(READ_TERM_BUDGET_MS) {
+            var found: Term? = null
+            for (attempt in 0 until 4) {
+                val got = engine.eval(script)
+                val obj = got?.takeIf { it.isNotBlank() }
+                    ?.let { raw -> catchingActive { Json.parseToJsonElement(raw) }.getOrNull() }
+                    ?.asObjectOrNull()
+                if (obj != null) {
+                    val xnm = obj["xnm"].asStringOrNull().orEmpty()
+                    val xqm = obj["xqm"].asStringOrNull().orEmpty()
+                    if (xnm.isNotBlank() && xqm.isNotBlank()) {
+                        found = Term(xnm, xqm)
+                        break
+                    }
+                }
+                if (attempt < 3) kotlinx.coroutines.delay(1200)
+            }
+            found
         }
-        val obj = catchingActive { Json.parseToJsonElement(raw.orEmpty()) }.getOrNull()?.asObjectOrNull()
-            ?: return Term("", "")
-        return Term(
-            obj["xnm"].asStringOrNull().orEmpty(),
-            obj["xqm"].asStringOrNull().orEmpty(),
-        )
+        if (term != null) return term
+        return Term("", "")
     }
 
     /**
@@ -327,6 +355,16 @@ class LiveJwTimetableRepository(
     private companion object {
         /** 等課表頁面把表格填完的時間（見上面註釋）。 */
         const val RENDER_SETTLE_MS = 2200L
+
+        /**
+         * 讀學期（`#xnm`/`#xqm`）的總預算。
+         *
+         * 為什麼要有上限：`engine.eval` 內部是 `EVAL_TIMEOUT_MS = 15s` 且**超時返回 null
+         * 不拋**，所以 4 次裸重試最壞能拖 63 秒，而 [JwEngine] 是全 App 單例共用 ——
+         * 考勤/成績同時刷新時會被這段白等卡住。6 秒夠覆蓋實測的「第一次不回、1.2 秒後回」，
+         * 用滿就當沒讀到、走路徑 ② 讀表格（結果一樣是對的，只是不那麼穩）。
+         */
+        const val READ_TERM_BUDGET_MS = 6_000L
 
         /** 上次爬到的課表原文（首屏拿它立刻畫出來）。 */
         const val SNAPSHOT = "jw_timetable_snapshot.json"

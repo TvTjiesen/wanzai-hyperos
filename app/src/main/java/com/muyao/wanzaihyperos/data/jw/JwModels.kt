@@ -95,8 +95,14 @@ enum class JwFeature(
     /**
      * 個人課表查詢。實測 27 KB。
      *
-     * ⚠️ 這支**沒有** `doType=query` 的資料介面（實測）——
-     * 它的內容直接畫在頁面 HTML 裡，所以只能解析 DOM。
+     * ⚠️ 這支**沒有** `doType=query` 的資料介面（實測只回 4 B `null`）——
+     * 它的內容直接畫在頁面 HTML 裡，所以 [dataUrl] 對它不適用。
+     *
+     * 但頁面自己的 JS（`xskbcx.js` 的 `cxKbContent`）另有一支具名介面：
+     * `xskbcx_cxXsgrkb.html?gnmkdm=N253508`，POST `xnm`/`xqm`
+     *（見 `JwTimetableRepository.jsonUrl` / `formBody`）。2026-11-23 起課表走那支，
+     * 解析見 `JwTimetableParser.parseGrkb`；讀不到才退回解析 DOM。
+     * 所以 `hasDataApi` 仍是 `false` —— 它指的是 `doType=query` 那支，不是全部介面。
      */
     TIMETABLE("N253508", "/kbcx/xskbcx_cxXskbcxIndex.html", "个人课表", hasDataApi = false),
     ;

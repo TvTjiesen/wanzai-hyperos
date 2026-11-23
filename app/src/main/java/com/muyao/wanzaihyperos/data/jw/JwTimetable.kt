@@ -253,7 +253,12 @@ object JwTimetableParser {
         val slots = LinkedHashMap<String, TronScheduleSlot>()
         val unparsed = mutableListOf<String>()
         array.forEachIndexed { i, item ->
-            val o = item.asObjectOrNull() ?: return@forEachIndexed
+            // 非对象条目也**不许静默丢**：学校把某条改成数组/字符串形态时，这里若直接
+            // 跳过，界面会少一门课而毫无痕迹（与下面「认不出星期/节次」同一纪律）。
+            val o = item.asObjectOrNull() ?: run {
+                unparsed.add("第${i + 1}条不是对象：${item.toString().take(120)}")
+                return@forEachIndexed
+            }
             val day = dayFromGrkb(o)
             val period = listOf("jc", "jcs", "jcor")
                 .firstNotNullOfOrNull { key -> periodOnly(o[key].asStringOrNull()) }
@@ -274,7 +279,15 @@ object JwTimetableParser {
             val room = o["cdmc"].asStringOrNull().orEmpty()
             val zcd = o["zcd"].asStringOrNull().orEmpty()
             // 多段週次逐段還原；學校真沒給就按整學期兜底並在 raw 留痕。
-            val weeks = weekList(zcd).ifEmpty { listOf(1..DEFAULT_LAST_WEEK) }
+            val parsedWeeks = weekList(zcd)
+            val weeks = parsedWeeks.ifEmpty { listOf(1..DEFAULT_LAST_WEEK) }
+            // 三分支：真沒給 / 給了但認不出（如「單周」「雙周」）/ 認出來了。
+            // 中間那支若照抄原字串，界面上就看不出周次其實是兜底的整學期。
+            val rawWeeks = when {
+                zcd.isBlank() -> "周次未给出"
+                parsedWeeks.isEmpty() -> "$zcd（未认出周次，按整学期显示）"
+                else -> zcd
+            }
             weeks.forEach { w ->
                 val slot = TronScheduleSlot(
                     courseId = stableId(courseCode.ifBlank { name }),
@@ -284,7 +297,7 @@ object JwTimetableParser {
                     periodEnd = period.second,
                     weekStart = w.first,
                     weekEnd = w.last,
-                    raw = if (zcd.isBlank()) "周次未给出" else zcd,
+                    raw = rawWeeks,
                     teacher = teacher,
                     room = room,
                     source = ScheduleSource.JIAOWU,
