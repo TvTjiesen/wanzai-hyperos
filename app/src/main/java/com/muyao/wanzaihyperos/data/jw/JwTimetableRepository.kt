@@ -14,6 +14,7 @@ import com.muyao.wanzaihyperos.data.startRefresh
 import com.muyao.wanzaihyperos.net.DiagnosticPolicy
 import com.muyao.wanzaihyperos.net.HzcuException
 import com.muyao.wanzaihyperos.net.asObjectOrNull
+import com.muyao.wanzaihyperos.net.asStringOrNull
 import com.muyao.wanzaihyperos.session.JwSession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,12 +29,17 @@ import kotlinx.serialization.json.Json
  *
  * ## 為什麼要兩條路
  *
- * 實測這個部署的課表頁**沒有** `doType=query` 的 JSON 介面
- *（`docs/B18-WALKTHROUGH.md` §11 記的），但正方的同名介面在别的版本裡是有的，
- * 而且它比 DOM 穩定得多（有 `kcmc`/`jsxm`/`cdmc`/`zcd` 這種具名欄位）。
- * 所以：**能拿到 JSON 就用 JSON，拿不到就讀表格**。
+ * 這個部署的課表頁**沒有** `doType=query` 的 JSON 介面
+ *（`docs/B18-WALKTHROUGH.md` §11 記的），但頁面 `xskbcx.js` 自己用的
+ * 「個人課表」介面是有的（`xskbcx_cxXsgrkb.html?gnmkdm=N253508`，
+ * 見 2026-11-23 curl 兩步登入後逐字實測）：它回 `kbList` 具名欄位，
+ * 比 DOM 穩定得多。所以：**能拿到 JSON 就用 JSON，拿不到就讀表格**。
  * 兩條路的結果都進同一個 [JwTimetableResult]，界面上標明用的是哪一條 ——
  * 出問題時一眼知道該查哪條，而不是「課表是空的」三個字。
+ *
+ * ⚠️ 舊碼打的是 `xskbcx_cxXsKb.html?doType=query`，這個站實測只回 `null`（4 B）；
+ * 真介面是 `xskbcx_cxXsgrkb.html`，且**必須**帶 `xnm`/`xqm`（從課表頁
+ * `#xnm`/`#xqm` 的 selected value 讀，不寫死），少一個就回 `null`。
  *
  * ## ★ 與「考試/成績」共用同一個 WebView 與同一份登入
  *
@@ -117,22 +123,26 @@ class LiveJwTimetableRepository(
                 val result = engine.run { catchingActive {
                     login.ensureLoggedIn(ownerToken)
 
-                    // ── 路徑 ①：JSON 介面 ──────────────────────────────────
-                    val jsonText = engine.fetchText(jsonUrl(), formBody())
+                    // 課表頁先載進來：① 的 xnm/xqm 要從它的 #xnm/#xqm 讀
+                    //（靜態 select，onPageFinished 就有；不依賴 XHR），
+                    // ② 也要用它已經渲染好的表格 —— 兩條路共用這一次載入。
+                    engine.load(JwFeature.TIMETABLE.pageUrl(JwEngine.BASE))
+                    val term = readTerm()
+
+                    // ── 路徑 ①：個人課表 JSON 介面 ───────────────────────────
+                    val jsonText = engine.fetchText(jsonUrl(), formBody(term))
                     dumpDebug(token, ownerToken, "json", jsonText)
                     val viaJson = jsonText?.takeIf { looksLikeJson(it) }?.let { text ->
                         catchingActive { Json.parseToJsonElement(text) }
                             .getOrNull()
-                            ?.let { JwTimetableParser.parseJson(it) }
+                            ?.let { JwTimetableParser.parseGrkb(it) }
                             ?.takeIf { it.slots.isNotEmpty() }
                     }
                     if (viaJson != null) {
                         saveSnapshot(token, ownerToken, Json.encodeToString(viaJson))
-                        viaJson.copy(rawLength = jsonText?.length ?: 0)
+                        viaJson.copy(rawLength = jsonText.length)
                     } else {
                         // ── 路徑 ②：讀渲染好的表格 ────────────────────────────
-                        // 先把它自己的課表頁載進來（表格是頁面自己渲染的）。
-                        engine.load(JwFeature.TIMETABLE.pageUrl(JwEngine.BASE))
                         // 這個站的課表是頁面載完之後再用 XHR 填進表格的
                         //（JwEngine.load 只等 onPageFinished，不等 XHR），
                         // 所以這裡必須留時間 —— 少了這段會讀到**空表格**，
@@ -219,36 +229,62 @@ class LiveJwTimetableRepository(
         }
     }
 
+    /** 這個站「個人課表」真正的資料介面（沒有 doType=query）。 */
     private fun jsonUrl(): String =
-        JwEngine.BASE + "/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=" + JwFeature.TIMETABLE.code + "&doType=query"
+        JwEngine.BASE + "/jwglxt/kbcx/xskbcx_cxXsgrkb.html?gnmkdm=" + JwFeature.TIMETABLE.code
+
+    private data class Term(val xnm: String, val xqm: String)
 
     /**
-     * 課表介面的表單包體。
+     * 從課表頁的 `#xnm`/`#xqm` 讀**當前學年學期**（靜態 select 的 selected value）。
      *
-     * ⚠️ `xh` 用**登錄帳號本身**（正方的學號就是帳號）——
-     * 不另找一個「學生 id」欄位：那個要再打一支介面才有，而帳號錯的話
-     * 這支介面只會回空課表，界面上就成了「本週沒課」的謊。
-     * `xn`/`xqm` 留空＝不篩學年學期（與考試/成績那兩支同一個做法）。
+     * 為什麼不寫死、也不拿日期猜：這站 `xqm` 是私有編碼（實測 `3`=第一學期、
+     * `12`=第二學期、`16`=暑），而且個人課表介面**必須**同時帶 `xnm`+`xqm`，
+     * 少一個或留空就只回 `null`（4 B）。頁面自己選的是哪一學期，就以它為準。
+     *
+     * 讀不到回空值 ⇒ ① 會回 `null` ⇒ 自動落到路徑 ② 讀表格，不假装有数据。
      */
-    private fun formBody(): String {
-        val xh = session.account().orEmpty()
-        return listOf(
-            "xh=${urlEncode(xh)}",
-            "xn=",
-            "xqm=",
-            "cdlxid=",
-            "jsid=",
-            "did=",
-            "kckxld=",
-            "_search=false",
-            "nd=${clock()}",
-            "queryModel.showCount=200",
-            "queryModel.currentPage=1",
-            "queryModel.sortName=",
-            "queryModel.sortOrder=asc",
-            "time=0",
-        ).joinToString("&")
+    private suspend fun readTerm(): Term {
+        val script = """
+            (function(){
+              function v(id){ var e = document.getElementById(id); return e ? (e.value || '') : ''; }
+              return JSON.stringify({ xnm: v('xnm'), xqm: v('xqm') });
+            })()
+        """.trimIndent()
+        // ⚠️ 真机实测（2026-11-23）：`engine.load` 回来**立刻** eval，第一次
+        // `evaluateJavascript` 回调不会回来（拿到 null），隔 ~1.2s 第二次才有值。
+        // 那不是页面没加载好（`readyState` 已是 complete、`#xnm`/`#xqm` 都在），
+        // 是 WebView 刚切换文档后主线程那段回调被吞了。所以这里必须重试，
+        // 否则 `xnm`/`xqm` 全空 ⇒ 介面只回 `null` ⇒ 白白落回读表格。
+        var raw: String? = null
+        for (attempt in 0 until 4) {
+            val got = engine.eval(script)
+            if (!got.isNullOrBlank()) { raw = got; break }
+            if (attempt < 3) kotlinx.coroutines.delay(1200)
+        }
+        val obj = catchingActive { Json.parseToJsonElement(raw.orEmpty()) }.getOrNull()?.asObjectOrNull()
+            ?: return Term("", "")
+        return Term(
+            obj["xnm"].asStringOrNull().orEmpty(),
+            obj["xqm"].asStringOrNull().orEmpty(),
+        )
     }
+
+    /**
+     * 個人課表介面的表單包體（逐字對齊頁面 `xskbcx.js` 的 `paramMap()`）。
+     *
+     * curl 兩步登入後逐項實測：**只有 `xnm` 與 `xqm` 同時非空**才回資料（37735 B）；
+     * `csrftoken`、`kzlx`、body 裡的 `gnmkdm` 都不是必要條件（給不給都一樣）。
+     * query string 上的 `?gnmkdm=N253508` 才是必備的（見 [jsonUrl]）。
+     */
+    private fun formBody(term: Term): String = listOf(
+        "xnm=${urlEncode(term.xnm)}",
+        "xqm=${urlEncode(term.xqm)}",
+        "kzlx=ck",
+        "xsdm=",
+        "kclbdm=",
+        "kclxdm=",
+    ).joinToString("&")
 
     private fun urlEncode(v: String): String =
         java.net.URLEncoder.encode(v, "UTF-8")

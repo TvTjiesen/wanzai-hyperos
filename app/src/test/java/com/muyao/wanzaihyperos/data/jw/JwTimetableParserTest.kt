@@ -116,6 +116,91 @@ class JwTimetableParserTest {
         assertFalse(r.nothingAtAll)
     }
 
+    // ── 路徑 ①′：**個人課表介面 xskbcx_cxXsgrkb.html**（2026-11-23 curl 逐字實測）──
+    //
+    // 這個部署星期與節次**分在不同欄位**（xqj/xqjmc 與 jc），教師欄位是 `xm`，
+    // 週次是多段清單（zcd）。下面的形態取自真機回包，個資（姓名/課名/教室）換成假的。
+
+    private fun grkbItem(
+        xqj: String, xqjmc: String, jc: String, zcd: String,
+        kcmc: String, kch: String, xm: String, cdmc: String,
+    ) = """{"xqj":"$xqj","xqjmc":"$xqjmc","jc":"$jc","jcs":"${jc.removeSuffix("节")}",
+        "zcd":"$zcd","kcmc":"$kcmc","kch":"$kch","xm":"$xm","cdmc":"$cdmc"}"""
+
+    @Test
+    fun `个人课表 grkb 一条星期与节次分开也能还原成槽位`() {
+        val r = JwTimetableParser.parseGrkb(
+            json(
+                """{"xsxx":{"XNMC":"2026-2027","XQMMC":"1","XNM":"2026","XQM":"3"},
+                    "kbList":[ ${grkbItem("1", "星期一", "1-2节", "第18周", "大学物理", "A01014", "陈明", "文1-103")} ]}""",
+            ),
+        )
+        val s = r.slots.single()
+        assertEquals("大学物理", s.courseName)
+        assertEquals("陈明", s.teacher)       // 這個站教師欄位是 xm，不是 jsxm
+        assertEquals("文1-103", s.room)
+        assertEquals(1, s.dayOfWeek)
+        assertEquals(1, s.periodStart)
+        assertEquals(2, s.periodEnd)
+        assertEquals(18, s.weekStart)          // 「第18周」= 只有第 18 周
+        assertEquals(18, s.weekEnd)
+        assertEquals(ScheduleSource.JIAOWU, s.source)
+        assertEquals("2026-2027学年第1学期", r.termLabel)
+        assertEquals("教务个人课表", r.strategy)
+        assertTrue(r.unparsed.isEmpty())
+    }
+
+    @Test
+    fun `个人课表 grkb 的多段周次一段出一个槽位`() {
+        val r = JwTimetableParser.parseGrkb(
+            json(
+                """{"kbList":[ ${grkbItem("1", "星期一", "6-9节", "1-3周,5-17周", "B-S架构", "B01116", "史某", "理4-226")} ]}""",
+            ),
+        )
+        assertEquals(2, r.slots.size)
+        assertEquals(
+            listOf(1..3, 5..17),
+            r.slots.map { it.weekStart..it.weekEnd }.sortedBy { it.first },
+        )
+        assertEquals(6, r.slots.first().periodStart)
+        assertEquals(9, r.slots.first().periodEnd)
+    }
+
+    @Test
+    fun `个人课表 grkb 星期栏用中文名也能认`() {
+        // 有的部署不回 xqj 数字，只有 xqjmc 中文
+        val r = JwTimetableParser.parseGrkb(
+            json("""{"kbList":[{"xqjmc":"星期日","jc":"3-4节","zcd":"第1周","kcmc":"体育","kch":"D1","xm":"赵某","cdmc":"西网球场"}]}"""),
+        )
+        assertEquals(7, r.slots.single().dayOfWeek)
+    }
+
+    @Test
+    fun `个人课表 grkb 认不出的条目原样留证不静默丢`() {
+        val r = JwTimetableParser.parseGrkb(
+            json("""{"kbList":[{"kcmc":"奇怪课","jc":"", "xqj":"9"}]}"""),
+        )
+        assertTrue(r.slots.isEmpty())
+        assertTrue(r.unparsed.single().contains("奇怪课"))
+    }
+
+    @Test
+    fun `个人课表 grkb 没有 kbList 时说清形态不对`() {
+        val r = JwTimetableParser.parseGrkb(json("""{"success":true}"""))
+        assertTrue(r.slots.isEmpty() && r.unparsed.isNotEmpty())
+        assertTrue(r.unparsed.single().contains("没有 kbList"))
+        assertFalse(r.nothingAtAll)
+    }
+
+    @Test
+    fun `个人课表 grkb 同课同节不同老师不被当成重复压掉`() {
+        val a = grkbItem("2", "星期二", "8-9节", "10-16周", "毛概", "A41014", "甲老师", "教六206")
+        val b = grkbItem("2", "星期二", "8-9节", "10-16周", "毛概", "A41014", "乙老师", "教六206")
+        val r = JwTimetableParser.parseGrkb(json("""{"kbList":[$a,$b]}"""))
+        assertEquals(2, r.slots.size)
+        assertEquals(setOf("甲老师", "乙老师"), r.slots.map { it.teacher }.toSet())
+    }
+
     // ── 路徑 ②：DOM 表格 ──────────────────────────────────────────────────
 
     @Test

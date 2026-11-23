@@ -24,12 +24,17 @@ import kotlinx.serialization.json.JsonPrimitive
  * ## ★ 兩條取數路徑（逐條回退，不假裝只有一條）
  *
  * ```
- * ① JSON：POST /jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N253508&doType=query
- *          → { kbList: [ {kcmc, jsxm, cdmc, zcd, xbjmsz, …} ] }
- * ② DOM ：①拿不到 JSON 時（實測這個站的課表頁**沒有** doType=query，
- *          見 docs/B18-WALKTHROUGH.md §11），直接讀**已經渲染好的課表表格**
+ * ① JSON：POST /jwglxt/kbcx/xskbcx_cxXsgrkb.html?gnmkdm=N253508
+ *          body = xnm/xqm（從課表頁 #xnm/#xqm 讀，不寫死）
+ *          → { xsxx:{XNMC,XQMMC,…}, kbList:[ {xqj, jc, zcd, kcmc, kch, xm, cdmc, …} ] }
+ *          （這支是頁面 xskbcx.js 自己用的「个人课表」介面；
+ *            這站**沒有** doType=query，見 docs/B18-WALKTHROUGH.md §11）
+ * ② DOM ：①拿不到 JSON 時，直接讀**已經渲染好的課表表格**
  *          （行=節次、列=星期，每格 innerText 逐行拆）。
  * ```
+ *
+ * ⚠️ ① 的星期與節次**分在不同欄位**（`xqj`/`xqjmc` 與 `jc`），
+ * [parseItem] 那套「同一字串裡星期+節次」認不出來 ⇒ 走 [parseGrkb]。
  *
  * 兩條都可能失敗，而且失敗長得很像（都是「0 門課」）。
  * 所以結果一定帶著**用了哪條路**與**哪些格沒認出來（原樣列出）**。
@@ -215,6 +220,101 @@ object JwTimetableParser {
             }
         }
         return JwTimetableResult(slots, unparsed, "教务JSON", root.toString().length)
+    }
+
+    /**
+     * 解析這個部署**真正**用的「個人課表」介面（[JwTimetableRepository] 路徑 ①）。
+     *
+     * 形態（curl 兩步登入後 POST `xskbcx_cxXsgrkb.html?gnmkdm=N253508` 逐字實測）：
+     * ```
+     * { xsxx:{XNMC:"2026-2027", XQMMC:"1", XNM, XQM, …},
+     *   kbList:[ {xqj:"1", xqjmc:"星期一", jc:"1-2节", jcs:"1-2", jcor:"1-2",
+     *             zcd:"1-3周,5-17周", kcmc:"…", kch:"A01014", xm:"陈明", cdmc:"文1-103"}, … ] }
+     * ```
+     *
+     * ★ 為什麼不能复用 [parseItem]：那套要求「同一個字串裡既有星期又有節次」，
+     *   這裡**星期（xqj/xqjmc）與節次（jc/jcs/jcor）分在不同欄位**，
+     *   逐條都認不出來 ⇒ 22 條全進 unparsed ⇒ 課表永遠是空的。
+     *   教師欄位是 `xm`（不是 `jsxm`）；週次是**多段清單**（`zcd`），
+     *   一段一個槽位（與 DOM 路徑同一條既定規則）。
+     */
+    fun parseGrkb(root: JsonElement?): JwTimetableResult {
+        val obj = root.asObjectOrNull()
+        val array = obj?.get("kbList").asArrayOrNull()
+        if (array == null) {
+            return JwTimetableResult(
+                emptyList(),
+                listOf("教务个人课表接口回的不是课表数据（没有 kbList 这一项）"),
+                "教务个人课表",
+                root?.toString()?.length ?: 0,
+            )
+        }
+        val termLabel = grkbTermLabel(obj)
+        val slots = LinkedHashMap<String, TronScheduleSlot>()
+        val unparsed = mutableListOf<String>()
+        array.forEachIndexed { i, item ->
+            val o = item.asObjectOrNull() ?: return@forEachIndexed
+            val day = dayFromGrkb(o)
+            val period = listOf("jc", "jcs", "jcor")
+                .firstNotNullOfOrNull { key -> periodOnly(o[key].asStringOrNull()) }
+            if (day == null || period == null) {
+                // 認不出來**不許靜默丟**：原樣留證（一格丟一門課 = 他不去上）。
+                val dump = o.entries
+                    .mapNotNull { (k, v) -> v.asStringOrNull()?.takeIf { it.isNotBlank() }?.let { "$k=$it" } }
+                    .joinToString(" ")
+                    .take(160)
+                unparsed.add("第${i + 1}条没认出星期或节次：$dump")
+                return@forEachIndexed
+            }
+            val name = (o["kcmc"].asStringOrNull() ?: o["courseName"].asStringOrNull() ?: "")
+                .ifBlank { "（未命名）" }
+            val courseCode = o["kch"].asStringOrNull().orEmpty()
+            // `jsxm` 是別的部署的欄位名，這個站用 `xm`；兩個都留著當相容。
+            val teacher = o["xm"].asStringOrNull() ?: o["jsxm"].asStringOrNull() ?: ""
+            val room = o["cdmc"].asStringOrNull().orEmpty()
+            val zcd = o["zcd"].asStringOrNull().orEmpty()
+            // 多段週次逐段還原；學校真沒給就按整學期兜底並在 raw 留痕。
+            val weeks = weekList(zcd).ifEmpty { listOf(1..DEFAULT_LAST_WEEK) }
+            weeks.forEach { w ->
+                val slot = TronScheduleSlot(
+                    courseId = stableId(courseCode.ifBlank { name }),
+                    courseName = name.take(40),
+                    dayOfWeek = day,
+                    periodStart = period.first,
+                    periodEnd = period.second,
+                    weekStart = w.first,
+                    weekEnd = w.last,
+                    raw = if (zcd.isBlank()) "周次未给出" else zcd,
+                    teacher = teacher,
+                    room = room,
+                    source = ScheduleSource.JIAOWU,
+                )
+                // dedupeKey 不含教師 ⇒「同課同節次同週、不同老師」會被壓掉，
+                // 這裡補上教師，避免把換老師的那一位靜默吞掉（與「不靜默丟」一致）。
+                slots.putIfAbsent("${slot.dedupeKey()}|$teacher", slot)
+            }
+        }
+        return JwTimetableResult(
+            slots.values.sortedWith(compareBy({ it.dayOfWeek }, { it.periodStart }, { it.courseName })),
+            unparsed, "教务个人课表", root.toString().length, termLabel,
+        )
+    }
+
+    /** `xqj`(1..7) 優先，`xqjmc`(星期一…日) 兜底。 */
+    private fun dayFromGrkb(o: JsonObject): Int? {
+        o["xqj"].asStringOrNull()?.trim()?.toIntOrNull()?.takeIf { it in 1..7 }?.let { return it }
+        val m = DAY.find(o["xqjmc"].asStringOrNull().orEmpty()) ?: return null
+        val g = m.groupValues[1]
+        val d = g.toIntOrNull() ?: DAY_CHARS[g.firstOrNull() ?: ' '] ?: return null
+        return d.takeIf { it in 1..7 }
+    }
+
+    /** 學期名從 `xsxx` 拼（不拿日期猜）：`XNMC`="2026-2027"、`XQMMC`="1"。 */
+    private fun grkbTermLabel(obj: JsonObject?): String {
+        val xsxx = obj?.get("xsxx").asObjectOrNull() ?: return ""
+        val xn = xsxx["XNMC"].asStringOrNull().orEmpty()
+        val xq = xsxx["XQMMC"].asStringOrNull().orEmpty()
+        return if (xn.isNotBlank() && xq.isNotBlank()) "${xn}学年第${xq}学期" else ""
     }
 
     /**
