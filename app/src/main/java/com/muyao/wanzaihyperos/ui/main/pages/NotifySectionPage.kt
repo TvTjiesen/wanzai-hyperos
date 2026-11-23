@@ -1059,10 +1059,16 @@ private fun MessageRow(
 ) {
     val colors = MiuixTheme.colorScheme
     val openUrl = m.openUrl?.takeIf { it.isNotBlank() && !opensPortalTextFirst }
+    val shape = RoundedCornerShape(20.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .then(modifier)
+            // clip 在最外层：卡面与点击水波都按圆角裁切；clickable 在 padding 之前，整行仍可点。
+            .clip(shape)
+            .background(colors.surface.copy(alpha = 0.72f))
+            .border(1.dp, colors.dividerLine.copy(alpha = 0.6f), shape)
+            // 消息条目本身是一张半透明玻璃卡：描边 + 半透明底 + 圆角，与搜索胶囊/chip/底栏同一套材质。
             .then(
                 if (openUrl == null) {
                     Modifier.clickable(role = Role.Button, onClickLabel = "查看本地全文，只读不标已读") { onOpenLocal(m) }
@@ -1074,7 +1080,7 @@ private fun MessageRow(
                 }
             )
             .heightIn(min = 48.dp)
-            .padding(horizontal = 0.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(Dims.loose),
         // 頂對齊是為了標題折成兩行時，日期仍停在第一行。
         verticalAlignment = Alignment.Top,
@@ -1150,9 +1156,13 @@ private fun UnreadMark(unread: Boolean) {
 private fun NewsRow(n: PortalNewsItem, onOpenUrl: (String) -> Unit) {
     val colors = MiuixTheme.colorScheme
     val openUrl = n.openUrl?.takeIf { it.isNotBlank() }
+    val shape = RoundedCornerShape(20.dp)
     Row(Modifier.fillMaxWidth()
+        .clip(shape)
+        .background(colors.surface.copy(alpha = 0.72f))
+        .border(1.dp, colors.dividerLine.copy(alpha = 0.6f), shape)
         .then(if (openUrl == null) Modifier else Modifier.clickable(role = Role.Button) { onOpenUrl(openUrl) })
-        .heightIn(min = 56.dp).padding(vertical = 12.dp),
+        .heightIn(min = 56.dp).padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(n.title.ifBlank { "（无标题）" }, fontSize = 16.sp, lineHeight = 23.sp,

@@ -139,4 +139,27 @@ class AiBallInteractionTest {
         val parent = File("src/main/java/com/muyao/wanzaihyperos/ui/main/SwipeToSwitchSection.kt").readText()
         assertTrue(parent.indexOf("isPointerCaptured(change.id.value)") < parent.indexOf("dx += change.position.x"))
     }
+
+    @Test fun draggedBallParksInsteadOfReturningToOrigin() {
+        val source = File("src/main/java/com/muyao/wanzaihyperos/ui/design/ai/AiBall.kt").readText()
+        assertTrue(source.contains("var parkedOffset by remember { mutableStateOf(Offset.Zero) }"))
+        assertTrue(source.contains("var dragged = false"))
+        // 按下即拖（原有手势优先）：CANCEL 被改判成拖球，而不是丢掉手势。
+        assertTrue(source.contains("return@withTimeoutOrNull AiBallPressDecision.HOLD"))
+        assertTrue(source.contains("if (dragged) {"))
+        // 静止到超时才弹状态浮签；拖球路径不设 HOLD。
+        // 从 else if (confirmed) 起算，避开 showStatus() 里更早的那次 aiBallStatusInteraction。
+        val confirmed = source.indexOf("else if (confirmed)")
+        assertTrue(confirmed > 0)
+        assertTrue(source.indexOf("if (dragged) {", confirmed) <
+            source.indexOf("interaction = aiBallStatusInteraction(interaction)", confirmed))
+        assertTrue(source.contains("AiBallDrag.limit("))
+        assertTrue(source.contains("parkedOffset = Offset(lx, ly)"))
+        assertTrue(source.contains("parkedOffset + heldOffset"))
+        assertTrue(source.contains("else -> parkedOffset"))
+        // 拖过就走 cancel() 停住，静止长按仍走 release() 回弹，两条路径都在源码里。
+        val parked = source.indexOf("if (held && dragged)")
+        val bounced = source.indexOf("} else if (held) interaction = interaction.release()")
+        assertTrue(parked >= 0 && bounced > parked)
+    }
 }

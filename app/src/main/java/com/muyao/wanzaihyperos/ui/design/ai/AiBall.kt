@@ -12,6 +12,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.size
@@ -63,6 +64,7 @@ import com.muyao.wanzaihyperos.ui.design.Tone
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 import io.github.neoruaa.glasmio.glass.applyGlassDragScale
@@ -113,6 +115,8 @@ fun AiBall(
     val dragPress = remember { Animatable(0f, 0.001f) }
     val returnOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     var heldOffset by remember { mutableStateOf(Offset.Zero) }
+    /** 上次拖完停住的位置。离页/后台时 visualOffset 仍先归零，回来再显示，不丢用户的摆放。 */
+    var parkedOffset by remember { mutableStateOf(Offset.Zero) }
     var tipVisible by remember { mutableStateOf(false) }
     var autoDismissStatus by remember { mutableStateOf(false) }
     val tipAlpha = remember { Animatable(0f) }
@@ -272,11 +276,16 @@ fun AiBall(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = true, pass = PointerEventPass.Main)
                     val half = size.width / 2f
+                    // 自由拖拽的停放半径：球可以被拖走，但不会飞出标题行的合理范围。
+                    val dragRadius = 56.dp.toPx()
                     fun observe(at: Offset) {
                         if (motion.canMove) interaction = interaction.observe((at.x - half) / half, (at.y - half) / half)
                     }
                     var released = false
                     var held = false
+                    // 按下后手指一挪就算拖球（原有手势优先）；只有一直静止到 450ms 才弹状态浮签。
+                    var dragged = false
+                    var dragStart = Offset.Zero
                     var tap = down
                     try {
                         val result = withTimeoutOrNull(AiBallDrag.HOLD_MS) {
@@ -291,17 +300,30 @@ fun AiBall(
                                     event.changes.count { it.pressed }, change.isConsumed,
                                 )
                                 if (decision == AiBallPressDecision.TAP) tap = change
+                                // 手指越过触摸阈值 = 拖球（原有手势优先），别让策略把它当一般取消丢掉。
+                                if (decision == AiBallPressDecision.CANCEL && change.pressed &&
+                                    (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                    dragged = true
+                                    dragStart = parkedOffset
+                                    return@withTimeoutOrNull AiBallPressDecision.HOLD
+                                }
                                 if (decision != AiBallPressDecision.WAIT) return@withTimeoutOrNull decision
                                 event = awaitPointerEvent(PointerEventPass.Initial)
                                 val initial = event.changes.firstOrNull { it.id == down.id }
                                     ?: return@withTimeoutOrNull AiBallPressDecision.CANCEL
-                                if (aiBallPressDecision(
-                                        initial.uptimeMillis - down.uptimeMillis,
-                                        (initial.position - down.position).getDistance(),
-                                        viewConfiguration.touchSlop, initial.pressed,
-                                        event.changes.count { it.pressed }, initial.isConsumed,
-                                    ) == AiBallPressDecision.CANCEL
-                                ) return@withTimeoutOrNull AiBallPressDecision.CANCEL
+                                val initialDecision = aiBallPressDecision(
+                                    initial.uptimeMillis - down.uptimeMillis,
+                                    (initial.position - down.position).getDistance(),
+                                    viewConfiguration.touchSlop, initial.pressed,
+                                    event.changes.count { it.pressed }, initial.isConsumed,
+                                )
+                                if (initialDecision == AiBallPressDecision.CANCEL && initial.pressed &&
+                                    (initial.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                    dragged = true
+                                    dragStart = parkedOffset
+                                    return@withTimeoutOrNull AiBallPressDecision.HOLD
+                                }
+                                if (initialDecision == AiBallPressDecision.CANCEL) return@withTimeoutOrNull AiBallPressDecision.CANCEL
                                 event = awaitPointerEvent(PointerEventPass.Final)
                             }
                             @Suppress("UNREACHABLE_CODE")
@@ -320,16 +342,41 @@ fun AiBall(
                             if (motion.canMove) interaction = interaction.tap(tap.uptimeMillis, tap.position.x, tap.position.y, viewConfiguration.touchSlop * 2)
                         } else if (confirmed) {
                             HorizontalDragZones.claimPointer(down.id.value, captureOwner)
-                            held = true; autoDismissStatus = false; tipVisible = true
-                            heldOffset = Offset.Zero
-                            interaction = aiBallStatusInteraction(interaction)
-                            latestStatusRequest.value?.invoke()
+                            held = true
+                            // 拖动在 450ms 之前就成立：别弹状态浮签，也别把 interaction 设成 HOLD。
+                            // 只有一直静止到超时才走原来的「看状态」路径。
+                            if (dragged) {
+                                tipVisible = false; autoDismissStatus = false
+                                interaction = interaction.cancel()
+                            } else {
+                                autoDismissStatus = false; tipVisible = true
+                                heldOffset = Offset.Zero
+                                interaction = aiBallStatusInteraction(interaction)
+                                latestStatusRequest.value?.invoke()
+                            }
                             last?.consume()
+                            // 静止 = 看状态（原逻辑，松手弹回停放位）；挪动超阈值 = 拖球，
+                            // 跟手走、松手停在原处，不再弹回。两条路径共用同一次指针捕获。
                             while (true) {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                 if (event.changes.count { it.pressed } > 1 || change.isConsumed) break
-                                heldOffset = change.position - down.position
+                                val delta = change.position - down.position
+                                // 静止长按成立后才开始挪动，同样切成拖球。
+                                if (!dragged && delta.getDistance() > viewConfiguration.touchSlop) {
+                                    dragged = true
+                                    dragStart = parkedOffset
+                                    tipVisible = false; autoDismissStatus = false
+                                    interaction = interaction.cancel()
+                                }
+                                if (dragged) {
+                                    val (lx, ly) = AiBallDrag.limit(
+                                        dragStart.x + delta.x, dragStart.y + delta.y, dragRadius)
+                                    parkedOffset = Offset(lx, ly)
+                                    heldOffset = Offset.Zero
+                                } else {
+                                    heldOffset = delta
+                                }
                                 observe(change.position)
                                 change.consume()
                                 if (!change.pressed) { released = true; break }
@@ -338,7 +385,9 @@ fun AiBall(
                         }
                     } finally {
                         HorizontalDragZones.releasePointers(captureOwner)
-                        if (held) interaction = interaction.release()
+                        if (held && dragged) {
+                            heldOffset = Offset.Zero; tipVisible = false; interaction = interaction.cancel()
+                        } else if (held) interaction = interaction.release()
                         else if (!released) {
                             heldOffset = Offset.Zero; tipVisible = false; interaction = interaction.cancel()
                         }
@@ -364,9 +413,9 @@ fun AiBall(
         contentAlignment = Alignment.Center,
     ) {
         val visualOffset = if (!enabled) Offset.Zero else when (interaction.action) {
-            AiBallAction.TRACK, AiBallAction.HOLD -> heldOffset
-            AiBallAction.RETURN -> if (moving) returnOffset.value else Offset.Zero
-            else -> Offset.Zero
+            AiBallAction.TRACK, AiBallAction.HOLD -> parkedOffset + heldOffset
+            AiBallAction.RETURN -> if (moving) parkedOffset + returnOffset.value else parkedOffset
+            else -> parkedOffset
         }
         val tipBounds = ballCoordinates?.takeIf { it.isAttached }?.boundsInWindow()
         CompositionLocalProvider(LocalAiBallTipBounds provides tipBounds) {
@@ -375,6 +424,9 @@ fun AiBall(
         Canvas(
             modifier = Modifier
                 .size(diameter)
+                // 真正把球拖走：vendor 的 applyGlassDragScale 用 tanh 把位移压成约 5%
+                // （只做液态形变），所以停放位移必须由布局层 offset 承担。
+                .offset { androidx.compose.ui.unit.IntOffset(visualOffset.x.roundToInt(), visualOffset.y.roundToInt()) }
                 .graphicsLayer {
                     applyGlassDragScale(
                         pressProgress = if (moving) dragPress.value else 0f,

@@ -1,6 +1,7 @@
 package com.muyao.wanzaihyperos.ui.main.pages.redesign
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -64,11 +65,16 @@ fun LazyListScope.notifyBroadcastItems(
                 if (state.meta.hasRefreshProblem) TextButton("重试公告", onRefresh)
                 if (state.items.size >= 1000) BroadcastHint("已达到本次读取上限")
             }
+            val shape = RoundedCornerShape(20.dp)
             state.items.forEach { announcement ->
                 item(key = "broadcast-${announcement.id}") {
+                    // 系统公告默认页的条目同样是一张玻璃卡，与门户通知/新闻一致。
                     Column(Modifier.fillMaxWidth()
+                        .clip(shape)
+                        .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.72f))
+                        .border(1.dp, MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.6f), shape)
                         .clickable(role = Role.Button, onClickLabel = "查看公告") { onOpen(announcement) }
-                        .heightIn(min = 56.dp).padding(vertical = 12.dp),
+                        .heightIn(min = 56.dp).padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(announcement.title, fontSize = 16.sp, lineHeight = 23.sp, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, color = MiuixTheme.colorScheme.onBackground)
                         if (announcement.description.isNotBlank()) Text(
