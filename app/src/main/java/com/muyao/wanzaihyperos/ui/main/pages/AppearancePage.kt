@@ -44,6 +44,9 @@ import androidx.compose.ui.unit.sp
 import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.data.UiPrefs
 import com.muyao.wanzaihyperos.ui.AppThemeMode
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog
+import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton
 import com.muyao.wanzaihyperos.ui.design.*
 import com.muyao.wanzaihyperos.ui.home.*
 import kotlinx.coroutines.CancellationException
@@ -475,17 +478,32 @@ fun AppearancePage(
                 }
             })
     }
-    // ⚠️ 这里仍是 material3 的 AlertDialog + TextButton：白底、直角、Material 蓝字，
-    // 在这套玻璃/Miuix 主题里确实像另一个 app 的弹窗。但换成自绘确认卡属于
-    // 「控件统一」那一批（m18833：等批准后实施），不在这里夹带。
-    if (confirmReset) androidx.compose.material3.AlertDialog(onDismissRequest = { confirmReset = false },
-        title = { androidx.compose.material3.Text("恢复默认外观？") },
-        text = { androidx.compose.material3.Text("立即恢复默认外观。图库、账号和学习数据保留。") },
-        confirmButton = { androidx.compose.material3.TextButton(onClick = {
-            current = AppearanceSettings(); selected = null; crop = WallpaperEntry("preview", 0f, 0f, 1f)
-            confirmReset = false
-        }) { androidx.compose.material3.Text("恢复默认") } },
-        dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmReset = false }) { androidx.compose.material3.Text("取消") } })
+    // 原来是 material3 的 AlertDialog + TextButton：白底、直角、Material 蓝字，在这套
+    // 玻璃/Miuix 主题里像另一个 app 的弹窗。改用项目统一的 WanzaiOverlayDialog
+    // （减动效时退成实底，两种动效档都有材质），按钮走 WanzaiTextButton，
+    // 与「管理账号」「重试公告」那些确认框是同一套。玻璃绘制点在 adapter 文件里，
+    // 所以本页仍然不产生任何玻璃绘制点（AppearanceOrderOnceTest 盯着这条）。
+    WanzaiOverlayDialog(
+        show = confirmReset,
+        onDismissRequest = { confirmReset = false },
+        title = "恢复默认外观？",
+        summary = "立即恢复默认外观。图库、账号和学习数据保留。",
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 危险操作不能和「取消」长一个样：两个都是灰字按钮时，读者要靠读文字才分得清
+            // 哪个是确认，误触代价是整份外观设置被清掉。确认键走实心主色（prominent）。
+            WanzaiTextButton(text = "取消", onClick = { confirmReset = false },
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp))
+            WanzaiButton(
+                onClick = {
+                    current = AppearanceSettings(); selected = null; crop = WallpaperEntry("preview", 0f, 0f, 1f)
+                    confirmReset = false
+                },
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                prominent = true,
+            ) { Text("恢复默认") }
+        }
+    }
 }
 
 @Composable

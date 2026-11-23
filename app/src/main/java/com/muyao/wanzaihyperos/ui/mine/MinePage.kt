@@ -22,7 +22,8 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton as TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ContactsCircle
 import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog as OverlayDialog
@@ -206,12 +207,13 @@ fun MinePage(
                 onClick = { showLogoutConfirm = false },
                 modifier = Modifier.weight(1f),
             )
-            top.yukonga.miuix.kmp.basic.Button(
+            WanzaiButton(
                 onClick = {
                     showLogoutConfirm = false
                     onLogout()
                 },
                 modifier = Modifier.weight(1f),
+                prominent = true,
             ) {
                 Text(text = "退出")
             }

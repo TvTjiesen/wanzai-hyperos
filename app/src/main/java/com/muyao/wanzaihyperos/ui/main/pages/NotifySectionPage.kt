@@ -85,7 +85,8 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton as TextButton
 import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog as OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -710,13 +711,14 @@ fun NotifySectionPage(
                 onClick = { confirmReadAll = null },
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
             )
-            top.yukonga.miuix.kmp.basic.Button(
+            WanzaiButton(
                 onClick = {
                     val g = confirmReadAll
                     confirmReadAll = null
                     g?.let { onReadAll(it.name) }
                 },
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                prominent = true,
             ) {
                 Text(text = "全部已读")
             }
