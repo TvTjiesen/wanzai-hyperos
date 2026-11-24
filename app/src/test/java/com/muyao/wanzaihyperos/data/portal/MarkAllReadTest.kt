@@ -66,22 +66,11 @@ class MarkAllReadTest {
     }
 
     @Test
-    fun `组头按钮接到底、且按下去先问一句`() {
+    fun `移除旧通知入口后该页不再触发已读写操作`() {
         val page = source("app/src/main/java/com/muyao/wanzaihyperos/ui/main/pages/NotifySectionPage.kt")
-        assertTrue("页面必须收 onReadAll", "onReadAll: (String) -> Unit = {}" in page)
-        assertTrue("组头要有入口", "ReadAllAction(onClick = { confirmReadAll = openGroup })" in page)
-        assertTrue("批量写必须先确认", "OverlayDialog(" in page)
-        // 只标当前这一组 —— 门户没有跨组接口，按钮不能挂在「全部」筛选上。
-        assertTrue(
-            "入口要盯当前分组",
-            "msgGroups.firstOrNull { it.name == msgSelected?.name }" in page,
-        )
-
-        val shell = source("app/src/main/java/com/muyao/wanzaihyperos/ui/main/WanzaiMainShell.kt")
-        assertTrue("主壳要透传", "onReadAll = onReadAllMessage" in shell)
-
-        val rootFile = source("app/src/main/java/com/muyao/wanzaihyperos/WanzaiRoot.kt")
-        assertTrue("根导航要落到仓库方法", "app.messages.markAllRead(group)" in rootFile)
-        assertTrue("写完要重取总未读", "app.unread.refresh(force = true)" in rootFile)
+        assertTrue("不保留不可达确认框", "confirmReadAll" !in page)
+        assertTrue("不保留写入口", "ReadAllAction(" !in page)
+        assertTrue("不调用已读回调", "onReadAll(it.name)" !in page)
+        assertTrue("门户其他功能不删除", "graph.news" in page && "graph.broadcasts" in page)
     }
 }

@@ -54,32 +54,15 @@ class NotifyGroupSwitchTest {
     }
 
     @Test
-    fun `页面必须把分组交给可切换的胶囊`() {
+    fun `通知来源只有日常与讲座且不读取旧门户通知`() {
         val src = source()
-        assertTrue("页面没有渲染分组胶囊 —— 用户只能看门户排在第一个的那个分组",
-            src.contains("MsgGroupChips("))
-        assertTrue("分组胶囊没有把选中的分组回送给仓库（selectGroup）",
-            src.contains("graph.messages.selectGroup(g)"))
-        val body = bodyOf(src, "private fun MsgGroupChips(")
-        assertTrue("MsgGroupChips 没有 groups 形参：" + body.substringBefore("{"),
-            Regex("groups\\s*:\\s*List<PortalMessageGroup>").containsMatchIn(body.substringBefore("{")))
-    }
-
-    @Test
-    fun `选中态按分组名字比而不是按位置`() {
-        val body = bodyOf(source(), "private fun MsgGroupChips(")
-        // 分组的标识就是 messagegroup 这个名字，不是数字 id（data/portal/PortalModels.kt）。
-        // 按索引比会在服务端重排分组之后把「选中」错挂到别的分组上。
-        assertTrue("选中态不是按名字比的：选中会挂到重排后的另一个分组上：" + body,
-            body.contains("selected?.name == g.name"))
-        assertTrue("分组胶囊丢了未读数（noread）—— 那正是用户用来判断该看哪一组的信息",
-            body.contains("g.unread"))
-    }
-
-    @Test
-    fun `只有一个分组时不占一行高度`() {
-        val body = bodyOf(source(), "private fun MsgGroupChips(")
-        assertTrue("只有一个分组时仍画一排单选胶囊，白占一行高度：" + body,
-            body.contains("if (groups.size < 2) return"))
+        val body = bodyOf(src, "private fun NoticeSourceChips(")
+        assertTrue(body.contains("listOf(\"日常通知\", \"讲座通知\")"))
+        assertTrue(!src.contains("graph.messages"))
+        assertTrue(!src.contains("NOTICE_SOURCE_PORTAL"))
+        assertTrue(!src.contains("confirmReadAll"))
+        assertTrue(src.contains("graph.news.refreshKeepingContent()"))
+        assertTrue(src.contains("notifyBroadcastItems("))
+        assertTrue(src.contains("onClick = onOpenTodos"))
     }
 }

@@ -81,9 +81,8 @@ class LifecycleWallpaperWiringTest {
         assertFalse(helper.contains("Lifecycle.State.RESUMED"))
         // 数量是「每一处订阅都必须经过可见性闸门」的登记簿：新增订阅就得在这里加，
         // 逼人确认它真的走了 collectAsVisibleStateWithLifecycle 而不是裸 collectAsState。
-        // NotifySectionPage 11 → 14：2026-11-24 消息页加了三来源（日常通知/爱讲座/门户），
-        // 对应 notices.state、lectures.state、lectures.hasMore 三处，都走同一个闸门。
-        for ((name, count) in mapOf("TimetableSectionPage" to 2, "AppsSectionPage" to 5, "NotifySectionPage" to 14, "SettingsSectionPage" to 0)) {
+        // 移除旧门户通知的 messages/groups/selectedGroup 三处订阅；其余 11 处仍走可见性闸门。
+        for ((name, count) in mapOf("TimetableSectionPage" to 2, "AppsSectionPage" to 5, "NotifySectionPage" to 11, "SettingsSectionPage" to 0)) {
             val text = page(name)
             assertEquals(name, count, Regex("\\.collectAsVisibleStateWithLifecycle\\(\\)").findAll(text).count())
             assertFalse("$name still has unrestricted flow collection", text.contains(".collectAsState()"))

@@ -31,7 +31,7 @@ import kotlinx.serialization.json.JsonObject
  *         standbyRegisteredCount,        // 候補人數
  *         isRegistering,                 // 是否報名中
  *         state,                         // published 等
- *         signedCount, scored,           // 我簽到了沒 / 有沒有評分
+ *         signedCount, scored,           // 原始返回字段；其个人签到语义未由探测证实
  *       } ] } }
  * ```
  *
@@ -74,8 +74,11 @@ data class Lecture(
     val standby: Int?,
     /** 是否報名中（`isRegistering`）。 */
     val registering: Boolean,
-    /** 我簽到了沒（`signedCount`，實測 0 表示還沒）。 */
-    val signed: Boolean,
+    /**
+     * 个人签到状态。列表接口的 `signedCount` 个人状态语义未经验证；null 表示未知，
+     * 不得展示为已签到或未签到。
+     */
+    val signed: Boolean?,
 ) {
     /** 開始時間的本地顯示。 */
     val startLocal: String get() = formatCjh52Time(startMillis)
@@ -119,7 +122,6 @@ data class Lecture(
     /** 狀態講法。 */
     val statusLabel: String
         get() = when {
-            signed -> "已签到"
             canRegister -> "报名中"
             registering -> "已满"
             else -> "已结束报名"
@@ -180,8 +182,9 @@ object LectureParser {
                 registered = obj["normalRegisteredCount"].asIntOrNull(),
                 standby = obj["standbyRegisteredCount"].asIntOrNull(),
                 registering = obj["isRegistering"].asBoolOrNull() ?: false,
-                // `signedCount` 實測是數字（0）。非 0 ＝ 我已簽到。
-                signed = (obj["signedCount"].asIntOrNull() ?: 0) > 0,
+                // `find_lectures` 探测只证实字段存在、样例为 0，未证实其个人状态语义。
+                // 未知个人签到状态不得冒充「已签到」或「未签到」；UI按其他已知报名条件展示状态。
+                signed = null,
             )
         }
     }

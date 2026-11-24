@@ -27,7 +27,8 @@ class PullToRefreshWiringTest {
     fun `消息页两个列表都能下拉刷新`() {
         val s = text(page)
         assertTrue("消息页没有下拉刷新容器", s.contains("PullToRefresh("))
-        assertTrue("下拉没刷新消息列表", s.contains("graph.messages.refreshKeepingContent()"))
+        assertTrue("下拉没刷新当前通知来源", s.contains("if (noticeSource == NOTICE_SOURCE_DAILY) graph.notices.refresh() else graph.lectures.refresh()"))
+        assertFalse("旧门户通知不再读取", s.contains("graph.messages"))
         assertTrue("下拉没刷新新闻列表", s.contains("graph.news.refreshKeepingContent()"))
     }
 

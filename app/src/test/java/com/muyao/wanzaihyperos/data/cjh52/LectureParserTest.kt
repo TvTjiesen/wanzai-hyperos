@@ -93,15 +93,22 @@ class LectureParserTest {
     }
 
     @Test
-    fun `已簽到優先顯示`() {
-        val signed = LectureParser.parse(
-            obj(
-                """{"data":{"data":[{"id":"a","name":"n","isRegistering":true,
-                     "registrationNumber":30,"normalRegisteredCount":1,"signedCount":1}]}}""",
-            ),
-        )[0]
-        assertTrue(signed.signed)
-        assertEquals("已签到", signed.statusLabel)
+    fun `列表接口的 signedCount 未验证为个人签到状态`() {
+        // 真机契约只记录到 signedCount 字段及样本值 0，无法证明其为当前用户状态；
+        // 任何正计数也不得让全部场次错误显示「已签到」。
+        for (signedCount in listOf("0", "1", "25")) {
+            val lecture = LectureParser.parse(
+                obj("""{"data":{"data":[{"id":"a","name":"n","isRegistering":true,
+                    "registrationNumber":30,"normalRegisteredCount":1,"signedCount":$signedCount}]}}"""),
+            )[0]
+            assertNull(lecture.signed)
+            assertEquals("报名中", lecture.statusLabel)
+            assertFalse(lecture.statusLabel.contains("签到"))
+        }
+
+        val missing = LectureParser.parse(obj("""{"data":{"data":[{"id":"b","name":"n"}]}}"""))[0]
+        assertNull(missing.signed)
+        assertEquals("已结束报名", missing.statusLabel)
     }
 
     @Test

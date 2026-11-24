@@ -10,8 +10,6 @@ import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,20 +20,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.Role
 import com.muyao.wanzaihyperos.data.ListMeta
-import com.muyao.wanzaihyperos.ui.main.pages.redesign.NotifyLocalFullTextSheet
 import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyBroadcastItems
 import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyFreshnessLabel
-import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyGroupCountLabel
 import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyHeroLabel
-import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyMessageDateLabel
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,7 +45,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.semantics
@@ -77,19 +68,13 @@ import com.muyao.wanzaihyperos.data.CountValue
 import com.muyao.wanzaihyperos.data.ListState
 import com.muyao.wanzaihyperos.data.cjh52.Cjh52Notice
 import com.muyao.wanzaihyperos.data.cjh52.Lecture
-import com.muyao.wanzaihyperos.data.portal.PortalMessageGroup
-import com.muyao.wanzaihyperos.data.portal.PortalMessageItem
 import com.muyao.wanzaihyperos.data.portal.PortalNewsItem
-import com.muyao.wanzaihyperos.data.portal.opensPortalTextFirst
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.Type
-import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Text
-import com.muyao.wanzaihyperos.ui.components.WanzaiButton
 import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton as TextButton
-import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog as OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -102,7 +87,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 混在一條時間軸上，使用者分不清「哪條需要我做事」。
  *
  * 資料來源：
- * - messages.messages（門戶消息介面，第一個分組的消息）
+ * - notices / lectures（CJH52 日常通知与爱讲座）
  * - news.news（門戶新聞介面）
  *
  * 介面上不寫「數據來自某某介面」那種開發說明 ——
@@ -115,9 +100,8 @@ fun NotifySectionPage(
     onOpenTodos: () -> Unit = {},
     /** 點開一條消息：把它的 openurl 交給外部（真頁面接 Route.Web）。 */
     onOpenUrl: (String) -> Unit = {},
-    /** 保留宿主回调兼容；打开详情不自动标已读。 */
+    /** 宿主兼容参数：本页已移除旧门户通知，不再触发已读写操作。 */
     onRead: (String) -> Unit = {},
-    /** 把当前分组整个标已读。失败要能从外面给一句实话，所以也提到页面外面。 */
     onReadAll: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenAccounts: () -> Unit = {},
@@ -126,7 +110,6 @@ fun NotifySectionPage(
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     listPositions: MutableMap<String, Pair<Int, Int>> = remember { mutableMapOf() },
 ) {
-    val msgState by graph.messages.messages.collectAsVisibleStateWithLifecycle()
     val newsState by graph.news.news.collectAsVisibleStateWithLifecycle()
     val broadcastState by graph.broadcasts.state.collectAsVisibleStateWithLifecycle()
     val broadcastDetail by graph.broadcasts.detail.collectAsVisibleStateWithLifecycle()
@@ -138,11 +121,7 @@ fun NotifySectionPage(
     val filter = selectedFilter ?: localFilter
     // 当前组刷新已加载页，成功后整体替换；请求期间保留原列表。
     var refreshing by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    // 「全部已读」是批量写，按下就先问一句 —— 一百多条一次性变已读，没有撤销。
-    var confirmReadAll by remember { mutableStateOf<PortalMessageGroup?>(null) }
     val broadcastOwner = com.muyao.wanzaihyperos.ui.main.LocalPageEntryOwner.current
-    var localFullText by remember(graph, broadcastOwner) { mutableStateOf<PortalMessageItem?>(null) }
     var selectedBroadcast by remember(broadcastOwner) {
         mutableStateOf<com.muyao.wanzaihyperos.data.portal.PortalBroadcastItem?>(null)
     }
@@ -154,16 +133,8 @@ fun NotifySectionPage(
         }
     }
 
-    // 消息仓库在更新分组时同步选择；UI不再额外触发首组读取。
-    val msgGroupsState by graph.messages.groups.collectAsVisibleStateWithLifecycle()
-    val msgSelected by graph.messages.selectedGroup.collectAsVisibleStateWithLifecycle()
     val newsGroupsState by graph.news.groups.collectAsVisibleStateWithLifecycle()
     val newsSelected by graph.news.selectedGroup.collectAsVisibleStateWithLifecycle()
-    // 门户的消息分组（服务端的 `listmessagegroup`，标识是名字）。
-    // 没有它，页面只能停在「仓库自己选中的第一个分组」上。
-    val msgGroups: List<PortalMessageGroup> =
-        (msgGroupsState as? ListState.Content)?.items.orEmpty()
-
     val pageActive = com.muyao.wanzaihyperos.ui.design.liquid.LocalPageActive.current
     val entryGate = com.muyao.wanzaihyperos.ui.main.LocalPageEntryGate.current
     val entryOwner = com.muyao.wanzaihyperos.ui.main.LocalPageEntryOwner.current
@@ -171,14 +142,7 @@ fun NotifySectionPage(
 
     // ══════════ 通知来源的选择 ══════════
     //
-    // 门户的「活动通知」「讲座通知」两组在**服务端**就冻结在 2025-11-06：
-    // 2026-11-24 用活体 token 实测，活动通知 allrecords=192、讲座通知 allrecords=85，
-    // 全量日期分布里 2026 年 0 条；同一 token 打 listMessageBroadcast 却能取到 2026-06，
-    // 所以不是登录/权限/分页的问题，是那两张表没有新行（详见 docs 记录）。
-    //
-    // 于是把两条**真正在更新**的来源提到前面：CJH52「日常通知」（最新 2026-11-12）与
-    // 「爱讲座」（最新 2026-11-19）。门户那两组原样保留为第三个来源 ——
-    // 不删入口，因为里面的历史通知仍然可查，只是不能冒充"最新消息"。
+    // 通知只保留仍在更新的 CJH52「日常通知」与「爱讲座」；旧门户通知不再作为本页来源。
     var noticeSource by androidx.compose.runtime.saveable.rememberSaveable(entryOwner) {
         mutableStateOf(NOTICE_SOURCE_DAILY)
     }
@@ -193,16 +157,8 @@ fun NotifySectionPage(
         }
         while (true) {
             val now = System.currentTimeMillis()
-            if (refreshGate.claim("message-groups", graph.messages.groups.value, now)) {
-                graph.fetch { graph.messages.refreshGroups() }
-            }
             if (refreshGate.claim("news-groups", graph.news.groups.value, now)) {
                 graph.fetch { graph.news.refreshGroups() }
-            }
-            graph.messages.selectedGroup.value?.let { group ->
-                if (refreshGate.claim("messages:${group.name}", graph.messages.messages.value, now)) {
-                    graph.fetch { graph.messages.refreshKeepingContent() }
-                }
             }
             graph.news.selectedGroup.value?.let { group ->
                 if (group.dataId != null && refreshGate.claim("news:${group.id}", graph.news.news.value, now)) {
@@ -255,7 +211,6 @@ fun NotifySectionPage(
     val pilot = rememberPageChromePilot(listState)
     val entrance = rememberSpringListEntrance(pilot.listState)
     val positionKey = when (filter) {
-        2 -> "messages:${msgSelected?.name.orEmpty()}"
         3 -> "news:${newsSelected?.id.orEmpty()}:${newsSelected?.dataId}"
         else -> "section:$filter"
     }
@@ -275,7 +230,6 @@ fun NotifySectionPage(
     // 委托属性（by collectAsState）不能智能转型，所以先落成局部 val 再判。
     val rollNow = rollState
     val todoNow = todoState
-    val msgNow = msgState
     val newsNow = newsState
     val rollCount: Int? = when (rollNow) {
         is ListState.Content -> openRollcalls.size
@@ -284,14 +238,6 @@ fun NotifySectionPage(
     }
     val todoCount: Int? = when (todoNow) {
         is ListState.Content -> todoNow.items.firstOrNull()?.knownTotal
-        is ListState.Empty -> 0
-        else -> null
-    }
-    // 分页元信息：hasMore 由「本次返回条数 >= 页大小」算出（ListMeta 的注释），
-    // 不能拿服务端 total 算 —— 实测 total=20 而 allrecords=192。
-    val msgMeta = (msgNow as? ListState.Content)?.meta
-    val msgCount: Int? = when (msgNow) {
-        is ListState.Content -> msgNow.items.size
         is ListState.Empty -> 0
         else -> null
     }
@@ -308,12 +254,12 @@ fun NotifySectionPage(
     }
     val pendingCount: Int? =
         if (rollCount != null && todoCount != null) rollCount + todoCount else null
-    val sourceLabel = when (filter) { 1 -> "待处理"; 3 -> "校园新闻"; 4 -> "学校公告"; else -> "门户通知" }
+    val sourceLabel = when (filter) { 1 -> "待处理"; 3 -> "校园新闻"; 4 -> "学校公告"; else -> "通知" }
     val currentStates: List<ListState<*>> = when (filter) {
         1 -> listOf(rollState, todoState)
         3 -> listOf(newsGroupsState, newsState)
         4 -> listOf(broadcastState)
-        else -> listOf(msgGroupsState, msgState)
+        else -> listOf(if (noticeSource == NOTICE_SOURCE_DAILY) noticeState else lectureState)
     }
     val sourceLoading = refreshing || currentStates.any { it is ListState.FirstLoad || (it as? ListState.Content)?.meta?.refreshing == true }
     val sourceError = currentStates.any { it is ListState.Failed || it is ListState.SessionExpired ||
@@ -329,7 +275,10 @@ fun NotifySectionPage(
             com.muyao.wanzaihyperos.ui.common.listStateDescription("待办", todoState)
         3 -> com.muyao.wanzaihyperos.ui.common.listStateDescription("新闻", newsState)
         4 -> com.muyao.wanzaihyperos.ui.common.listStateDescription("公告", broadcastState)
-        else -> com.muyao.wanzaihyperos.ui.common.listStateDescription(msgSelected?.name ?: "通知", msgState)
+        else -> com.muyao.wanzaihyperos.ui.common.listStateDescription(
+            if (noticeSource == NOTICE_SOURCE_DAILY) "日常通知" else "爱讲座",
+            if (noticeSource == NOTICE_SOURCE_DAILY) noticeState else lectureState,
+        )
     }
     fun refreshCurrent() {
         if (refreshing) return
@@ -338,9 +287,10 @@ fun NotifySectionPage(
             try {
                 when (filter) {
                     1 -> { graph.rollcall.refresh(); graph.todoBoard.refresh() }
+                    2, 0 -> if (noticeSource == NOTICE_SOURCE_DAILY) graph.notices.refresh() else graph.lectures.refresh()
                     3 -> { graph.news.refreshGroups(); if (graph.news.selectedGroup.value != null) graph.news.refreshKeepingContent() }
                     4 -> graph.broadcasts.refresh()
-                    else -> { graph.messages.refreshGroups(); if (graph.messages.selectedGroup.value != null) graph.messages.refreshKeepingContent() }
+                    else -> Unit
                 }
                 graph.unread.refresh(force = true)
             } finally { refreshing = false }
@@ -355,7 +305,9 @@ fun NotifySectionPage(
     val heroUnread = (unreadState.value as? CountValue.Known)?.value
     // 「这一份是什么时候的」：取**这一次成功取数**的时间（ListState.Content.updatedAtMillis），
     // 不是「现在」。取不到就只写未读，不编一个像样的钟点（同一条红线）。
-    val heroClock: String = (msgState as? ListState.Content)?.meta?.updatedAtMillis?.let { millis ->
+    val heroClock: String = (if (noticeSource == NOTICE_SOURCE_DAILY) noticeState else lectureState)
+        .let { (it as? ListState.Content)?.meta?.updatedAtMillis }
+        ?.let { millis ->
         java.time.Instant.ofEpochMilli(millis)
             .atZone(java.time.ZoneId.systemDefault())
             .toLocalTime()
@@ -499,20 +451,12 @@ fun NotifySectionPage(
 
             // ══════════ 通知来源 ══════════
             //
-            // 为什么要有这一排：门户「活动通知／讲座通知」冻结在 2025-11-06（服务端实测），
-            // 而 CJH52 的日常通知与爱讲座到今天仍在更新。三份数据放在同一屏里必须
-            // 各自标清楚"这是哪一份"、并且默认落在**有新鲜数据**的那一份上，
-            // 否则用户点开消息页看到的永远是 2025 年的旧通知。
+            // 只在两份 CJH52 通知来源间切换，不再保留门户历史消息。
             item(key = "notice-sources") {
                 NoticeSourceChips(
                     selected = noticeSource,
                     onSelect = { source ->
                         noticeSource = source
-                        when (source) {
-                            NOTICE_SOURCE_DAILY -> graph.fetch { graph.notices.refresh() }
-                            NOTICE_SOURCE_LECTURE -> graph.fetch { graph.lectures.refresh() }
-                            else -> Unit
-                        }
                     },
                 )
             }
@@ -621,120 +565,7 @@ fun NotifySectionPage(
                 }
             }
 
-            if (noticeSource == NOTICE_SOURCE_PORTAL) {
 
-            // ══════════ 消息（门户，历史）══════════
-            item(key = "msg-header") {
-                // 不叫「消息」：頁面大標題已經是「消息」，分組再來一個同名大字
-                // 看起來像標題重複。入口在首頁就叫「门户通知」，這裡沿用同一個說法。
-                //
-                // ★ 不再放「全部 ›」：它以前只把 selectedTab 設成 2 —— 而這裡就是 2，
-                //   點下去等於什麼都沒發生（审查 2026-10-21）。門戶詳情路由還沒接，
-                //   所以整段直接展開、行不可點：沒有死入口，也不用拿假動作騙人。
-                // 板 `.group-head`：小灰点 + 组名(8.9sp/700) + 条数(8sp) + 一条吃掉余宽的发丝线。
-                // 原来这里用 13sp 粗体大字，于是这一屏出现三个同级别的大标题，
-                // 板上的层级（一个大标题 + 若干小分组头）被压平了（复评 2026-10-21）。
-                // 「全部已读」只对**当前选中的那一组**（门户没有跨组接口）。
-                // 数字取 libmessagegroup 的 noread，而不是列表长度：列表只是一页（10 条）。
-                val openGroup = msgGroups.firstOrNull { it.name == msgSelected?.name }
-                GroupHead(
-                    name = "门户通知",
-                    count = msgCount ?: 0,
-                    note = when {
-                        msgCount == null -> notifyGroupCountLabel(null, openGroup?.unread, false)
-                        else -> notifyGroupCountLabel(msgCount, openGroup?.unread, msgMeta?.hasMore == true)
-                    },
-                ) {
-                    if (openGroup != null && openGroup.unread > 0) {
-                        ReadAllAction(onClick = { confirmReadAll = openGroup })
-                    }
-                }
-            }
-
-            // 分组切换：`listmessage` 一次只返回**一个分组**，而首位分组会变
-            // （2026-10-30 实测在「讲座通知」与「活动通知」之间来回）。
-            // 没有这排胶囊，另一个分组对用户等于不存在。
-            item(key = "msg-groups") {
-                MsgGroupChips(
-                    groups = msgGroups,
-                    selected = msgSelected,
-                    onSelect = { g -> graph.fetch { graph.messages.selectGroup(g) } },
-                )
-            }
-
-            when (val s = msgGroupsState) {
-                is ListState.SessionExpired -> item(key = "msg-groups-expired") {
-                    StatusError("门户登录已失效", "请到账号管理重新连接门户。", "管理账号", onOpenAccounts)
-                }
-                is ListState.Failed -> item(key = "msg-groups-failed") {
-                    StatusError("取不到消息分组", s.error.userText, "重试消息分组") {
-                        graph.fetch { graph.messages.refreshGroups() }
-                    }
-                }
-                is ListState.Empty -> item(key = "msg-groups-empty") { StatusHint("门户未返回消息分组。") }
-                is ListState.Content -> if (s.meta.hasRefreshProblem) item(key = "msg-groups-freshness") {
-                    ListFreshness(s.meta) { graph.fetch { graph.messages.refreshGroups() } }
-                }
-                else -> Unit
-            }
-            if (msgSelected != null || msgState is ListState.SessionExpired || msgState is ListState.Failed) when (val s = msgState) {
-                is ListState.FirstLoad -> item(key = "msg-loading") { StatusHint("正在取得消息…") }
-                is ListState.SessionExpired -> item(key = "msg-expired") {
-                    StatusError("门户登录已失效", "请到账号管理重新连接门户。", "管理账号", onOpenAccounts)
-                }
-                is ListState.Failed -> item(key = "msg-failed") {
-                    StatusError("取不到消息", s.error.userText, "重试通知") {
-                        graph.fetch {
-                            if (msgSelected == null) graph.messages.refreshGroups()
-                            else graph.messages.refreshKeepingContent()
-                        }
-                    }
-                }
-                is ListState.Content -> {
-                    item(key = "msg-freshness") {
-                        Column {
-                            ListFreshness(s.meta) { graph.fetch { graph.messages.refreshKeepingContent() } }
-                            StatusHint(notifyMessageDateLabel(s.items, s.meta.hasMore))
-                        }
-                    }
-                    val items = s.items
-                    if (items.isEmpty()) {
-                        item(key = "msg-empty") { StatusHint("暂无通知") }
-                    } else {
-                        items.forEachIndexed { index, message ->
-                            val itemKey = "message-${msgSelected?.name}-$index-${message.id}"
-                            item(key = itemKey) {
-                                Column(Modifier.springListEntrance(entrance, itemKey)) {
-                                    MessageRow(
-                                        message, onOpenUrl,
-                                        opensPortalTextFirst = message.opensPortalTextFirst(msgSelected?.name),
-                                        onOpenLocal = { localFullText = it },
-                                    )
-                                    if (index != items.lastIndex) ThinDivider()
-                                }
-                            }
-                        }
-                    }
-                    // 后页入口不依赖当前过滤是否命中。
-                    if (msgMeta?.hasMore == true) {
-                        item(key = "msg-more") {
-                            MoreRow(
-                                loading = msgMeta.loadingMore || msgMeta.refreshing,
-                                onClick = { graph.fetch { graph.messages.loadMore() } },
-                            )
-                        }
-                    }
-                }
-                is ListState.Empty -> item(key = "msg-none") {
-                    Column {
-                        ListFreshness(s.meta) { graph.fetch { graph.messages.refreshKeepingContent() } }
-                        StatusHint("当前组没有消息。")
-                    }
-                }
-            } else if (msgGroupsState is ListState.FirstLoad || msgGroupsState is ListState.Content) {
-                item(key = "msg-await-group") { StatusHint("正在取得消息分组…") }
-            }
-            }
             }
 
             if (filter == 4) {
@@ -831,19 +662,6 @@ fun NotifySectionPage(
         }
     }
 
-    localFullText?.let { message ->
-        val detailUrl = com.muyao.wanzaihyperos.net.HzcuEndpoints.portalOpenUrl(message.openUrl)?.takeIf {
-            com.muyao.wanzaihyperos.nav.WebTarget.fromUrl(it).kind != com.muyao.wanzaihyperos.nav.WebTarget.Kind.BLOCKED
-        }
-        NotifyLocalFullTextSheet(
-            message = message,
-            onDismiss = { localFullText = null },
-            onOpenDetail = detailUrl?.let { url ->
-                { localFullText = null; onOpenUrl(url) }
-            },
-        )
-    }
-
     selectedBroadcast?.let { announcement ->
         com.muyao.wanzaihyperos.ui.main.pages.redesign.NotifyBroadcastSheet(
             selected = announcement,
@@ -862,37 +680,7 @@ fun NotifySectionPage(
         )
     }
 
-    val pendingGroup = confirmReadAll
-    OverlayDialog(
-        show = pendingGroup != null,
-        onDismissRequest = { confirmReadAll = null },
-        title = "全部标成已读",
-        summary = "把「" + (pendingGroup?.name ?: "") + "」这一组的 " +
-            (pendingGroup?.unread ?: 0) + " 条未读一次标成已读。" +
-            "门户没有撤销接口，标完只能重新等新消息。",
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            TextButton(
-                text = "取消",
-                onClick = { confirmReadAll = null },
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-            )
-            WanzaiButton(
-                onClick = {
-                    val g = confirmReadAll
-                    confirmReadAll = null
-                    g?.let { onReadAll(it.name) }
-                },
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                prominent = true,
-            ) {
-                Text(text = "全部已读")
-            }
-        }
-    }
+
 }
 
 @Composable
@@ -914,50 +702,12 @@ private fun NotifyFilters(
     )
 }
 
-/**
- * 消息分组胶囊。
- *
- * 为什么必须能切：`listmessage` 一次只回**一个分组**的行，而服务端排在第一的分组
- * 会变（2026-10-30 实测在「讲座通知」与「活动通知」之间来回）。切不了的话，
- * 另一个分组对用户等于不存在 —— 一百多条未读就藏在看不见的那一组里。
- *
- * 分组标识是**名字**不是 id（data/portal/PortalModels.kt 的注释），所以选中态按名字比。
- * 胶囊样式直接复用 [FilterPill]：两排胶囊长成两种样子，用户会以为它们是两种东西。
- */
-@Composable
-private fun MsgGroupChips(
-    groups: List<PortalMessageGroup>,
-    selected: PortalMessageGroup?,
-    onSelect: (PortalMessageGroup) -> Unit,
-) {
-    // 只有一个分组时这排胶囊不提供任何选择，白占一行高度。
-    if (groups.size < 2) return
-    com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
-        labels = groups.map { g -> "${g.name} ${g.unread}" },
-        stableKeys = groups.map { it.name },
-        selectedIndex = groups.indexOfFirst { g -> selected?.name == g.name },
-        onSelect = { onSelect(groups[it]) },
-        modifier = Modifier.fillMaxWidth(),
-    )
-}
-
-/**
- * 「通知」这一屏的三份来源。
- *
- * 为什么需要显式的来源切换，而不是像老版本那样只列门户分组：
- * 门户的 `活动通知`/`讲座通知` 在**服务端**冻结在 2025-11-06（2026-11-24 实测全量
- * 192/85 条里 2026 年 0 条），而 CJH52 的日常通知与爱讲座到今天还在更新。
- * 三份数据混在一屏而不标来源，用户没法判断眼前这条到底是"新通知"还是"去年的归档"。
- *
- * 顺序即优先级：默认落在 [NOTICE_SOURCE_DAILY]（真正有当天数据的那份）。
- */
 private const val NOTICE_SOURCE_DAILY = 0
 private const val NOTICE_SOURCE_LECTURE = 1
-private const val NOTICE_SOURCE_PORTAL = 2
 
 @Composable
 private fun NoticeSourceChips(selected: Int, onSelect: (Int) -> Unit) {
-    val labels = listOf("日常通知", "爱讲座", "门户通知")
+    val labels = listOf("日常通知", "讲座通知")
     com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
         labels = labels,
         stableKeys = labels,
@@ -1124,8 +874,7 @@ private fun StatusHint(text: String) {
 /**
  * 日常通知的一行（CJH52 `find_all_for_reader`）。
  *
- * 卡片材质与 [MessageRow] 完全一致 —— 同一屏里的两个来源长成两种卡片，
- * 用户会以为是两个层级的东西。区别只在**字段**：这里没有未读态（CJH52 不给），
+ * 这里没有未读态（CJH52 不给），
  * 时间来自 `publishedAt`，发布人来自 `publisher`。
  */
 @Composable
@@ -1347,134 +1096,6 @@ private fun GroupHead(
         }
         ThinDivider()
     }
-}
-
-/**
- * 组头右边的「全部已读」。
- *
- * 故意**不用 [FilterPill]**：那是一排「选哪个分组」的开关，长得一样会让人以为
- * 点下去只是换个分组，而这里会一次改掉一百多条消息的状态。
- * 所以它是纯文字 + 强调色，落在发丝线右侧，像一行小注脚。
- */
-@Composable
-private fun ReadAllAction(onClick: () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    Text(
-        // 稿 v2.1 写「当前组已读」：门户只给「当前分组」批量接口，
-        // 写成「全部已读」是整个门户的意思，点下去做不到（也做不到同时清 189 条）。
-        text = "当前组已读",
-        fontSize = Type.micro,
-        fontWeight = Type.weightTitle,
-        color = colors.primary,
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .clickable(role = Role.Button, onClickLabel = "把这一组全部标成已读") { onClick() }
-            .heightIn(min = 48.dp)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-    )
-}
-
-@Composable
-private fun MessageRow(
-    m: PortalMessageItem,
-    onOpenUrl: (String) -> Unit,
-    opensPortalTextFirst: Boolean,
-    onOpenLocal: (PortalMessageItem) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MiuixTheme.colorScheme
-    val openUrl = m.openUrl?.takeIf { it.isNotBlank() && !opensPortalTextFirst }
-    val shape = RoundedCornerShape(20.dp)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(modifier)
-            // clip 在最外层：卡面与点击水波都按圆角裁切；clickable 在 padding 之前，整行仍可点。
-            .clip(shape)
-            .background(colors.surface.copy(alpha = 0.72f))
-            .border(1.dp, colors.dividerLine.copy(alpha = 0.6f), shape)
-            // 消息条目本身是一张半透明玻璃卡：描边 + 半透明底 + 圆角，与搜索胶囊/chip/底栏同一套材质。
-            .then(
-                if (openUrl == null) {
-                    Modifier.clickable(role = Role.Button, onClickLabel = "查看本地全文，只读不标已读") { onOpenLocal(m) }
-                } else {
-                    Modifier.clickable(role = Role.Button, onClickLabel = "打开这条通知") {
-                        // Opening a link is not proof that its detail loaded successfully.
-                        onOpenUrl(openUrl)
-                    }
-                }
-            )
-            .heightIn(min = 48.dp)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(Dims.loose),
-        // 頂對齊是為了標題折成兩行時，日期仍停在第一行。
-        verticalAlignment = Alignment.Top,
-    ) {
-        // 已讀也佔同寬的空位，標題左邊線才不會逐行跳。
-        UnreadMark(unread = !m.isRead)
-        Column(Modifier.weight(1f)) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Dims.normal),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Text(
-                    text = m.title.ifBlank { "（无标题）" },
-                    // 板 `.mrow .t{font-size:12px;font-weight:620}` × 0.886 ⇒ 10.6sp / 620
-                    //    未读 = --ink，已读 = --sub（板上已读是**整条变淡**，不是同号同色）
-                    fontSize = 16.sp,
-                    fontWeight = if (m.isRead) FontWeight.Normal else Type.weightBody,
-                    color = if (m.isRead) colors.onSurfaceVariantSummary else colors.onBackground,
-                    maxLines = 3,
-                    lineHeight = 23.sp,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            if (m.createdDate.isNotBlank()) Text(boardShortDate(m.createdDate), fontSize = 12.sp,
-                color = colors.onSurfaceVariantSummary, modifier = Modifier.padding(top = 5.dp))
-            if (m.message.isNotBlank()) {
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    text = m.message,
-                    fontSize = 13.sp,
-                    color = colors.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (openUrl == null) {
-                Text("查看原文 ›", fontSize = 12.sp, color = colors.primary, modifier = Modifier.padding(top = 6.dp))
-            }
-        }
-        if (openUrl != null) {
-            // 箭頭只是「這行能點」的信號，不是獨立按鈕（整行都可點）。
-            // 光學對齊首行文字，所以用固定 padding 而不是垂直居中。
-            Text(
-                text = "›",
-                fontSize = Type.title,
-                color = colors.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 1.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun UnreadMark(unread: Boolean) {
-    Box(
-        modifier = Modifier
-            // 讓 6dp 的圓點落在首行文字的光學中線上；用固定 padding 而不是
-            // 垂直居中，否則標題兩行時圓點會跑到兩行中間。
-            .padding(top = 7.dp)
-            .size(6.dp)
-            .then(
-                if (unread) {
-                    Modifier.background(MiuixTheme.colorScheme.primary, CircleShape)
-                } else {
-                    Modifier
-                }
-            ),
-    )
 }
 
 @Composable

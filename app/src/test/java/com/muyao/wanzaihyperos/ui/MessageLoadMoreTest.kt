@@ -22,15 +22,15 @@ class MessageLoadMoreTest {
     @Test
     fun `还有下一页时列表末尾要有加载更多`() {
         val s = text()
-        assertTrue("没有把分页元信息取出来：msgMeta", s.contains("val msgMeta = (msgNow as? ListState.Content)?.meta"))
-        assertTrue("没有加载更多入口", s.contains("graph.messages.loadMore()"))
-        assertTrue("加载更多只在还有下一页时出现", s.contains("if (msgMeta?.hasMore == true) {"))
+        assertTrue("讲座分页订阅", s.contains("graph.lectures.hasMore.collectAsVisibleStateWithLifecycle()"))
+        assertTrue("没有加载更多入口", s.contains("graph.lectures.loadMore()"))
+        assertTrue("加载更多只在还有下一页时出现", s.contains("if (lectureHasMore) {"))
     }
 
     @Test
     fun `组头要说明后面还有而不是只报一页的条数`() {
         val s = text()
         assertTrue("组头没说还有更多", s.contains("条 · 还有更多"))
-        assertTrue("组头在取的时候不许把条数说成 0", s.contains("msgCount == null ->"))
+        assertTrue("组头在取的时候不许把条数说成 0", s.contains("newsCount == null ->"))
     }
 }

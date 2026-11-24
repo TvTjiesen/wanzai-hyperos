@@ -85,8 +85,8 @@ class PageEntryGateTest {
         // 新闻组仍保留自己的可见性入口。
         val newsEffect = notify.substringAfter("LaunchedEffect(newsGroupsState, newsSelected, pageActive, entryOwner)").substringBefore("\n    }")
         assertTrue(newsEffect.indexOf("if (!pageActive)") < newsEffect.indexOf("graph.fetch"))
-        assertTrue(notify.contains("refreshGate.claim(\"message-groups\""))
-        assertTrue(notify.contains("refreshGate.claim(\"messages:"))
+        assertFalse(notify.contains("graph.messages"))
+        assertTrue(notify.contains("refreshGate.claim(\"news-groups\""))
     }
 
     @Test fun inactiveTimetableDoesNotAttachOrStopEngineAndFirstLoadIntentAlwaysFinishes() {
@@ -128,8 +128,8 @@ class PageEntryGateTest {
         assertTrue(read.indexOf("if (!pageActive)") < read.indexOf("snapshotAccountSources("))
         val notify = page("NotifySectionPage")
         assertTrue(notify.contains("var localFilter by androidx.compose.runtime.saveable.rememberSaveable"))
-        assertTrue(notify.contains("var confirmReadAll by remember"))
-        assertTrue(notify.contains("var localFullText by remember"))
+        assertFalse(notify.contains("confirmReadAll"))
+        assertTrue(notify.contains("var selectedBroadcast by remember"))
         val timetable = page("TimetableSectionPage")
         assertTrue(timetable.contains("var weekOffset by androidx.compose.runtime.saveable.rememberSaveable"))
         assertTrue(timetable.contains("var selectedDay by androidx.compose.runtime.saveable.rememberSaveable"))
