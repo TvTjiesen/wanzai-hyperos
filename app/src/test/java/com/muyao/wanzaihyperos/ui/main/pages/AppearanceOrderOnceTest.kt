@@ -47,8 +47,10 @@ class AppearanceOrderOnceTest {
         assertEquals(.42f, themePreviewAspect(360, 900), .0001f)
         assertEquals(.62f, themePreviewAspect(900, 390), .0001f)
         assertEquals(.46f, themePreviewAspect(0, 0), .0001f)
-        assertEquals(187.2f, themePreviewWidth(360f), .0001f)
-        assertEquals(248f, themePreviewWidth(720f), .0001f)
+        assertEquals(244.8f, themePreviewWidth(360f), .0001f)
+        assertEquals(300f, themePreviewWidth(720f), .0001f)
+        val components = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/ThemeSettingsComponents.kt").readText()
+        assertTrue("source bounds must wrap the enlarged phone shell", components.contains("Box(modifier.width(width).height(width / aspect)"))
     }
 
     @Test fun liveResetDoesNotDeleteImages() {

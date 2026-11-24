@@ -73,33 +73,31 @@ class WeekDayPillTest {
 
     // ---- 3. 周条的高亮判没有夹过的 selected -------------------------------
     @Test
-    fun `周条不把周六的高亮挂到周五那格`() {
+    fun `日期条使用 Glasmio 七日选择并暴露具体可访问日期`() {
         val body = code()
-        assertTrue(
-            "周条里没找到高亮判据 `val isSelected = day == selected`",
-            Regex("""val isSelected\s*=\s*day\s*==\s*selected\b""").containsMatchIn(body),
-        )
-        assertFalse(
-            "周条又在用夹过的 sel 判高亮 —— 周六进来周五那格会亮着，看着像「今天是周五」",
-            Regex("""val isSelected\s*=\s*day\s*==\s*sel\b""").containsMatchIn(body),
-        )
+        val strip = body.substringAfter("private fun WeekDateStrip(").substringBefore("private fun AgendaDayHeader(")
+        assertTrue(strip.contains("(1..7).associateWith"))
+        assertTrue(strip.contains("ScheduleNoticeSelector("))
+        assertTrue(strip.contains("selectOnIndicatorTap = true"))
+        assertTrue(strip.contains("date.monthValue"))
+        assertTrue(strip.contains("date.dayOfMonth"))
+        assertTrue(strip.contains("DAY_WEEK[day - 1]"))
+        assertTrue(strip.contains("dotsByDay.getValue(day)"))
+        assertFalse(strip.contains("slidingSelectionCarrier"))
+        assertFalse(strip.contains("pointerInput("))
     }
 
     // ---- 4. 调用点真的接上了纯函数 ---------------------------------------
     @Test
-    fun `调用点用的是纯函数，不是就地写的三元表达式`() {
+    fun `模式选择器保持今天与整周的切换语义`() {
         val body = code()
-        assertTrue(
-            "firstLabel 不再走 dayPillLabel(...)，字又会和动作各自演化",
-            "firstLabel = dayPillLabel(" in body,
-        )
-        // 标签说的是「今天」，那按下去就必须真的回到今天。两处写在同一个调用点里。
-        val i = body.indexOf("onFirst = {")
-        assertTrue("没找到 onFirst", i >= 0)
-        val window = body.substring(i, (i + 200).coerceAtMost(body.length))
-        assertTrue(
-            "onFirst 不再把 selectedDay 设成今天：${window.take(120)}",
-            "selectedDay = today.dayOfWeek.value" in window,
-        )
+        val i = body.indexOf("ScheduleNoticeSelector(", body.indexOf("private fun DayModeSwitch("))
+        assertTrue("DayModeSwitch uses the shared Glasmio selector", i >= 0)
+        val window = body.substring(i, (i + 620).coerceAtMost(body.length))
+        assertTrue(window.contains("items = listOf(false to firstLabel, true to \"整周\")"))
+        assertTrue(window.contains("selected = weekMode"))
+        assertTrue(window.contains("if (showWeek) onWeek() else onFirst()"))
+        assertTrue(window.contains("selectOnIndicatorTap = true"))
+        assertTrue("tapping first mode still resets selectedDay to today", body.contains("selectedDay = today.dayOfWeek.value"))
     }
 }

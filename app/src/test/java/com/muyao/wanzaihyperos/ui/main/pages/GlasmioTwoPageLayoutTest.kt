@@ -50,7 +50,7 @@ class GlasmioTwoPageLayoutTest {
         assertTrue(home.contains("maxWidth >= 304.dp && LocalDensity.current.fontScale < 1.3f"))
         assertTrue(home.contains("item(key = \"services\")"))
         assertTrue(home.contains("narrow = true"))
-        assertTrue(home.contains("onOpen = onOpenRollcall"))
+        assertTrue(home.contains("onOpen = { morphState?.prepare(\"rollcall\"); onOpenRollcall() }"))
         assertTrue(home.contains("onClick = onOpenSzty"))
         assertTrue(home.contains("if (ratio != null)"))
         assertTrue(home.contains("if (headlineInStatus) AiBall.lineOf(ballState) else statusTitle"))

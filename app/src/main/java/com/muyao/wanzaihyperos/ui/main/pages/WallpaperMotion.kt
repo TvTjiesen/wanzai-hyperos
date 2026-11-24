@@ -4,9 +4,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalView
+import com.muyao.wanzaihyperos.ui.design.MotionSourceLease
+import com.muyao.wanzaihyperos.ui.design.MotionSourceStamp
 import androidx.compose.ui.unit.IntSize
 
 internal fun motionWindowMatches(initial: IntSize, current: IntSize, initialOrientation: Int, currentOrientation: Int): Boolean =
@@ -30,18 +33,37 @@ internal fun motionRevealRect(source: Rect, destination: Rect, progress: Float):
     return Rect(lerp(source.left, destination.left), lerp(source.top, destination.top), lerp(source.right, destination.right), lerp(source.bottom, destination.bottom))
 }
 
+/** Keep the settings lease window-local; convert only its validated endpoints for the dialog. */
+internal class WallpaperEditorSource private constructor(
+    private val lease: MotionSourceLease,
+    private val stamp: () -> MotionSourceStamp,
+    val bounds: Rect,
+) {
+    fun isValid(): Boolean = lease.current(stamp()) != null
+
+    companion object {
+        fun capture(coordinates: () -> LayoutCoordinates?, stamp: () -> MotionSourceStamp): WallpaperEditorSource? {
+            val now = stamp()
+            val lease = MotionSourceLease.capture(coordinates, now) ?: return null
+            return WallpaperEditorSource(lease, stamp, lease.bounds.translate(now.window.topLeft))
+        }
+    }
+}
+
 /** Screen coordinates let a source on the settings window meet the full-screen editor window. */
 @Composable
 internal fun Modifier.wallpaperMotionBounds(onBounds: (Rect) -> Unit): Modifier {
     val view = LocalView.current
     return onGloballyPositioned { coordinates ->
         if (view.isAttachedToWindow && coordinates.isAttached) {
-            val screen = IntArray(2)
-            val window = IntArray(2)
-            view.getLocationOnScreen(screen)
-            view.getLocationInWindow(window)
+            val screen = IntArray(2); val window = IntArray(2)
+            view.getLocationOnScreen(screen); view.getLocationInWindow(window)
             onBounds(coordinates.boundsInWindow().translate(Offset(
                 (screen[0] - window[0]).toFloat(), (screen[1] - window[1]).toFloat())))
         }
     }
 }
+
+@Composable
+internal fun Modifier.wallpaperMotionCoordinates(onCoordinates: (LayoutCoordinates) -> Unit): Modifier =
+    onGloballyPositioned { coordinates -> if (coordinates.isAttached) onCoordinates(coordinates) }

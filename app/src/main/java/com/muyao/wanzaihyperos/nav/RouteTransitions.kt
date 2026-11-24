@@ -1,6 +1,11 @@
 package com.muyao.wanzaihyperos.nav
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import com.muyao.wanzaihyperos.ui.main.pages.motionRevealRect
 import top.yukonga.miuix.kmp.nav.transition.NavMotion
 import top.yukonga.miuix.kmp.nav.transition.NavRole
 import top.yukonga.miuix.kmp.nav.transition.NavSettleSpec
@@ -66,6 +71,40 @@ fun wanzaiRouteTransitions(motionMs: Int, reducedMotion: Boolean = false): NavTr
         wanzaiPageTransition(sign = -1f, motion = motion, slide = slide),
         wanzaiPageTransition(sign = -1f, motion = motion, slide = slide),
     )
+}
+
+/** A route surface is clipped to the source card; its text keeps the final layout throughout. */
+internal fun homeRouteTransitions(
+    state: HomeMorphState,
+    fallback: NavTransition,
+    reducedMotion: Boolean,
+    activeRoute: Any?,
+): NavTransition {
+    val source = state.origin?.takeIf { state.matches(activeRoute) } ?: return fallback
+    val motion = NavMotion(
+        NavSettleSpec.Tween(if (reducedMotion) 0 else 340, FastOutSlowInEasing),
+        NavSettleSpec.Tween(if (reducedMotion) 0 else 300, FastOutSlowInEasing),
+        NavSettleSpec.Tween(if (reducedMotion) 0 else 300, FastOutSlowInEasing),
+    )
+    fun transition(pop: Boolean) = navGraphicsTransition(opaqueDepth = 1f, motion = motion) { scope ->
+        val outgoing = scope.role == NavRole.Outgoing || scope.role == NavRole.Covered
+        val isDetail = if (pop) outgoing else !outgoing
+        val depth = scope.relativeDepth.coerceIn(0f, 1f)
+        if (isDetail) {
+            val p = 1f - depth
+            val destination = Rect(0f, 0f, scope.layoutSize.width.toFloat(), scope.layoutSize.height.toFloat())
+            val valid = !reducedMotion && source.isValid()
+            val frame = if (valid) motionRevealRect(source.bounds, destination, p) else null
+            alpha = if (reducedMotion || valid) 1f else p
+            if (frame != null && p < 1f) {
+                clip = true
+                shape = GenericShape { _, _ -> addRoundRect(RoundRect(frame, CornerRadius(24f * density * (1f - p)))) }
+            }
+        } else {
+            alpha = 1f
+        }
+    }
+    return navDirectionalTransition(transition(false), transition(true), transition(true))
 }
 
 /** 减弱动效那一档的时长（标准 §6 的 120–160ms 带内）。 */

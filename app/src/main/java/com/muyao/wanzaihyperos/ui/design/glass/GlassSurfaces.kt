@@ -21,6 +21,8 @@ enum class GlassSurfaceId(
     HomeQuickTray("首页快捷按钮", "ui/home/redesign/HomeDashboard.kt", GlassStack.GLASMIO, siteFunction = "HomeQuickAction", drawSites = 4),
     CommonSwitch("公共开关", "ui/components/WanzaiGlasmioControls.kt", GlassStack.GLASMIO, siteFunction = "WanzaiSwitch", drawSites = 2),
     CommonButton("公共按钮", "ui/components/WanzaiGlasmioControls.kt", GlassStack.GLASMIO, siteFunction = "WanzaiButton", drawSites = 2),
+    ScheduleNoticeSelector("课表和消息分段选择器", "ui/main/pages/ScheduleNoticeControls.kt", GlassStack.GLASMIO, siteFunction = "ScheduleNoticeSelector"),
+    ScheduleNoticeActionCue("消息行操作提示", "ui/main/pages/ScheduleNoticeControls.kt", GlassStack.GLASMIO, siteFunction = "ScheduleNoticeActionCue"),
     CommonSlider("公共滑杆", "ui/components/WanzaiGlasmioControls.kt", GlassStack.GLASMIO, siteFunction = "WanzaiSlider"),
     CommonIconButton("公共图标按钮", "ui/components/WanzaiGlasmioControls.kt", GlassStack.GLASMIO, siteFunction = "WanzaiIconButton"),
     OverlayDialog("公共弹层", "ui/components/WanzaiGlasmioControls.kt", GlassStack.GLASMIO, siteFunction = "WanzaiOverlayDialog", drawSites = 2),

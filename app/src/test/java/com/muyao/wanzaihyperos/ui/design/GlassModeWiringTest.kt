@@ -71,7 +71,7 @@ class GlassModeWiringTest {
         error("Unclosed function body $name")
     }
 
-    private val drawSite = Regex("""(?<![.\w])(?:GlassSurface|GlasmioNavigationBar|GlasmioSwitch|GlasmioButton|GlasmioAlertDialog)\s*\(|\.(?:drawBackdrop|drawPlainBackdrop)\s*\(""")
+    private val drawSite = Regex("""(?<![.\w])(?:GlassSurface|GlasmioSegmentedControl|GlasmioNavigationBar|GlasmioSwitch|GlasmioButton|GlasmioAlertDialog)\s*\(|\.(?:drawBackdrop|drawPlainBackdrop)\s*\(""")
 
     @Test
     fun `三档映射：减弱透明度永远优先退实底`() {
@@ -314,6 +314,8 @@ class GlassModeWiringTest {
             GlassSurfaceId.SearchButton, GlassSurfaceId.SearchReturnCapsule, GlassSurfaceId.HomeFocusCard, GlassSurfaceId.HomeQuickTray, GlassSurfaceId.AppearanceChoice, GlassSurfaceId.WallpaperThumbnail -> "GlassSurface("
             GlassSurfaceId.CommonSwitch -> "GlasmioSwitch("
             GlassSurfaceId.CommonButton -> "GlasmioButton("
+            GlassSurfaceId.ScheduleNoticeSelector -> "GlasmioSegmentedControl("
+            GlassSurfaceId.ScheduleNoticeActionCue -> "GlassSurface("
             GlassSurfaceId.CommonSlider -> "GlasmioSlider("
             GlassSurfaceId.CommonIconButton -> "GlasmioIconButton("
             GlassSurfaceId.OverlayDialog -> "GlasmioAlertDialog("
@@ -367,6 +369,16 @@ class GlassModeWiringTest {
                 val native = functionCode(vendor("ui", "GlassButtons.kt"), "GlasmioButton")
                 assertTrue("button 必须把采样选择交给已审计 renderer", "GlassSurface(" in native && "sampleBackdrop = sampleBackdrop" in native)
                 assertTrue("减动效按钮保持材质与静态点击，不建立弹簧手势", "rememberMotion().canMove" in code && "GlassSurface(" in code && ".clickable(enabled = enabled, role = Role.Button, onClick = onClick)" in code && "ButtonDefaults" !in code)
+            }
+            GlassSurfaceId.ScheduleNoticeSelector -> {
+                val native = functionCode(vendor("ui", "GlassControls.kt"), "GlasmioSegmentedControl")
+                assertTrue("选择器按统一材质关闭采样和折射", "LocalGlassAppearance.current" in native &&
+                    "if (!appearance.usesBackdrop) Modifier" in native && "if (appearance.usesRefraction)" in native)
+            }
+            GlassSurfaceId.ScheduleNoticeActionCue -> {
+                val native = vendor("glass", "GlassSurface.kt")
+                assertTrue("操作提示复用统一材质绘制器", "LocalGlassAppearance.current" in native && "sampleBackdrop" in native)
+                assertTrue("行内装饰不能再创建一个按钮", "onClick =" !in code)
             }
             GlassSurfaceId.CommonSlider -> {
                 // 滑杆的材质在 vendor 的 GlasmioSlider 里（轨道/手柄各自按 appearance 决定是否采样），
@@ -561,6 +573,6 @@ class GlassModeWiringTest {
         val apply = functionCode(prefs, "applyAppearance")
         assertTrue("草稿必须一次提交材质与减透明", "KEY_GLASS_MODE" in apply && "KEY_REDUCE_TRANSPARENCY" in apply && "editor.commit()" in apply)
         assertTrue("提交后必须同步运行期材质", "MotionPrefs.setReduceTransparency(v.reduceTransparency)" in apply && "MotionPrefs.setRefractsGlass(v.glass == \"liquid\")" in apply)
-        assertTrue("恢复默认须先确认再立即保存", "AppearanceChoice(\"恢复默认主题\", false, !busy) { confirmReset = true }" in page && "current = AppearanceSettings()" in page)
+        assertTrue("恢复默认须先确认再立即保存", "WanzaiTextButton(\"恢复默认主题\", enabled = !busy, onClick = { confirmReset = true })" in page && "current = AppearanceSettings()" in page)
     }
 }

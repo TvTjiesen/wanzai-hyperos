@@ -29,8 +29,12 @@ class WallpaperTileGuardTest {
     private fun bodyOf(src: String, header: String): String {
         val i = src.indexOf(header)
         assertTrue("源码里找不到 $header", i >= 0)
+        // Skip default-argument lambdas such as `onLongPress: () -> Unit = {}`;
+        // the old scan treated their first brace as the composable body.
+        val bodyStart = src.indexOf(") {", i)
+        assertTrue("找不到 $header 的函数体", bodyStart >= 0)
         var depth = 0
-        var j = i
+        var j = bodyStart + 2
         while (j < src.length) {
             if (src[j] == '{') depth++
             if (src[j] == '}') {
@@ -72,5 +76,16 @@ class WallpaperTileGuardTest {
         val badge = body.substringAfter("if (selected) Text(\"✓\"")
         assertTrue("勾选徽标没有不透明底色，压在照片上对比度不可控", ".background(colors.surface" in badge)
         assertTrue("勾选徽标的 ✓ 必须用主色", "color = colors.primary" in badge)
+    }
+
+    @Test
+    fun `管理态进入时摆动方向从非零值开始并往返翻转`() {
+        val body = bodyOf(code(), "private fun WallpaperThumbnail(")
+        val direction = body.substringAfter("var wiggleDirection by")
+            .substringBefore("val tilt by animateFloatAsState")
+        assertTrue("非管理态方向必须恢复成非零初值，避免 -0 卡死", "wiggleDirection = 1" in direction)
+        assertTrue("进入管理态先启动非零摆动", "wiggleDirection = -1" in direction)
+        assertTrue("摆动必须周期性反转", "wiggleDirection = -wiggleDirection" in direction)
+        assertFalse("零方向会使取反永远保持零", "mutableIntStateOf(0)" in body)
     }
 }

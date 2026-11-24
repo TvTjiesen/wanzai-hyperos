@@ -57,7 +57,7 @@ class NotifyGroupSwitchTest {
     fun `通知来源只有日常与讲座且不读取旧门户通知`() {
         val src = source()
         val body = bodyOf(src, "private fun NoticeSourceChips(")
-        assertTrue(body.contains("listOf(\"日常通知\", \"讲座通知\")"))
+        assertTrue(body.contains("listOf(NOTICE_SOURCE_DAILY to \"日常通知\", NOTICE_SOURCE_LECTURE to \"讲座通知\")"))
         assertTrue(!src.contains("graph.messages"))
         assertTrue(!src.contains("NOTICE_SOURCE_PORTAL"))
         assertTrue(!src.contains("confirmReadAll"))

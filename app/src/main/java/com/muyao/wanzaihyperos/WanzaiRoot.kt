@@ -10,7 +10,9 @@ import com.muyao.wanzaihyperos.data.DemoCatalog
 import com.muyao.wanzaihyperos.ui.tronclass.TronShellPage
 import com.muyao.wanzaihyperos.ui.todo.TodoBoardPage
 import com.muyao.wanzaihyperos.ui.web.Cjh52WarmUpGate
-import android.widget.Toast
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallNoticeHost
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallNoticeState
+import com.muyao.wanzaihyperos.ui.design.ai.AiBallNoticeTone
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,6 +59,7 @@ import com.muyao.wanzaihyperos.ui.login.LoginPage
 import com.muyao.wanzaihyperos.ui.search.SearchPage
 import com.muyao.wanzaihyperos.ui.web.WebShellPage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import com.muyao.wanzaihyperos.ui.web.completeLogin
 import kotlin.math.roundToInt
@@ -168,6 +171,7 @@ fun WanzaiApp(
     val uiState = remember { AppUiState() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val aiBallNotice = remember { AiBallNoticeState() }
 
     // 键是整次投递（含序号）而不是那个 Int：同值重放要能再落一次（#42）。
     LaunchedEffect(debugSection) {
@@ -321,11 +325,10 @@ fun WanzaiApp(
                     Route.Web(target.id, target.name, com.muyao.wanzaihyperos.nav.WebTarget.fromTempCodeUrl(plan.url, target.tint?.toArgb())),
                 )
 
-                is AppOpenPlan.CampusOnly -> Toast.makeText(
-                    context,
+                is AppOpenPlan.CampusOnly -> aiBallNotice.show(
                     "“${target.name}”仅校园网内可打开。注意：一般超时不一定都是校园网的问题。",
-                    Toast.LENGTH_LONG,
-                ).show()
+                    AiBallNoticeTone.Warning,
+                )
 
                 // ★ B1：「我的課程」原生頁。
                 //
@@ -476,6 +479,26 @@ fun WanzaiApp(
         )
 
         val searchMotion = remember { com.muyao.wanzaihyperos.ui.search.SearchMotionState() }
+        val homeMorph = remember { com.muyao.wanzaihyperos.nav.HomeMorphState() }
+        LaunchedEffect(backStack.lastOrNull(), homeMorph.target) {
+            if (homeMorph.target != null) {
+                val top = backStack.lastOrNull()
+                val isTarget = when (homeMorph.target) {
+                    "Route.TodoBoard" -> top == Route.TodoBoard
+                    "Route.Rollcall" -> top is Route.Rollcall
+                    "Route.Szty" -> top == Route.Szty
+                    else -> false
+                }
+                when {
+                    isTarget -> Unit // Retain the source for the matching route's reverse transition.
+                    top == Route.Main -> {
+                        delay(380) // Let the pop finish before releasing the origin.
+                        homeMorph.settled()
+                    }
+                    else -> homeMorph.settled()
+                }
+            }
+        }
         androidx.compose.runtime.CompositionLocalProvider(
             com.muyao.wanzaihyperos.ui.design.LocalContainerStyle provides containerStyle,
             com.muyao.wanzaihyperos.ui.search.LocalSearchMotion provides searchMotion,
@@ -485,7 +508,12 @@ fun WanzaiApp(
             NavDisplay(
                 backStack = backStack,
                 // 参考（变焦环）的推/退动效，见 `nav/RouteTransitions.kt` 的换算说明。
-                transition = routeTransition,
+                transition = com.muyao.wanzaihyperos.nav.homeRouteTransitions(
+                    state = homeMorph,
+                    fallback = routeTransition,
+                    reducedMotion = !motion.animationsEnabled,
+                    activeRoute = backStack.lastOrNull(),
+                ),
                 onBack = { backStack.removeLastOrNull() },
             ) {
             entry<Route.Login> {
@@ -595,7 +623,7 @@ fun WanzaiApp(
                     onOpenTron = { backStack.add(Route.TronHome(tileUrl = "https://" + HzcuHosts.TRONCLASS_MOBILE)) },
                     onOpenTimetable = { uiState.selectedTab = 1 },
                     onOpenMessages = { uiState.selectedTab = 2 },
-                    onOpenTodos = { backStack.add(Route.TodoBoard) },
+                    onOpenTodos = { homeMorph.open("Route.TodoBoard"); backStack.add(Route.TodoBoard) },
                     onOpenAbout = { backStack.add(Route.About) },
                     onOpenPreferences = { backStack.add(Route.Preferences) },
                     onOpenCrop = { backStack.add(Route.WallpaperCrop) },
@@ -603,7 +631,7 @@ fun WanzaiApp(
                     // 返回栈深度：设置页账号聚合行按它重算（B4-06 第 1 处真缺陷）
                     navDepth = backStack.size,
                     // 首頁「簽到」磁貼：兩步到掃碼（业主 2026-10-19）。
-                    onOpenRollcall = { backStack.add(Route.Rollcall()) },
+                    onOpenRollcall = { homeMorph.open("Route.Rollcall"); backStack.add(Route.Rollcall()) },
                     // 應用頁的掃一掃。進來先清一次中轉槽：
                     // 上一次掃到一半退出的碼不該在這次冒出來。
                     onOpenScan = {
@@ -617,7 +645,8 @@ fun WanzaiApp(
                     onOpenLogin = { backStack.add(Route.Login) },
                     // 设置页「帐号」那一组：智慧公寓只能他自己粘入口链接（App 取不到码）。
                     onOpenZhgy = { backStack.add(Route.Zhgy) },
-                    onOpenSzty = { backStack.add(Route.Szty) },
+                    onOpenSzty = { homeMorph.open("Route.Szty"); backStack.add(Route.Szty) },
+                    onHomeMorphState = homeMorph,
                     // 消息裡點一條：門戶的 openurl 交給 WebView。
                     //
                     // ⚠️ 原樣交過去對 cjh52 是不行的（真機 2026-10-30 實測）：
@@ -640,7 +669,7 @@ fun WanzaiApp(
                             val ok = runCatching { app.messages.markRead(id) }.getOrDefault(false)
                             app.unread.refresh(force = true)
                             if (!ok) {
-                                Toast.makeText(context, "这条没标上已读，联网后会自动重标", Toast.LENGTH_SHORT).show()
+                                aiBallNotice.show("这条没标上已读，联网后会自动重标", AiBallNoticeTone.Warning)
                             }
                         }
                     },
@@ -648,11 +677,10 @@ fun WanzaiApp(
                         scope.launch {
                             val ok = runCatching { app.messages.markAllRead(group) }.getOrDefault(false)
                             app.unread.refresh(force = true)
-                            Toast.makeText(
-                                context,
+                            aiBallNotice.show(
                                 if (ok) "这一组都标已读了" else "没标上，联网后再试一次",
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                                if (ok) AiBallNoticeTone.Success else AiBallNoticeTone.Warning,
+                            )
                         }
                     },
                 )
@@ -1100,6 +1128,10 @@ fun WanzaiApp(
                 inFlight = app.inFlight,
                 modifier = Modifier.align(Alignment.TopCenter)
                     .statusBarsPadding().padding(top = 6.dp),
+            )
+            AiBallNoticeHost(
+                state = aiBallNotice,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 84.dp),
             )
             }
         }

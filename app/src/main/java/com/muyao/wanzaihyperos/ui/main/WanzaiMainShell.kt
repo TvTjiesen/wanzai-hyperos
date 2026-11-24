@@ -112,7 +112,10 @@ fun WanzaiMainShell(
     onReadMessage: (String) -> Unit = {},
     onReadAllMessage: (String) -> Unit = {},
     /**
-     * 「消息」那颗 tab 上的未读数。0 = 不画角标。
+     * 首页卡片原位展开到详情路由的运动状态；根导航与首页共用。
+     */
+    onHomeMorphState: com.muyao.wanzaihyperos.nav.HomeMorphState? = null,
+    /** 「消息」那颗 tab 上的未读数。0 = 不画角标。
      *
      * 只收一个 Int 而不是 CountValue：底栏的职责就是画一个数，
      * 「未知」在根导航那一层已经折成 0 了（不画 0 也不画问号）。
@@ -325,6 +328,7 @@ fun WanzaiMainShell(
                                 onOpenRollcall = onOpenRollcall,
                                 onOpenAppearance = { showAppearance = true },
                                 onOpenSzty = onOpenSzty,
+                                morphState = onHomeMorphState,
                             )
 
                             MainSection.Timetable -> TimetableSectionPage(

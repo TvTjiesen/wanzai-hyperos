@@ -106,18 +106,21 @@ class PageEntryGateTest {
         assertFalse(host.contains("engine.detach"))
     }
 
-    @Test fun weekStripClaimsOnlyHorizontalAxisInInitialAtStandardSlop() {
+    @Test fun weekStripUsesNativeHorizontalDragWithoutStealingVerticalScroll() {
         val text = page("TimetableSectionPage")
-        val gesture = text.substringAfter(".pointerInput(sel, cellPx)").substringBefore("horizontalArrangement =")
-        assertTrue(gesture.contains("awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)"))
-        assertTrue(gesture.contains("awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)"))
-        assertTrue(gesture.contains("abs(drag) > slop && abs(drag) > abs(dyTotal) * 1.2f"))
-        assertTrue(gesture.contains("abs(dyTotal) > slop && abs(dyTotal) > abs(drag) * 1.2f"))
-        assertFalse(gesture.contains("slop * 1.5f"))
-        assertTrue(gesture.indexOf("claimed = true") < gesture.indexOf("change.consume()"))
-        assertTrue(gesture.contains("val projected = drag + v * flingSeconds()"))
-        assertTrue(gesture.contains("val next = (sel + step).coerceIn(1, 7)"))
-        assertTrue(gesture.contains("finally {"))
+        assertTrue(text.contains("ScheduleNoticeSelector("))
+        assertTrue(page("ScheduleNoticeControls").contains("GlasmioSegmentedControl("))
+        val vendor = File("../third_party/glasmio")
+        val selector = vendor.resolve("glasmio-ui/src/main/java/io/github/neoruaa/glasmio/ui/GlassControls.kt")
+            .readText().substringAfter("fun <T> GlasmioSegmentedControl(")
+        assertTrue(selector.contains("horizontalDragOnly = true"))
+        val drag = vendor.resolve("glasmio-glass/src/main/java/io/github/neoruaa/glasmio/glass/DragGestureInspector.kt")
+            .readText().substringAfter("if (horizontalDragOnly) {").substringBefore("onDrag(drag, Offset.Zero)")
+        assertTrue(drag.contains("awaitTouchSlopOrCancellation(down.id)"))
+        assertTrue(drag.contains("if (!verticalIntent && abs(overSlop.x) > abs(overSlop.y)) {"))
+        assertTrue(drag.contains("change.consume()"))
+        assertTrue(drag.contains("verticalIntent = true"))
+        assertTrue(drag.contains("if (!ended) onDragCancel()"))
         assertFalse(text.contains("HorizontalDragZones"))
     }
 

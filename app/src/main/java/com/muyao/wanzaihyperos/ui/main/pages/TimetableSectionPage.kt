@@ -55,22 +55,11 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.boundsInParent
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import com.muyao.wanzaihyperos.ui.design.slidingSelectionCarrier
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import kotlinx.coroutines.launch
-import kotlin.math.abs
-import kotlin.math.roundToInt
-import kotlin.math.sign
 import com.muyao.wanzaihyperos.ui.design.liquid.rememberPageChromePilot
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -116,7 +105,9 @@ import com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp
 import com.muyao.wanzaihyperos.ui.design.liquid.statusBarTopPadding
 import top.yukonga.miuix.kmp.basic.Text
 import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog as OverlayDialog
+import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import io.github.neoruaa.glasmio.core.GlasmioTheme
 import java.time.LocalDate
 
 /**
@@ -374,7 +365,7 @@ fun TimetableSectionPage(
                         maxLines = 1,
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
-                            .clickable(onClickLabel = "回到今天") {
+                            .scheduleNoticeClick(onClickLabel = "回到今天") {
                                 weekOffset = 0
                                 selectedDay = LocalDate.now().dayOfWeek.value
                             }
@@ -1654,11 +1645,12 @@ private fun DayModeSwitch(
             }
         }
         Spacer(Modifier.width(8.dp))
-        com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
-            labels = listOf(firstLabel, "整周"),
-            stableKeys = listOf("day", "week"),
-            selectedIndex = if (weekMode) 1 else 0,
-            onSelect = { if (it == 0) onFirst() else onWeek() },
+        ScheduleNoticeSelector(
+            items = listOf(false to firstLabel, true to "整周"),
+            selected = weekMode,
+            onSelected = { showWeek -> if (showWeek) onWeek() else onFirst() },
+            modifier = Modifier.width(112.dp),
+            selectOnIndicatorTap = true,
         )
     }
 }
@@ -1697,7 +1689,7 @@ private fun WeekNavButton(
         modifier = Modifier
             .height(44.dp)
             .width(28.dp)
-            .clickable(onClickLabel = desc) { onClick() },
+            .scheduleNoticeClick(onClickLabel = desc, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         // 板上只有一颗 `#i-chev`（朝右）。往左那枚**同一字形水平翻面**，
@@ -1760,23 +1752,7 @@ internal fun releaseVelocityOf(
     return (x1 - x0) / (dtMs / 1000f)
 }
 
-/**
- * 落地格数：`projected` 是「位移 + 速度 × [flingSeconds]」，除以**整格宽**再四舍五入
- * ⇒ 门槛正好是半格（`cellPx / 2`）。
- *
- * ★ 第 5 轮真机审计要的：**判据必须抽成生产函数**。以前它是内联在组合里的，
- *   而 `ReleaseVelocityTest` 在测试里**自己又写了一遍**（本地 `step()` + 本地 `cellPx`）——
- *   于是"生产除数从 220.8 改成 110.4"这种回归测试照样绿（一行生产代码都没守到）。
- */
-internal fun weekFlipStep(projected: Float, cellPx: Float): Int =
-    if (cellPx <= 0f) 0 else (-projected / cellPx).roundToInt().coerceIn(-1, 1)
-
-/**
- * 課表頂部的日期條（v2）：星期 + 月日数字 + 有课小圆点，**点一天就切到那天**。
- *
- * 圆点只按**本周 slots** 统计：有 ≥1 节才画，所以「没点」就是「这天本周没课」，
- * 不是「资料还没来」的猜测。
- */
+/** Seven date tabs preserve the agenda action even when the visible day is selected again. */
 @Composable
 private fun WeekDateStrip(
     monday: LocalDate,
@@ -1785,318 +1761,47 @@ private fun WeekDateStrip(
     dotsFor: (Int) -> Int,
     onSelect: (Int) -> Unit,
 ) {
-    val colors = MiuixTheme.colorScheme
-    // ── v3 清单 #5：这一排格子可以横扫切天 ────────────────────────────
-    //
-    // 判据全部以「一格」为单位，不写死 dp —— 字号缩放、换屏幕宽度都还成立。
-    // 橡皮筋复用 `liquid/GlassControls.kt` 里那一份 `rubberBand`（动效标准第 5 步：
-    // 二者择一，不许写第三种）。
-    val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
-    // ★ 独立审计（v3 #5 第 1 轮）：以前用默认 `enabled = true`，而 `Motion.kt:207`
-    //   那个 `rememberHapticsEnabled` **全工程 0 个调用点** ⇒ 触感开关在所有触发点等于没接。
-    val haptics = com.muyao.wanzaihyperos.ui.design.rememberHaptics(
-        enabled = com.muyao.wanzaihyperos.ui.design.rememberHapticsEnabled(
-            androidx.compose.ui.platform.LocalContext.current,
-        ),
-    )
-    val dragX = remember { androidx.compose.animation.core.Animatable(0f) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    var cellPx by remember { mutableFloatStateOf(0f) }
-    // ★ 2026-11-07：周条改成**七天**（周一至周日），与设计稿 v2.1 的七天条一致
-    //   （`DEEPSEEK-IMPLEMENTATION.md §4.1`：「七天条（周六周日保留）」）。
-    //   于是「定义域洞」正式关闭：`selected` 本来就是 1..7，这里不再夹。
-    val sel = selected.coerceIn(1, 7)
-    var dayBounds by remember(monday) { mutableStateOf<Map<Int, Rect>>(emptyMap()) }
-
-    Row(
-        // 板 `.weekstrip{display:flex;gap:5px;padding:6px 14px 10px;align-items:stretch}` ⇒ gap 4.4dp
-        // 板 `.weekstrip{padding:6px 14px}` ⇒ 在 16dp 列表内边距里**不再另缩 4dp**
-        //（缩了以后周条比正文列还窄，选中绿块和下面行的左右边全不齐，复评 2026-10-21）。
-        // ★ 不能用负 padding 去「撑回」板上那 4px：`Modifier.padding` 明确拒绝负值，
-        // 真机上直接 `IllegalArgumentException: Padding must be non-negative` 崩在切课表那一下
-        //（2026-10-21 23:00 logcat 抓到现场）。宁可留这 4px 的差，也不拿崩溃换像素。
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 0.dp, vertical = 2.dp)
-            // 七格等分全宽：稿上七格中心 x = 43/94/145/195/246/297/347（392px 板）⇒ 间距 50.6px。
-            .onSizeChanged { cellPx = it.width / 7f }
-            // 只动合成层的 translationX，不动 padding/width —— 拖一下不许重测布局。
-            .graphicsLayer { translationX = dragX.value }
-            .selectableGroup()
-            .slidingSelectionCarrier(selected, dayBounds[selected], colors.primary)
-            .pointerInput(sel, cellPx) {
-                if (cellPx <= 0f) return@pointerInput
-                val slop = viewConfiguration.touchSlop
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                    // 抬手速度的样本（毫秒时间戳 + **累计位移**）—— 见下面那段注释与 [releaseVelocityOf]。
-                    //
-                    // ★★ 第 5 轮真机审计的**真根因**（靠 `wz-motion` 那行日志定位，不是猜的）：
-                    //   样本里原来记的是 `change.position.x` = 手指在**这一排的局部坐标系**里的 x，
-                    //   而这一排自己挂着 `graphicsLayer { translationX = dragX.value }`
-                    //   ⇒ **坐标系跟着条子一起动**：条子往左移 100px，手指在局部系里反而"往回走 +100"。
-                    //   真机日志（几何：手指 −100px/56ms，单调向左）：
-                    //     samples = 804 | 779 | 754 | 779 | 779 | 804   ← 出去又"回来"了
-                    //     ⇒ v = **+641 px/s**（向左的甩，算出向右的速度）⇒ `projected = −29.5` ⇒ 不翻天
-                    //   这也解释了第 3 轮那次"符号反转"：同一个机理。
-                    //   `change.previousPosition` 与 `change.position` 在同一帧同一坐标系里，
-                    //   所以它们的**差**是干净的手指增量（`drag` 一直是对的、−100 ✓）。
-                    //   ⇒ 样本池记 `drag`（累计位移），坐标系怎么动都不影响它。
-                    val samples = ArrayDeque<Pair<Long, Float>>()
-                    samples.addLast(down.uptimeMillis to 0f)
-                    // ★★ 第 2 轮真机审计（#5 Block）：接管**必须从表现值接着动**。
-                    //   以前这里写 `var total = 0f` ⇒ 每个新手势都从 0 重开，
-                    //   真机 A/B（同一套抓取手势，分别在上一段释放后 30ms / 300ms 抓下去，
-                    //   抓取瞬间表现值是 −65 与 −1）**两次结果完全一样（都到 −85）** ⇒
-                    //   抓取瞬间条子在哪儿完全不影响抓完去哪。那正是动效标准内核第 2 条
-                    //   「被打断时从表现值接着动，不许从头再来」被直接踩掉。
-                    //   `base` 取抓取那一刻的 `dragX`（= 屏幕上的值），`drag` 只记**本次手势**的位移。
-                    val base = dragX.value
-                    var drag = 0f
-                    var dyTotal = 0f
-                    var claimed = false
-                    var releaseVelocity = 0f
-                    try {
-                        while (true) {
-                            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            val dxIn = change.position.x - change.previousPosition.x
-                            // ★★ 第 3 轮真机审计 **Block 头条**：抬手速度的取法整个换掉。
-                            //
-                            // 事故形态（真机 `SYNTHETIC0000001`，第 3 轮）：一次**快甩**之后天不翻，
-                            // 而且条子抬手后是"被吸回去"而不是"被甩出去"。逐帧拟合给出：
-                            //   手指抬手真速度 **−1350 px/s（向左）**，弹簧初速反解 **+975 px/s（向右）**
-                            //   ⇒ `projected = drag + v·0.11 = −149 + 107 = −41.8`（阈值 110.4 的 38%）⇒ 不翻天。
-                            //
-                            // 机理：Compose 的 Lsq2 估计器有效窗只有 **40ms / 最少 3 个样本**，
-                            // 而 UP 的位置 = 最后一次 move 的位置（**零位移的重复点**）——
-                            // 把 UP 也喂进去，最小二乘的斜率会被这个重复点拽偏甚至**翻号**。
-                            // （官方实现里 UP 是不喂的，我上一轮为了"抢到之前的 move 也要进窗"
-                            //   改成自己 `addPosition` 每事件都喂，把这条保护拆了。）
-                            //
-                            // 所以这里不再押那个奇异窗：**按"最近 80ms 首尾差 ÷ dt"自己算**，
-                            // 样本不足 3 个或 dt ≤ 0 ⇒ **v = 0（按纯位置判定）**，不用病态拟合硬凑。
-                            // 见 [releaseVelocityOf] 与它的单测（含"补一个重复点不许把符号翻过去"那条回归）。
-                            // 记**累计位移**（干净的手指轨迹），不是局部坐标 —— 见上面那段
-                            samples.addLast(change.uptimeMillis to drag)
-                            while (samples.size > 16) samples.removeFirst()
-                            // ★ 第 2 轮审计的缺陷 2：`dxIn` 只能记一次。
-                            //   以前 `:1441`（未抢到那支）与 `:1493`（抢到之后）**各加一遍**
-                            //   ⇒ 抢到的那一帧位移被记两次：慢拖 9 个 move 手指走 −83px、条子走 −93px；
-                            //   抓取那一下手指 −43px、条子 −86px（整整 2 倍）⇒ 一帧内 42px 死跳，
-                            //   而且"半格"实际是 99px（44.8%）而不是 110.4px（50%）。
-                            drag += dxIn
-                            dyTotal += change.position.y - change.previousPosition.y
-
-                            if (!claimed) {
-                                // ★★ 独立审计（v3 #5 第 1 轮）**Block 头条**：这一排以前**没有轴向锁**
-                                //   （`isConsumed` / `position.y` 在全文件命中 0 次），
-                                //   而周条是课表页 LazyColumn 的第 1 项 —— 手指压着它**竖着滚列表**时
-                                //   x 增量照样在累，`abs(total) >= cellPx*0.5`（110.4px）或
-                                //   `|v| >= 50dp/s`（175px/s）在斜向快滚里极易满足
-                                //   ⇒ 他只是滚了一下列表，天就被切走、还震了一下。
-                                //   这一改的是「他今天有哪几节课」，直接踩「别让人走错教室」那条红线。
-                                //   判据抄同工程已经写对的那一份（`SwipeToSwitchSection.kt:87-93`）：
-                                //   竖向先赢 ⇒ 交还给列表；横向先赢 ⇒ 这一排接管。
-                                //   ⚠️ 抢到的判据一律用 **`drag`（本次手势的位移）**，不用 `base + drag`：
-                                //     接手时条子可能正停在 −65，用总位移会让"手指才动 1px"就判成横向大幅拖拽。
-                                if (abs(dyTotal) > slop && abs(dyTotal) > abs(drag) * 1.2f) {
-                                    break
-                                }
-                                if (change.isConsumed) {
-                                    // 已经被别人（列表惯性/父层）吃掉 ⇒ 不抢。
-                                    break
-                                }
-                                if (abs(drag) > slop && abs(drag) > abs(dyTotal) * 1.2f) {
-                                    claimed = true
-                                } else if (!change.pressed) {
-                                    // 轻点（没到横向阈值就抬起）⇒ 既不切天也不回弹动画，交给 clickable。
-                                    break
-                                } else {
-                                    continue
-                                }
-                            }
-
-                            if (!change.pressed) {
-                                // ★ 抬手分**正常抬手 / 被抢走**两种（必修 2）：
-                                //   以前 `if (!change.pressed)` 一律当同一件事，被系统取消的手势
-                                //   照样提交切日 + 发触感。这里能走到这一步说明已经 claimed 且
-                                //   这个 pointer 自己还活着 ⇒ 是用户真放的手。
-                                change.consume()
-                                val v = releaseVelocityOf(samples, change.uptimeMillis)
-                                releaseVelocity = v
-                                // ★★ 第 5 轮真机审计：注入用的 evdev 内核时间戳**本身不可靠**
-                                //   （`v7sf60.bin` 里 DOWN 记在 +0.00ms、第一个 move 记在 +662983ms），
-                                //   所以"App 内部那组 `uptimeMillis`"离线复算不出来 —— 根因只能在运行时看。
-                                //   这一行把判据要用的量**一次全打出来**（tag `wz-motion`，logcat grep 它）：
-                                //   靠它区分两个嫌疑：
-                                //     甲 = 样本池里根本没有"释放瞬间那一段"（Compose 把中间 move 批处理掉了
-                                //           ⇒ 要把 `change.historical` 里的历史点也喂进来）；
-                                //     乙 = 池子里有 DOWN 这个**零速度样本**，落在窗口首元素 ⇒ 算成整段平均。
-                                if (com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning.debugLog) run {
-                                    val win = releaseWindow(samples, change.uptimeMillis)
-                                    android.util.Log.i(
-                                        "wz-motion",
-                                        "weekstrip release drag=$drag base=$base dragX=${dragX.value} " +
-                                            "samples=${samples.joinToString("|") { "${it.first}:${it.second}" }} " +
-                                            "nowMs=${change.uptimeMillis} winSize=${win.size} " +
-                                            "t0=${win.firstOrNull()?.first} t1=${win.lastOrNull()?.first} " +
-                                            "dtMs=${(win.lastOrNull()?.first ?: 0L) - (win.firstOrNull()?.first ?: 0L)} " +
-                                            "v=$v projected=${drag + v * flingSeconds()} step=" +
-                                            weekFlipStep(drag + v * flingSeconds(), cellPx),
-                                    )
-                                }
-                                // ★ 必修 5：**速度真的交接给动画**（以前 `initialVelocity` 全文件 0 次，
-                                //   `v` 只当布尔与符号用，落点是"半格 OR 速度符号"的二值判定）。
-                                //   落点按**投影**算：`projected = 位移 + v · 0.11f`
-                                //   —— 0.11f 是 Android 样条 fling 的等效投影时长（`PathInterpolator`
-                                //   + 摩擦衰减积分出来的量纲），**真机 A/B 已证有效，别动**。
-                                //   标准里那条 Web 的 `d/(1−d)`（d≈0.998）是 px/s + 毫秒量纲，不许照搬。
-                                //
-                                // ★ 第 2 轮审计要我拍板的一条：翻天的位移量用**手指自己的那段**（`drag`），
-                                //   不用 `base + drag`。理由：翻不翻天是"他这一下想干什么"的问题，
-                                //   语义一直是「手指走够半格」；而 `base + drag` 会让"条子正在大幅回弹时
-                                //   手指只挪 1px 也翻天"。**视觉位置与判重量的关系写在这里**：
-                                //   位置（`base + drag`）负责"条子跟着手"，判重用 `drag` 负责"这一下算不算数"，
-                                //   两者各自单调、且不像以前那样共用一个被记两遍的 `total`。
-                                val projected = drag + v * flingSeconds()
-                                val step = weekFlipStep(projected, cellPx)
-                                val next = (sel + step).coerceIn(1, 7)
-                                if (next != sel) {
-                                    haptics.commit()   // 因果明确的时刻：这一发真的把请求发出去了
-                                    onSelect(next)
-                                }
-                                break
-                            }
-
-                            // 位置 = **抓取时的表现值 + 本次手势的位移**（第 2 轮审计必修 2）
-                            val pos = base + drag
-                            // 往哪边是"出界"：周一(1) 再往右、周日(7) 再往左都没有那一天。
-                            val pastEnd = (pos < 0f && sel == 7) || (pos > 0f && sel == 1)
-                            val want = if (pastEnd) {
-                                com.muyao.wanzaihyperos.ui.design.liquid.rubberBand(pos, cellPx)
-                            } else {
-                                pos.coerceIn(-cellPx, cellPx)
-                            }
-                            // ★ 必修 6：**跟手是直接操作，不是动画** ⇒ 无条件走。
-                            //   以前写的是 `dragX.snapTo(if (motion.canMove) want else 0f)`，
-                            //   减弱动效下手指推着条子屏幕上什么都不动、只在抬手时天被切走
-                            //   —— 那才是真的"零反馈"。
-                            // ⚠️ 台账里"这里不用 scope.launch"那句**在语言层面不成立**，我试过：
-                            //   `Animatable.snapTo/animateTo` 带 `@RestrictSuspension`，
-                            //   在 `awaitEachGesture` 体里直调会被编译器拒绝
-                            //   （实跑原文：Restricted suspending functions can invoke member or
-                            //   extension suspending functions only on their restricted coroutine scope）。
-                            //   所以派发还得走 scope；**要治的那一条（跟手不许被减弱动效关掉）已经治了**。
-                            scope.launch { dragX.snapTo(want) }
-                            change.consume()
-                        }
-                    } finally {
-                        // ★ 必修 3：**每一条出口都要回位**（抬手、竖向让路、被 consume、
-                        //   pointer 从 changes 消失、pointerInput 因 `cellPx`/定义域变化而重启）。
-                        //   以前只有"正常抬手"那一条会回位，其余把条子停在偏移值上。
-                        //   减弱动效 ⇒ 不做回弹动画，直接归零（位移停了，切天本身仍是反馈）。
-                        // 第 5 轮审计要的第二行：动画**真正拿到**的初速（与上一行对照就知道有没有被吞）。
-                        // B4-15①：只走 `hzr_debug` 开关，日常包里不刷屏。
-                        if (com.muyao.wanzaihyperos.ui.design.liquid.GlassTuning.debugLog) {
-                            android.util.Log.i(
-                                "wz-motion",
-                                "weekstrip spring initialVelocity=$releaseVelocity from=${dragX.value}",
-                            )
-                        }
-                        if (motion.canMove) {
-                            scope.launch { dragX.animateTo(
-                                0f,
-                                androidx.compose.animation.core.spring(
-                                    // 常量写法，不推高 `MotionGuardTest` 的裸写弹簧基线。
-                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
-                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
-                                ),
-                                initialVelocity = releaseVelocity,
-                            ) }
-                        } else {
-                            scope.launch { dragX.snapTo(0f) }
-                        }
-                    }
-                }
-            },
-        // 七格之间不留缝：稿上七格中心等距 50.6px = 全宽 ÷ 7，加了 gap 每格就窄一圈、
-        // 选中胶囊会与日期中心对不齐（稿上胶囊正压在「五」这一列的正中）。
-        horizontalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
-        // 2026-11-07：七格全画（周六周日保留，§4.1）。有几节课就画几个点，最多 3 个。
-        (1..7).forEach { day ->
-            val date = monday.plusDays((day - 1).toLong())
-            // ★ 高亮判**没有夹过的 `selected`**：这一排只到周五，周六周日不该有哪一格被点亮
-            //   （以前 `sel` 夹成 5 ⇒ 周六进来周五那格亮着，看着像「今天是周五」）。
-            //   手势那套判据仍然用夹过的 `sel`（定义域洞那条注释在上面），两者分工不同。
-            val isSelected = day == selected
+    val colors = GlasmioTheme.colors
+    val dates = remember(monday) { (1..7).associateWith { monday.plusDays((it - 1).toLong()) } }
+    val dotsByDay = dates.keys.associateWith(dotsFor)
+    ScheduleNoticeSelector(
+        items = dates.map { (day, date) ->
+            day to buildString {
+                if (day == today) append("今天，")
+                append("${date.monthValue} 月 ${date.dayOfMonth} 日，${DAY_WEEK[day - 1]}")
+            }
+        },
+        selected = selected,
+        onSelected = onSelect,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        height = 68.dp,
+        selectOnIndicatorTap = true,
+        itemContent = { day, isSelected ->
+            val date = dates.getValue(day)
             val isToday = day == today
-            val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-            // ★ 2026-11-07 按 `screens/timetable.png` 复刻：
-            //   选中 = **主色实底竖胶囊**（稿上 49×78px ⇒ 43×69dp，圆角 = 半宽）、**没有阴影**；
-            //   未选中 = **完全无底色无描边**，只有灰字。
-            //   旧版是 13dp 圆角矩形 + 6dp 主色阴影，看着像一块贴上去的糖，稿上更轻。
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .onGloballyPositioned { coordinates ->
-                        val next = coordinates.boundsInParent()
-                        if (dayBounds[day] != next) dayBounds = dayBounds + (day to next)
-                    }
-                    .selectable(selected = isSelected, role = Role.Tab,
-                        interactionSource = press, indication = null) { onSelect(day) }
-                    .semantics { contentDescription = "查看" + DAY_WEEK[day - 1] }
-                    // 稿上胶囊高 69dp、宽 43dp；这里用上下 10dp 内衬 + 三行字自然撑到 ~64dp，
-                    // 七列各自 1/7 宽（本机 347dp ⇒ 每格 49.5dp），比稿略宽但不挤。
-                    .padding(vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = DAY_LABELS[day - 1],
-                    fontSize = Type.micro,
-                    color = if (isSelected) colors.onPrimary.copy(alpha = 0.85f)
-                    else colors.onSurfaceVariantSummary,
-                )
-                // 板 `.day .n{margin-top:4px}` ⇒ 3.5dp
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(DAY_LABELS[day - 1], fontSize = Type.micro, color = colors.secondaryContent)
                 Spacer(Modifier.height(3.5.dp))
                 Text(
                     text = date.dayOfMonth.toString(),
                     fontSize = Type.body,
                     fontWeight = if (isSelected || isToday) Type.weightTitle else Type.weightBody,
-                    color = when {
-                        isSelected -> colors.onPrimary
-                        isToday -> colors.primary
-                        else -> colors.onBackground
-                    },
+                    color = if (isToday && !isSelected) colors.accent else colors.content,
                     style = TextStyle(fontFeatureSettings = Type.tabular),
                     maxLines = 1,
                 )
-                // 板 `.dots{height:4px;margin-top:5px}` ⇒ 3.5dp 高、4.4dp 上边距
                 Spacer(Modifier.height(4.4.dp))
-                // 有几节课就几个点（最多 3 个）；没课也占住同样高度，整条不会上下跳。
                 Row(
                     modifier = Modifier.height(3.5.dp),
                     horizontalArrangement = Arrangement.spacedBy(2.2.dp),
                 ) {
-                    repeat(dotsFor(day)) {
-                        Box(
-                            modifier = Modifier
-                                // 板 `.dots i{width:3px;height:3px}` ⇒ 2.6dp
-                                .size(2.6.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    // ★ 未选中那几格的点是 **--sub @ 55%**（板 `.day.has .dots i`），
-                                    // 不是薄荷实心：整排五点全绿会把「选中的那天」这件事稀释掉。
-                                    if (isSelected) colors.onPrimary.copy(alpha = 0.8f)
-                                    else colors.onSurfaceVariantSummary.copy(alpha = 0.55f)
-                                ),
-                        )
+                    repeat(dotsByDay.getValue(day)) {
+                        Box(Modifier.size(2.6.dp).background(colors.secondaryContent, CircleShape))
                     }
                 }
             }
-        }
-    }
+        },
+    )
 }
 
 /** 日程裡的日標題：一條短豎線 + 星期，和下面的課卡屬於同一組。 */
@@ -2543,16 +2248,9 @@ private fun TimetableFooterButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = MiuixTheme.colorScheme
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(44.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, colors.primary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-            .clickable(onClickLabel = text, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = text, fontSize = Type.secondary, color = colors.primary)
-    }
+    WanzaiTextButton(
+        text = text,
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth().height(48.dp),
+    )
 }

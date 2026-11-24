@@ -26,7 +26,7 @@ class NotifyPillCountTest {
         return hit!!.second
     }
 
-    /** 括号配平地切出某个函数的函数体（用来只看 FilterPill 自己）。 */
+    /** 括号配平地切出某个函数的函数体（用来只看 NotifyFilterLabel 自己）。 */
     private fun bodyOf(src: String, signature: String): String {
         val start = src.indexOf(signature)
         assertTrue("找不到 " + signature + " —— 这条判据就失效了", start >= 0)
@@ -55,19 +55,19 @@ class NotifyPillCountTest {
 
     @Test
     fun `筛选胶囊必须有独立的计数参数`() {
-        val body = bodyOf(source(), "private fun FilterPill(")
+        val body = bodyOf(source(), "private fun NotifyFilterLabel(")
         val sig = body.substringBefore("{")
-        assertTrue("FilterPill 没有 count 形参，计数只能拼进标签 ⇒ 无法单独弱化：" + sig,
+        assertTrue("NotifyFilterLabel 没有 count 形参，计数只能拼进标签 ⇒ 无法单独弱化：" + sig,
             Regex("count\\s*:\\s*String").containsMatchIn(sig))
     }
 
     @Test
     fun `计数必须比标签淡一档`() {
-        val body = bodyOf(source(), "private fun FilterPill(")
-        assertTrue("FilterPill 里找不到 0.62f 的弱化（板上 .chip .n{opacity:.62}）：" + body,
+        val body = bodyOf(source(), "private fun NotifyFilterLabel(")
+        assertTrue("NotifyFilterLabel 里找不到 0.62f 的弱化（板上 .chip .n{opacity:.62}）：" + body,
             body.contains("0.62f"))
         val countText = body.indexOf("text = count")
-        assertTrue("FilterPill 里没有 text = count 这个独立的 Text", countText >= 0)
+        assertTrue("NotifyFilterLabel 里没有 text = count 这个独立的 Text", countText >= 0)
         val tail = body.substring(countText)
         assertTrue("计数那个 Text 没挂 0.62f 的 alpha：" + tail.take(300), tail.contains("0.62f"))
     }
@@ -78,12 +78,10 @@ class NotifyPillCountTest {
         assertEquals("又出现了 pillLabel 拼接（标签与计数必须各是一个 Text）：" + src.contains("pillLabel"),
             false, src.contains("pillLabel"))
         val body = bodyOf(src, "private fun NotifyFilters(")
-        // 共享底托后：四个标签在 labels 列表里，唯一调用点仍是 FilterPill(标签, 计数, 选中)，
-        // 标签与计数保持两个独立实参（拼接成串会让计数无法单独弱化）。
-        val labels = Regex("val labels = listOf\\(([^)]*)\\)").find(body)?.groupValues?.get(1).orEmpty()
-        assertEquals("labels 必须是四个：" + labels, 4, Regex("\"([^\"]+)\"").findAll(labels).count())
-        val calls = Regex("FilterPill\\(\\s*labels\\[index\\]\\s*,\\s*([^,\\n]+)").findAll(body).toList()
-        assertEquals("FilterPill(标签, 计数) 必须有唯一调用点且计数独立传参：" + calls.size, 1, calls.size)
+        assertTrue(body.contains("ScheduleNoticeSelector("))
+        assertTrue(body.contains("itemContent ="))
+        assertTrue(body.contains("NotifyFilterLabel(label = items.first { it.first == id }.second, count ="))
+        assertEquals(4, Regex("[1-4] to ").findAll(body).count())
     }
 
     @Test

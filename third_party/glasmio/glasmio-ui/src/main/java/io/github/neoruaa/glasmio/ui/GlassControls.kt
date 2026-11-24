@@ -8,7 +8,10 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp as colorLerp
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -537,6 +541,8 @@ fun <T> GlasmioSegmentedControl(
     enabled: Boolean = true,
     deferSelection: Boolean = false,
     itemContent: (@Composable BoxScope.(value: T, selected: Boolean) -> Unit)? = null,
+    // Opt in when invoking the selected item again is meaningful to the caller.
+    selectOnIndicatorTap: Boolean = false,
 ) {
     require(items.isNotEmpty())
     require(height.value.isFinite() && height > 4.dp) { "Segment height must be finite and greater than 4 dp." }
@@ -705,6 +711,16 @@ fun <T> GlasmioSegmentedControl(
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
                 }
                 .then(if (enabled) animation.modifier else Modifier)
+                .then(if (enabled && selectOnIndicatorTap) Modifier.pointerInput(animation) {
+                    awaitEachGesture {
+                        // Observe rather than consume down: let the native drag detector and
+                        // ancestor scrollables take the gesture if the finger moves.
+                        awaitFirstDown(requireUnconsumed = false)
+                        if (waitForUpOrCancellation(PointerEventPass.Final) != null && currentEnabled) {
+                            currentItems.getOrNull(currentSelectedIndex)?.let { onUserSelected(it.first) }
+                        }
+                    }
+                } else Modifier)
                 .height(indicatorHeight)
                 .clearAndSetSemantics { }
                 .layout { measurable, constraints ->

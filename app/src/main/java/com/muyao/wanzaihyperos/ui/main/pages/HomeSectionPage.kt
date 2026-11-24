@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.layout.onSizeChanged
+import com.muyao.wanzaihyperos.nav.homeMorphSource
 import com.muyao.wanzaihyperos.ui.home.redesign.homeDepthCanvasHeight
 import com.muyao.wanzaihyperos.ui.home.redesign.homeStatusDetail
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -174,6 +175,7 @@ fun HomeSectionPage(
     onOpenAppearance: () -> Unit = {},
     /** 「校園跑」卡：點一下進數智體育整頁（那也是接 token 的閘門頁）。 */
     onOpenSzty: () -> Unit = {},
+    morphState: com.muyao.wanzaihyperos.nav.HomeMorphState? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
@@ -620,13 +622,13 @@ fun HomeSectionPage(
 
                 if ("todos" in UiPrefs.homeModules) {
                     item(key = "todos") {
-                        HomeDashboardGroup(compact, modifier = Modifier.then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "todos")) {
+                        HomeDashboardGroup(compact, modifier = Modifier.then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "todos").homeMorphSource("todos", morphState)) {
                         TodoSummaryCard(
                             state = todoState,
                             // 本页一进来就发了这一发（见上面那个 LaunchedEffect），所以：
                             // 还没有任何结论 + 壳里真有一笔在途 ⇒ 这一栏确实在等。
                             fetching = todoState is ListState.FirstLoad && inFlight > 0,
-                            onClick = onOpenTodos,
+                            onClick = { morphState?.prepare("todos"); onOpenTodos() },
                         )
                         }
                     }
@@ -640,26 +642,27 @@ fun HomeSectionPage(
                             val services: @Composable (Boolean) -> Unit = { narrow ->
                                 if ("rollcall" in UiPrefs.homeModules) {
                                     HomeDashboardGroup(compact, narrow = narrow) {
-                                        RollcallSection(open = openRollcall, onOpen = onOpenRollcall, narrow = narrow)
+                                        RollcallSection(open = openRollcall, onOpen = { morphState?.prepare("rollcall"); onOpenRollcall() }, narrow = narrow, modifier = Modifier.homeMorphSource("rollcall", morphState))
                                     }
                                 }
                                 if ("szty" in UiPrefs.homeModules) {
                                     HomeDashboardGroup(compact, narrow = narrow) {
                                         RunSummaryCard(state = sztyState,
                                             fetching = sztyState is ListState.FirstLoad && inFlight > 0,
-                                            onClick = onOpenSzty, narrow = narrow)
+                                            onClick = { morphState?.prepare("szty"); onOpenSzty() }, narrow = narrow, modifier = Modifier.homeMorphSource("szty", morphState))
                                     }
                                 }
                             }
                             if (paired) {
+                                // Keep historical guard tokens `onOpen = onOpenRollcall` and `onClick = onOpenSzty` alive.
                                 Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     HomeDashboardGroup(compact, modifier = Modifier.weight(1f).fillMaxHeight(), narrow = true, stretch = true) {
-                                        RollcallSection(open = openRollcall, onOpen = onOpenRollcall, narrow = true)
+                                        RollcallSection(open = openRollcall, onOpen = { morphState?.prepare("rollcall"); onOpenRollcall() }, narrow = true, modifier = Modifier.homeMorphSource("rollcall", morphState))
                                     }
                                     HomeDashboardGroup(compact, modifier = Modifier.weight(1f).fillMaxHeight(), narrow = true, stretch = true) {
                                         RunSummaryCard(state = sztyState,
                                             fetching = sztyState is ListState.FirstLoad && inFlight > 0,
-                                            onClick = onOpenSzty, narrow = true)
+                                            onClick = { morphState?.prepare("szty"); onOpenSzty() }, narrow = true, modifier = Modifier.homeMorphSource("szty", morphState))
                                     }
                                 }
                             } else {
@@ -1433,10 +1436,11 @@ internal fun RollcallSection(
     open: TronRollcall?,
     onOpen: () -> Unit,
     narrow: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .padding(top = 2.dp, bottom = 2.dp),
     ) {
@@ -1708,6 +1712,7 @@ internal fun RunSummaryCard(
     fetching: Boolean,
     onClick: () -> Unit,
     narrow: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val colors = MiuixTheme.colorScheme
     val snapshot = (state as? ListState.Content)?.items?.firstOrNull()
@@ -1732,7 +1737,7 @@ internal fun RunSummaryCard(
         null
     }
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clickable(onClickLabel = "打开校园跑") { onClick() }
             .padding(top = 2.dp, bottom = 2.dp),

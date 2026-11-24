@@ -199,7 +199,8 @@ class SettingsPlanTest {
         }
         val choice = compact(block(appearance(), "internal fun AppearanceChoice("))
         assertTrue("Shared actions must grow from 48dp", choice.contains("Row(modifier.fillMaxWidth().heightIn(min=48.dp)"))
-        assertTrue(choice.contains(".clickable(enabled=enabled,role=Role.Button,onClick=onClick)"))
+        assertTrue(choice.contains(".clickable(interactionSource=interaction,indication=null,enabled=enabled,role=Role.Button,onClick=onClick)"))
+        assertTrue(choice.contains(".pressSpring(interaction)"))
         assertFalse(choice.contains(".height("))
         assertFalse(choice.contains("maxLines="))
         assertFalse(choice.contains("TextOverflow.Ellipsis"))

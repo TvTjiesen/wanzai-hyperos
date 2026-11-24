@@ -30,6 +30,16 @@ class AppearanceOneStopTest {
         assertTrue(editor.contains("LocalPageActive provides false"))
         assertTrue(editor.contains("hourOverride = 12"))
     }
+    @Test fun wallpaperEditorWaitsForMeasuredBoundsWithoutPermanentlyInvalidatingMotion() {
+        val editor = source("ui/main/pages/WallpaperEditor.kt")
+        assertTrue(editor.contains("snapshotFlow { previewBounds to dialogBounds }"))
+        assertTrue(editor.contains("preview?.let { it.width > 0f && it.height > 0f }"))
+        assertFalse(editor.contains("geometryInvalid"))
+        assertTrue(editor.contains("it.setWindowAnimations(0)"))
+        assertTrue(editor.contains("it.setDimAmount(0f)"))
+        assertTrue(editor.contains("it.setBackgroundDrawableResource(android.R.color.transparent)"))
+        assertTrue(editor.contains("if (closing) result?.let(finish) ?: cancel()"))
+    }
     @Test fun singlePreferenceCommitPublishesWholeAppearanceAndRetainsBusinessKeys() {
         val prefs = source("data/UiPrefs.kt").substringAfter("fun applyAppearance(").substringBefore("fun resetAppearance")
         assertEquals(1, Regex("editor.commit\\(\\)").findAll(prefs).count())

@@ -9,7 +9,6 @@ import com.muyao.wanzaihyperos.ui.design.ai.AiBall
 import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.ui.semantics.Role
 import com.muyao.wanzaihyperos.data.ListMeta
 import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyBroadcastItems
 import com.muyao.wanzaihyperos.ui.main.pages.redesign.notifyFreshnessLabel
@@ -35,7 +33,6 @@ import com.muyao.wanzaihyperos.ui.design.BodyMark
 import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.rememberSpringListEntrance
 import com.muyao.wanzaihyperos.ui.design.springListEntrance
-import com.muyao.wanzaihyperos.ui.design.springPress
 import com.muyao.wanzaihyperos.ui.design.rememberMotion
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.Composable
@@ -47,17 +44,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -688,18 +681,28 @@ private fun NotifyFilters(
     selected: Int,
     onSelect: (Int) -> Unit,
 ) {
-    val filters = listOf(2, 4, 1, 3)
-    val labels = listOf("通知", "公告", "待处理", "新闻")
-    com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
-        labels = labels,
-        stableKeys = filters.map { it.toString() },
-        selectedIndex = filters.indexOf(if (selected == 0) 2 else selected),
-        onSelect = { onSelect(filters[it]) },
+    val items = listOf(2 to "通知", 4 to "公告", 1 to "待处理", 3 to "新闻")
+    ScheduleNoticeSelector(
+        items = items,
+        selected = if (selected == 0) 2 else selected,
+        onSelected = onSelect,
         modifier = Modifier.fillMaxWidth(),
-        itemContent = { index, isSelected ->
-            FilterPill(labels[index], "—", isSelected)
+        itemContent = { id, _ ->
+            NotifyFilterLabel(label = items.first { it.first == id }.second, count = "—")
         },
     )
+}
+
+@Composable
+private fun NotifyFilterLabel(label: String, count: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val color = androidx.compose.material3.LocalContentColor.current
+        Text(text = label, color = color, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text = count, color = color, modifier = Modifier.alpha(0.62f), fontSize = 11.sp, maxLines = 1)
+    }
 }
 
 private const val NOTICE_SOURCE_DAILY = 0
@@ -707,28 +710,12 @@ private const val NOTICE_SOURCE_LECTURE = 1
 
 @Composable
 private fun NoticeSourceChips(selected: Int, onSelect: (Int) -> Unit) {
-    val labels = listOf("日常通知", "讲座通知")
-    com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
-        labels = labels,
-        stableKeys = labels,
-        selectedIndex = selected.coerceIn(0, labels.lastIndex),
-        onSelect = onSelect,
+    ScheduleNoticeSelector(
+        items = listOf(NOTICE_SOURCE_DAILY to "日常通知", NOTICE_SOURCE_LECTURE to "讲座通知"),
+        selected = selected.coerceIn(NOTICE_SOURCE_DAILY, NOTICE_SOURCE_LECTURE),
+        onSelected = onSelect,
         modifier = Modifier.fillMaxWidth(),
     )
-}
-
-@Composable
-private fun FilterPill(label: String, count: String, selected: Boolean) {
-    val colors = MiuixTheme.colorScheme
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = Type.bodyEmphasis, fontWeight = Type.weightBody,
-            color = if (selected) colors.primary else colors.onSurface, maxLines = 1)
-        if (count.isNotBlank()) {
-            Spacer(Modifier.width(4.dp))
-            Text(text = count, modifier = Modifier.alpha(0.62f), fontSize = Type.caption,
-                color = if (selected) colors.primary else colors.onSurface, maxLines = 1)
-        }
-    }
 }
 
 @Composable
@@ -742,7 +729,7 @@ private fun PendingRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(role = Role.Button, onClickLabel = action) { onClick() }
+            .scheduleNoticeClick(onClickLabel = action, onClick = onClick)
             .heightIn(min = 48.dp)
             // 板 `.action-row{padding:9px 0}` ⇒ 8dp；
             // 原来 8dp 上下 + 行内间距把整行撑到 53 CSS（板 45.8）。
@@ -793,27 +780,7 @@ private fun PendingRow(
             }
         }
         Spacer(Modifier.size(8.dp))
-        val filled = action == "去签到"
-        Text(
-            text = action,
-            fontSize = Type.caption,
-            fontWeight = Type.weightTitle,
-            // 板 `.action-row .btn.ghost`：字色 --sub、描边 --line-strong。
-            // 用强调绿画次级按钮，等于让每一行都有两颗主按钮。
-            color = if (filled) colors.onPrimary else colors.onSurfaceVariantSummary,
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .background(if (filled) colors.primary else Color.Transparent)
-                .then(
-                    if (filled) Modifier
-                    else Modifier.border(
-                        1.dp,
-                        colors.dividerLine,
-                        RoundedCornerShape(50),
-                    )
-                )
-                .padding(horizontal = 12.dp, vertical = 5.dp),
-        )
+        ScheduleNoticeActionCue(text = action, prominent = action == "去签到")
     }
 }
 
@@ -1107,7 +1074,7 @@ private fun NewsRow(n: PortalNewsItem, onOpenUrl: (String) -> Unit) {
         .clip(shape)
         .background(colors.surface.copy(alpha = 0.72f))
         .border(1.dp, colors.dividerLine.copy(alpha = 0.6f), shape)
-        .then(if (openUrl == null) Modifier else Modifier.clickable(role = Role.Button) { onOpenUrl(openUrl) })
+        .then(if (openUrl == null) Modifier else Modifier.scheduleNoticeClick(onClickLabel = "打开新闻") { onOpenUrl(openUrl) })
         .heightIn(min = 56.dp).padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {

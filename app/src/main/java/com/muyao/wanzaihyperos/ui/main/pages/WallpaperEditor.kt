@@ -23,12 +23,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import com.muyao.wanzaihyperos.data.AppearanceSettings
+import com.muyao.wanzaihyperos.ui.components.WanzaiButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton
 import com.muyao.wanzaihyperos.ui.AppThemeMode
 import com.muyao.wanzaihyperos.ui.WanzaiTheme
 import com.muyao.wanzaihyperos.ui.design.BackgroundPreset
 import com.muyao.wanzaihyperos.ui.design.liquid.LocalPageActive
 import com.muyao.wanzaihyperos.ui.home.*
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import top.yukonga.miuix.kmp.basic.Text
@@ -95,7 +99,7 @@ internal fun WallpaperEditor(initial: AppearanceSettings, image: LoadedWallpaper
     val cancel by rememberUpdatedState(onCancel)
     val motion = com.muyao.wanzaihyperos.ui.design.rememberMotion()
     val move = motion.canMove && !motion.highContrast
-    val transition = remember { androidx.compose.animation.core.Animatable(if (move) 0f else 1f) }
+    val transition = remember { androidx.compose.animation.core.Animatable(0f) }
     var closing by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<AppearanceSettings?>(null) }
     var previewBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
@@ -103,11 +107,14 @@ internal fun WallpaperEditor(initial: AppearanceSettings, image: LoadedWallpaper
     var dialogBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var initialDialogBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var initialOrientation by remember { mutableIntStateOf(-1) }
-    var geometryInvalid by remember { mutableStateOf(false) }
     fun dismiss() { if (!finishing) { finishing = true; closing = true } }
     LaunchedEffect(closing, move) {
+        if (!closing) androidx.compose.runtime.snapshotFlow { previewBounds to dialogBounds }
+            .first { (preview, window) -> preview?.let { it.width > 0f && it.height > 0f } == true && window?.let { it.width > 0f && it.height > 0f } == true }
         val target = if (closing) 0f else 1f
-        if (move) transition.animateTo(target, androidx.compose.animation.core.spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow))
+        if (move && (closing || previewBounds != null)) transition.animateTo(target,
+            androidx.compose.animation.core.spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow))
         else transition.snapTo(target)
         if (closing) result?.let(finish) ?: cancel()
     }
@@ -115,27 +122,34 @@ internal fun WallpaperEditor(initial: AppearanceSettings, image: LoadedWallpaper
     val photo = draft.sky == "album" && bitmap != null
     fun save() { if (!finishing) { result = latestDraft; finishing = true; closing = true } }
     Dialog(onDismissRequest = ::dismiss, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
+        val dialogView = androidx.compose.ui.platform.LocalView.current
+        SideEffect {
+            (dialogView.parent as? DialogWindowProvider)?.window?.let {
+                it.setWindowAnimations(0)
+                it.setDimAmount(0f)
+                it.setBackgroundDrawableResource(android.R.color.transparent)
+                it.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            }
+        }
         BackHandler { dismiss() }
         WanzaiTheme(AppThemeMode.Light, appearance = draft.copy(theme = "Light")) {
             val colors = MiuixTheme.colorScheme
             val orientation = androidx.compose.ui.platform.LocalConfiguration.current.orientation
             val window = dialogBounds
             val capturedWindow = initialDialogBounds
-            val geometryUsable = !geometryInvalid && originBounds == capturedOrigin && sourceIsValid() && window != null && capturedWindow != null &&
+            val geometryUsable = originBounds == capturedOrigin && (capturedOrigin == null || sourceIsValid()) && window != null && capturedWindow != null &&
                 motionSourceVisible(originBounds, window) && motionScreenWindowMatches(capturedWindow, window, initialOrientation, orientation)
-            LaunchedEffect(geometryUsable, window) {
-                if (window != null && !geometryUsable) geometryInvalid = true
-            }
             Column(Modifier.fillMaxSize().wallpaperMotionBounds {
                 if (initialDialogBounds == null) { initialDialogBounds = it; initialOrientation = orientation }
                 dialogBounds = it
-            }.graphicsLayer { if (!geometryUsable) alpha = transition.value.coerceIn(0f, 1f) }
-                .background(colors.background).systemBarsPadding().padding(horizontal = 16.dp),
+            }.graphicsLayer { alpha = transition.value.coerceIn(0f, 1f) }
+                .background(colors.background.copy(alpha = transition.value.coerceIn(0f, 1f)))
+                .systemBarsPadding().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth().graphicsLayer { alpha = transition.value }, verticalAlignment = Alignment.CenterVertically) {
-                    AppearanceChoice("取消", false, modifier = Modifier.width(68.dp)) { dismiss() }
+                    WanzaiTextButton("取消", onClick = ::dismiss, enabled = !finishing)
                     Text("壁纸编辑", Modifier.weight(1f), fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                    AppearanceChoice("完成", true, modifier = Modifier.width(80.dp)) { save() }
+                    WanzaiButton(onClick = ::save, enabled = !finishing, prominent = true) { Text("完成") }
                 }
                 Box(Modifier.fillMaxWidth().weight(1f)
                     .wallpaperMotionBounds { previewBounds = it }) {

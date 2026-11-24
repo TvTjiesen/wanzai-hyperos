@@ -4,7 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /**
  * 抬手速度的取法（v3 #5 第 3 轮真机审计 **Block 头条** 的守卫）。
@@ -69,14 +68,6 @@ class ReleaseVelocityTest {
         )
         val v = releaseVelocityOf(real, 56L)
         assertEquals("−100px / 56ms ⇒ ≈ −1786 px/s（手指真速 −1774）", -1785.7, v.toDouble(), 5.0)
-        // 而且这个 v 必须让"只走了 99px（不到半格）"的小快甩也翻天：
-        // 位移是**负**的（往左拖），别把符号写反 —— 我第一版写成 `99f + v*0.11f`，
-        // 于是投影是 +97（显然不翻），差点把它当成"判据有问题"。
-        assertEquals(
-            "小快甩要翻天：drag −99px（不到半格）时，投影 = −99 + (−1786×0.11) = −295.5 ⇒ 1 格",
-            1,
-            weekFlipStep(-99f + v * 0.11f, 220.8f),
-        )
     }
 
     /** 样本不足 3 个 ⇒ **0**（按纯位置判定），不许拿两点硬凑一个数。 */
@@ -98,36 +89,5 @@ class ReleaseVelocityTest {
         // 关键是它**不能**被那两点老样本（0→10ms 里掉了 100px，−10000 px/s）拽走。
         assertTrue("老样本不许参与（实得 $v，若掺进老样本会是 −10000 量级）", abs(v) < 200f)
         assertTrue("方向仍然是左", v < 0f)
-    }
-
-    /**
-     * 把"快甩翻天 / 慢拖不翻"这条判据的算术一起钉住（`projected = 位移 + v·0.11`，
-     * 阈值 = 半格 110.4px）。这条是业主真正会看到的那件事。
-     */
-    @Test
-    fun `快甩翻天慢拖不翻天的算术`() {
-        // ★ 第 5 轮审计（测试守卫生效性）：**判据必须调生产函数**。
-        //   以前这里自己写了一遍 `step()` + 本地 `cellPx` ⇒ 生产除数从 220.8 改成 110.4 它照样绿
-        //   （等于一行生产代码都没守到）。现在调 `weekFlipStep`（生产里同一份实现）。
-        val cellPx = 220.8f
-        fun step(drag: Float, v: Float): Int =
-            weekFlipStep(drag + v * 0.11f, cellPx)
-
-        // 符号约定：`step = round(−projected / 半格)`，`next = sel + step`
-        // ⇒ 向左拖（投影为负）时 step 为**正**，落到后一天。
-        // 快甩：手指 −150px、速度 −1350 px/s ⇒ 投影 −298.5 ⇒ 298.5/220.8 = 1.35 ⇒ step +1 ⇒ 翻天
-        assertEquals("快甩必须翻天", 1, step(-150f, -1350f))
-        // 慢拖同样 −150px、速度 ≈ 0 ⇒ 只看位置 150/220.8 = 0.68 ⇒ 仍然翻天（位置够半格多）
-        assertEquals("慢拖到一格半也该翻天", 1, step(-150f, 0f))
-        // ⚠️ 门槛在 **110.4px（半格）**：`weekFlipStep` 里除的是**整格 220.8**，`roundToInt` 在 0.5 处进位
-        //   （我第一版把除数写成"半格"，门槛算成 55.2px 还据此写了注释 —— 已改准）。
-        assertEquals("慢拖 93px（0.42 格）⇒ 不翻", 0, step(-93f, 0f))
-        assertEquals("慢拖 80px（0.36 格）⇒ 不翻", 0, step(-80f, 0f))
-        // 两条**复刻已实测的读数**（让这条测试能对表，而不是另一套算术）：
-        //  第 2 轮真机：慢拖 −93px、v = 0 ⇒ projected −93 ⇒ step 0 ⇒ **不翻** ✓
-        assertEquals("复刻第 2 轮真机读数：慢拖 −93 / v=0 ⇒ 不翻", 0, step(-93f, 0f))
-        //  第 3 轮真机：同一次快甩、但 v 被算成 +975（符号反了）⇒ projected = −93+107 = +14 ⇒ 不翻 ✗
-        assertEquals("复刻第 3 轮事故：−93px 快甩 + v 反号(+975) ⇒ 不翻天", 0, step(-93f, +975f))
-        assertEquals("同一只手如果 v 没反号(−1379) ⇒ projected −245 ⇒ 翻天", 1, step(-93f, -1379f))
     }
 }

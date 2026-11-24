@@ -184,16 +184,16 @@ internal fun ThemePagerMenu(
 internal fun themePreviewAspect(widthDp: Int, heightDp: Int): Float =
     (widthDp.toFloat() / heightDp).takeIf { it.isFinite() && it > 0f }?.coerceIn(.42f, .62f) ?: .46f
 
-internal fun themePreviewWidth(availableDp: Float): Float = minOf(availableDp * .52f, 248f)
+internal fun themePreviewWidth(availableDp: Float): Float = minOf(availableDp * .68f, 300f)
 
 @Composable
 internal fun PhoneThemePreview(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     val configuration = LocalConfiguration.current
     val aspect = themePreviewAspect(configuration.screenWidthDp, configuration.screenHeightDp)
     val shell = RoundedCornerShape(34.dp)
-    BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         val width = themePreviewWidth(maxWidth.value).dp
-        Box(Modifier.width(width).height(width / aspect)
+        Box(modifier.width(width).height(width / aspect)
             .shadow(22.dp, shell)
             .background(Brush.verticalGradient(listOf(Color(0xFF242428), Color(0xFF141417))), shell)
             .border(1.dp, Color.White.copy(alpha = .12f), shell)

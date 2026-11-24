@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -84,7 +86,6 @@ private fun appearanceTheme(name: String) = when (name) {
     else -> AppThemeMode.System
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun AppearancePage(
     onClose: () -> Unit,
@@ -121,14 +122,19 @@ fun AppearancePage(
     var editing by rememberSaveable { mutableStateOf(false) }
     var editorEntry by rememberSaveable(stateSaver = selectedSaver) { mutableStateOf<WallpaperEntry?>(null) }
     var editorImage by remember { mutableStateOf<LoadedWallpaper?>(null) }
-    val wallpaperSources = remember { mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>() }
+    val wallpaperSources = remember { mutableMapOf<String, androidx.compose.ui.layout.LayoutCoordinates>() }
+    val sourceStamp = rememberMotionSourceStamp()
+    var editorSource by remember { mutableStateOf<WallpaperEditorSource?>(null) }
+    fun captureSource(key: String) = WallpaperEditorSource.capture({ wallpaperSources[key] }, { sourceStamp() })
     var editorOrigin by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     var pendingRemoval by remember { mutableStateOf<WallpaperEntry?>(null) }
+    var managingWallpapers by rememberSaveable { mutableStateOf(false) }
     val closePage by rememberUpdatedState(onClose)
     fun close() { if (!busy) closePage() }
     var backProgress by remember { mutableFloatStateOf(0f) }
-    if (!layoutOverlayActive) ThemeBackGesture(current.customization.predictiveBack, onBack = ::close, onProgress = { backProgress = it })
+    BackHandler(enabled = managingWallpapers && !editing) { managingWallpapers = false }
+    if (!layoutOverlayActive && !managingWallpapers) ThemeBackGesture(current.customization.predictiveBack, onBack = ::close, onProgress = { backProgress = it })
     BackHandler(enabled = layoutOverlayActive && !layoutEditing) { /* Wait for the layout page to leave. */ }
     var expandedSections by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     val list = rememberLazyListState()
@@ -140,13 +146,14 @@ fun AppearancePage(
         val decoded = loadWallpaper(library.file(entry), 720, 1600, WallpaperBudget(1_200_000, 4_800_000))
             ?: error("Image cannot be decoded")
         currentCoroutineContext().ensureActive()
-        editorOrigin = wallpaperSources[entry.id]
         editorEntry = entry
         editorImage = decoded
         editing = true
     }
     fun chooseWallpaper(entry: WallpaperEntry) {
         if (busy) return
+        editorSource = captureSource(entry.id)
+        editorOrigin = editorSource?.bounds
         busy = true
         scope.launch {
             try {
@@ -181,6 +188,8 @@ fun AppearancePage(
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(WallpaperLibrary.MAX_ENTRIES)) { uris ->
         if (uris.isEmpty() || busy) return@rememberLauncherForActivityResult
+        editorSource = captureSource("current-preview")
+        editorOrigin = editorSource?.bounds
         busy = true
         scope.launch {
             try {
@@ -205,7 +214,14 @@ fun AppearancePage(
         }
     }
     fun openEditor() {
-        if (!busy) { editorOrigin = wallpaperSources["current-preview"]; editorEntry = null; editorImage = loaded; editing = true }
+        if (!busy) {
+            managingWallpapers = false
+            editorSource = captureSource("current-preview")
+            editorOrigin = editorSource?.bounds
+            editorEntry = null
+            editorImage = loaded
+            editing = true
+        }
     }
     @Composable fun Preview() {
         WanzaiTheme(AppThemeMode.Light, appearance = current.copy(theme = "Light")) {
@@ -230,8 +246,8 @@ fun AppearancePage(
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item(key = "preview") {
                 AppearanceSection("概览") {
-                    PhoneThemePreview(Modifier.wallpaperMotionBounds { wallpaperSources["current-preview"] = it }) { Preview() }
-                    AppearanceChoice("编辑壁纸", false, !busy && !imageLoading) { openEditor() }
+                    PhoneThemePreview(Modifier.wallpaperMotionCoordinates { wallpaperSources["current-preview"] = it }) { Preview() }
+                    WanzaiTextButton("编辑壁纸", onClick = { openEditor() }, enabled = !busy && !imageLoading)
                     Text("浅色界面预览 · 选项自动保存；壁纸在编辑器完成后应用，取消保留原设置", fontSize = 12.sp, color = colors.onSurfaceVariantSummary)
                     note?.let { Text(it, color = if (motion.highContrast) colors.onSurface else colors.onSurfaceVariantSummary,
                         fontSize = 13.sp, lineHeight = 19.sp) }
@@ -240,7 +256,7 @@ fun AppearancePage(
             item(key = "section-home") {
                 ThemeExpandableSection("首页壁纸", "顶部壁纸、裁切与显示", SettingIcon.House, "home" in expandedSections, !busy, { toggleSection("home") }) {
                     AppearanceSection("系统自带壁纸") {
-                        VisualChoice("晴海 · 原画", "海湾、帆船与雏菊", selected?.id == "builtin-sea", !busy, Modifier.fillMaxWidth().wallpaperMotionBounds { wallpaperSources["builtin-sea"] = it }, {
+                        VisualChoice("晴海 · 原画", "海湾、帆船与雏菊", selected?.id == "builtin-sea", !busy, Modifier.fillMaxWidth().wallpaperMotionCoordinates { wallpaperSources["builtin-sea"] = it }, {
                             Image(androidx.compose.ui.res.painterResource(com.muyao.wanzaihyperos.R.drawable.wallpaper_sea),
                                 "原绘海湾壁纸", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         }) {
@@ -270,17 +286,26 @@ fun AppearancePage(
                                 enabled = !busy && !imageLoading, modifier = Modifier.weight(1f))
                         }
                         if (entries.any { it.id != "builtin-sea" }) {
-                            Text("我的壁纸", fontSize = Type.body, fontWeight = Type.weightTitle)
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (managingWallpapers) "我的壁纸 · 管理中" else "我的壁纸",
+                                    modifier = Modifier.weight(1f), fontSize = Type.body, fontWeight = Type.weightTitle)
+                                if (managingWallpapers) WanzaiTextButton("完成",
+                                    onClick = { managingWallpapers = false }, enabled = !busy)
+                            }
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 items(entries.filter { it.id != "builtin-sea" }, key = { it.id }) { entry ->
                                     Column(Modifier.width(100.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        WallpaperThumbnail(library, entry, selected?.id == entry.id, !busy,
-                                            modifier = Modifier.wallpaperMotionBounds { wallpaperSources[entry.id] = it }) { chooseWallpaper(entry) }
-                                        WanzaiTextButton("删除", onClick = { pendingRemoval = entry },
-                                            enabled = !busy, modifier = Modifier.fillMaxWidth())
+                                        WallpaperThumbnail(library, entry, selected?.id == entry.id, !busy && !managingWallpapers,
+                                            managing = managingWallpapers,
+                                            modifier = Modifier.wallpaperMotionCoordinates { wallpaperSources[entry.id] = it },
+                                            onLongPress = { if (!busy) managingWallpapers = true }) {
+                                            if (managingWallpapers) pendingRemoval = entry else chooseWallpaper(entry)
+                                        }
                                     }
                                 }
                             }
+                            if (managingWallpapers) Text("轻点壁纸可删除；当前壁纸仍会保留。长按任意自选壁纸可进入管理。",
+                                fontSize = 12.sp, color = colors.onSurfaceVariantSummary)
                         }
                         Text("图片保留在本机。取景、旋转、模糊、明暗和柔化统一在壁纸编辑器中调整。", fontSize = 13.sp, lineHeight = 19.sp)
                         AppearanceToggle("显示首页壁纸", "只影响首页顶部，容器背景单独选择", current.container != "bare", !busy) {
@@ -293,7 +318,7 @@ fun AppearancePage(
             item(key = "home-layout") {
                 AppearanceSection("首页布局") {
                     Text("独立调整首页模块、标题和密度，隐藏模块后自动补位。", fontSize = 13.sp)
-                    AppearanceChoice("打开首页布局", false, !busy) { layoutEditing = true }
+                    WanzaiTextButton("打开首页布局", onClick = { layoutEditing = true }, enabled = !busy)
                 }
             }
             item(key = "section-colors") {
@@ -306,12 +331,12 @@ fun AppearancePage(
                         }
                     }
                     ThemeSettingSegment {
-                        AppearanceChoice("从首页壁纸取色", false, !busy && loaded != null) {
+                        WanzaiTextButton("从首页壁纸取色", enabled = !busy && loaded != null, onClick = {
                             loaded?.let { image ->
                                 val hex = "#" + (image.stats.overall.toArgb() and 0xFFFFFF).toString(16).padStart(6, '0')
                                 current = current.copy(customization = current.customization.copy(accentHex = hex, dynamicColor = false))
                             }
-                        }
+                        })
                     }
                     var hexInput by rememberSaveable(current.customization.accentHex) { mutableStateOf(current.customization.accentHex) }
                     ThemeSettingSegment {
@@ -448,16 +473,16 @@ fun AppearancePage(
                         AppearanceToggle("减弱透明度", "使用实色承载层，保留所选材质", current.reduceTransparency, !busy) { current = current.copy(reduceTransparency = !current.reduceTransparency) }
                     }
                     ThemeSettingSegment(last = true) {
-                        AppearanceChoice("系统动画与无障碍设置", false, !busy) {
+                        WanzaiTextButton("系统动画与无障碍设置", enabled = !busy, onClick = {
                             runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
                                 .onFailure { note = "系统设置暂时无法打开" }
-                        }
+                        })
                     }
 
                 }
             }
             item(key = "restore-default") {
-                AppearanceChoice("恢复默认主题", false, !busy) { confirmReset = true }
+                WanzaiTextButton("恢复默认主题", enabled = !busy, onClick = { confirmReset = true })
             }
         }
     }
@@ -499,6 +524,7 @@ fun AppearancePage(
             customization = current.customization.copy(cardImage = null, wallpaperRotation = 0))
         val preview = if (pending == null) editorImage ?: loaded else editorImage
         if (pending == null || preview != null) WallpaperEditor(initial, preview, originBounds = editorOrigin,
+            sourceIsValid = { editorSource?.isValid() == true },
             onCancel = { editing = false; editorEntry = null; editorImage = null },
             onDone = { edited ->
                 editing = false
@@ -585,8 +611,10 @@ private fun VisualChoice(label: String, detail: String, selected: Boolean, enabl
     // 未选中时原来是 colors.background 实底：卡片本身已经是 surface 底，于是每个
     // 选项都变成一块深浅不一的方贴片，一排看过去像没对齐的色块。未选中留透明，
     // 只让选中的那一项浮起来。
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Column(modifier.clip(RoundedCornerShape(Dims.cardCorner)).background(if (selected) colors.primary.copy(alpha = .10f) else Color.Transparent)
-        .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick).semantics { this.selected = selected }
+        .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+        .pressSpring(interaction).semantics { this.selected = selected }
         .padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(Dims.wallpaperTileCorner)), content = sample)
         Text(label + if (selected) " ✓" else "", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
@@ -631,6 +659,7 @@ private fun VisualChoice(label: String, detail: String, selected: Boolean, enabl
 internal fun AppearanceChoice(label: String, selected: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier, subtitle: String? = null, showCheck: Boolean = true, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
     val canMove = rememberMotion().canMove
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     // 选中底原来用 primary 的 10% 透明度压在卡面上，可下面还有一层 graphicsLayer 阴影
     // （selectionDepth）——半透明的底会让阴影透出来，选中格因此显成一坨**脏灰**，
     // 真机像素采样是 #B5B7BF 的灰带 + #E3E5ED 的心，看着像按下去没弹起来。
@@ -659,7 +688,8 @@ internal fun AppearanceChoice(label: String, selected: Boolean, enabled: Boolean
         .then(if (selected) Modifier.border(
             if (darkSurface) 1.5.dp else 1.dp,
             colors.primary.copy(alpha = if (darkSurface) .65f else .45f), sampleShape) else Modifier)
-        .clickable(enabled = enabled, role = Role.Button, onClick = onClick).semantics { this.selected = selected }
+        .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+        .pressSpring(interaction).semantics { this.selected = selected }
         // 三格并排时（跟随系统/浅色/深色）每格实际只有 ~99dp，原来左右各 12dp 内边距加
         // 紧贴文字的 ✓，把「跟随系统」挤成「跟随/系统」两行、还把格撑得比别人高。
         // 内边距收到 8dp、✓ 隔开 6dp，四字标签就能单行放下（不许用 maxLines 截断：
@@ -715,17 +745,16 @@ internal fun AppearanceSectionHeader(
 
 @Composable
 private fun AppearanceToggle(title: String, summary: String, checked: Boolean, enabled: Boolean, onToggle: () -> Unit) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Column(Modifier.fillMaxWidth().heightIn(min = 56.dp)
-        .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = { onToggle() })
-        .padding(vertical = 6.dp), verticalArrangement = Arrangement.Center) {
+        .toggleable(value = checked, interactionSource = interaction, indication = null, enabled = enabled, role = Role.Switch, onValueChange = { onToggle() })
+        .pressSpring(interaction).padding(vertical = 6.dp), verticalArrangement = Arrangement.Center) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
                 val colors = MiuixTheme.colorScheme
                 Text(title, fontSize = 15.sp, color = colors.onSurface)
                 Text(summary, fontSize = 12.sp, lineHeight = 17.sp, color = colors.onSurfaceVariantSummary)
             }
-            // 开关样式统一（WanzaiSwitch / Glasmmio 药丸）属于液态玻璃接口统一那一批，
-            // m18833 要求等批准后实施，这里保持 Miuix 原生 Switch 不改。
             top.yukonga.miuix.kmp.basic.Switch(checked = checked, onCheckedChange = null, enabled = enabled)
         }
     }
@@ -741,8 +770,10 @@ private fun AppearanceSection(title: String, last: Boolean = true, content: @Com
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun WallpaperThumbnail(library: WallpaperLibrary, entry: WallpaperEntry, selected: Boolean, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun WallpaperThumbnail(library: WallpaperLibrary, entry: WallpaperEntry, selected: Boolean, enabled: Boolean,
+    managing: Boolean = false, modifier: Modifier = Modifier, onLongPress: () -> Unit = {}, onClick: () -> Unit) {
     var image by remember(library, entry.id) { mutableStateOf<LoadedWallpaper?>(null) }
     LaunchedEffect(library, entry.id) {
         try {
@@ -753,10 +784,44 @@ private fun WallpaperThumbnail(library: WallpaperLibrary, entry: WallpaperEntry,
         catch (_: Exception) { image = null }
     }
     val colors = MiuixTheme.colorScheme
-    Box(modifier.width(84.dp).height(110.dp).clip(RoundedCornerShape(Dims.wallpaperTileCorner)).clickable(enabled = enabled, onClick = onClick)) {
+    val motion = rememberMotion()
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    var wiggleDirection by remember(entry.id) { mutableIntStateOf(1) }
+    LaunchedEffect(managing, motion.canMove) {
+        if (!managing || !motion.canMove) { wiggleDirection = 1; return@LaunchedEffect }
+        wiggleDirection = -1
+        while (true) {
+            kotlinx.coroutines.delay(170)
+            wiggleDirection = -wiggleDirection
+        }
+    }
+    val tilt by animateFloatAsState(
+        targetValue = if (managing && motion.canMove) 2.2f * wiggleDirection else 0f,
+        animationSpec = if (motion.canMove) androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+        ) else androidx.compose.animation.core.snap(),
+        label = "WallpaperManagementWiggle",
+    )
+    Box(modifier.width(84.dp).height(110.dp)
+        .graphicsLayer { rotationZ = if ((entry.id.hashCode() and 1) == 0) tilt else -tilt }
+        .clip(RoundedCornerShape(Dims.wallpaperTileCorner))
+        .combinedClickable(interactionSource = interaction, indication = null, role = Role.Button,
+            enabled = enabled || managing, onClick = { if (!managing) onClick() }, onLongClick = onLongPress)
+        .pressSpring(interaction)) {
         Box(Modifier.fillMaxSize().clip(RoundedCornerShape(Dims.cardCorner))) {
             image?.let { Image(it.bitmap, "壁纸", Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             if (selected) Text("✓", color = colors.primary, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(colors.surface, RoundedCornerShape(Dims.chipCorner)).padding(4.dp))
+            if (managing) {
+                val removeInteraction = remember(entry.id) { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                Box(Modifier.align(Alignment.TopStart).padding(6.dp)
+                    .background(colors.error, RoundedCornerShape(Dims.chipCorner))
+                    .clickable(interactionSource = removeInteraction, indication = null, role = Role.Button, onClick = onClick)
+                    .pressSpring(removeInteraction).semantics { contentDescription = "删除壁纸 ${entry.id}" }
+                    .padding(horizontal = 7.dp, vertical = 2.dp)) {
+                    Text("−", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
