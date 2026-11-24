@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -94,10 +95,9 @@ fun AppearancePage(
     modifier: Modifier = Modifier,
 ) {
     var layoutEditing by rememberSaveable { mutableStateOf(false) }
-    if (layoutEditing) {
-        HomeLayoutPage(onClose = { layoutEditing = false })
-        return
-    }
+    val layoutVisibility = remember { androidx.compose.animation.core.MutableTransitionState(false) }
+    SideEffect { layoutVisibility.targetState = layoutEditing }
+    val layoutOverlayActive = layoutEditing || layoutVisibility.currentState || layoutVisibility.targetState
     val context = LocalContext.current
     val colors = MiuixTheme.colorScheme
     val motion = rememberMotion()
@@ -124,10 +124,12 @@ fun AppearancePage(
     val wallpaperSources = remember { mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>() }
     var editorOrigin by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
+    var pendingRemoval by remember { mutableStateOf<WallpaperEntry?>(null) }
     val closePage by rememberUpdatedState(onClose)
     fun close() { if (!busy) closePage() }
     var backProgress by remember { mutableFloatStateOf(0f) }
-    ThemeBackGesture(current.customization.predictiveBack, onBack = ::close, onProgress = { backProgress = it })
+    if (!layoutOverlayActive) ThemeBackGesture(current.customization.predictiveBack, onBack = ::close, onProgress = { backProgress = it })
+    BackHandler(enabled = layoutOverlayActive && !layoutEditing) { /* Wait for the layout page to leave. */ }
     var expandedSections by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     val list = rememberLazyListState()
     val scrollProgress by rememberScrollProgress(list)
@@ -208,22 +210,27 @@ fun AppearancePage(
     @Composable fun Preview() {
         WanzaiTheme(AppThemeMode.Light, appearance = current.copy(theme = "Light")) {
             Box(Modifier.fillMaxSize()) {
-                ThemeOverviewPreview(current.copy(theme = "Light"), loaded)
+                ThemeOverviewPreview(graph, current.copy(theme = "Light"), loaded)
                 if (imageLoading) Text("正在读取本机照片…", color = MiuixTheme.colorScheme.onSurface,
                     fontSize = Type.caption, modifier = Modifier.align(Alignment.BottomCenter)
                         .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(Dims.chipCorner)).padding(8.dp))
             }
         }
     }
-    SecondaryScaffold(title = "主题设置", onBack = ::close, scrollProgress = scrollProgress, modifier = modifier.themeSwipeDismiss(current.customization.swipeDismiss, ::close).graphicsLayer { translationX = size.width * backProgress * .12f; scaleX = 1f - backProgress * .04f; scaleY = scaleX }) { padding ->
+    Box(modifier.fillMaxSize()) {
+    SecondaryScaffold(title = "主题设置", onBack = ::close, scrollProgress = scrollProgress,
+        modifier = Modifier
+            .then(if (layoutOverlayActive) Modifier.semantics { hideFromAccessibility() } else Modifier)
+            .themeSwipeDismiss(!layoutOverlayActive && current.customization.swipeDismiss, ::close)
+            .graphicsLayer { translationX = size.width * backProgress * .12f; scaleX = 1f - backProgress * .04f; scaleY = scaleX },
+    ) { padding ->
         LazyColumn(state = list, modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(Dims.screenH, 12.dp, Dims.screenH,
                 com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp(com.muyao.wanzaihyperos.ui.design.liquid.LocalNavBarVisible.current)),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item(key = "preview") {
                 AppearanceSection("概览") {
-                    Box(Modifier.align(Alignment.CenterHorizontally).fillMaxWidth().height(220.dp).wallpaperMotionBounds { wallpaperSources["current-preview"] = it }
-                        .clip(RoundedCornerShape(Dims.cardCorner))) { Preview() }
+                    PhoneThemePreview(Modifier.wallpaperMotionBounds { wallpaperSources["current-preview"] = it }) { Preview() }
                     AppearanceChoice("编辑壁纸", false, !busy && !imageLoading) { openEditor() }
                     Text("浅色界面预览 · 选项自动保存；壁纸在编辑器完成后应用，取消保留原设置", fontSize = 12.sp, color = colors.onSurfaceVariantSummary)
                     note?.let { Text(it, color = if (motion.highContrast) colors.onSurface else colors.onSurfaceVariantSummary,
@@ -255,13 +262,25 @@ fun AppearancePage(
                                 }) { selected = null; current = current.copy(sky = sky.id, container = "designed", customization = current.customization.copy(cardImage = null)) }
                             }
                         }
-                        AppearanceChoice("选择首页壁纸", album, !busy) {
-                            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            WanzaiButton(onClick = {
+                                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            }, enabled = !busy, prominent = true, modifier = Modifier.weight(1f)) { Text("添加壁纸") }
+                            WanzaiTextButton("编辑当前壁纸", onClick = { openEditor() },
+                                enabled = !busy && !imageLoading, modifier = Modifier.weight(1f))
                         }
-                        AppearanceChoice("编辑壁纸", false, !busy && !imageLoading) { openEditor() }
-                        if (entries.any { it.id != "builtin-sea" }) LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            items(entries.filter { it.id != "builtin-sea" }, key = { it.id }) { entry -> WallpaperThumbnail(library, entry, selected?.id == entry.id, !busy,
-                                modifier = Modifier.wallpaperMotionBounds { wallpaperSources[entry.id] = it }) { chooseWallpaper(entry) } }
+                        if (entries.any { it.id != "builtin-sea" }) {
+                            Text("我的壁纸", fontSize = Type.body, fontWeight = Type.weightTitle)
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(entries.filter { it.id != "builtin-sea" }, key = { it.id }) { entry ->
+                                    Column(Modifier.width(100.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        WallpaperThumbnail(library, entry, selected?.id == entry.id, !busy,
+                                            modifier = Modifier.wallpaperMotionBounds { wallpaperSources[entry.id] = it }) { chooseWallpaper(entry) }
+                                        WanzaiTextButton("删除", onClick = { pendingRemoval = entry },
+                                            enabled = !busy, modifier = Modifier.fillMaxWidth())
+                                    }
+                                }
+                            }
                         }
                         Text("图片保留在本机。取景、旋转、模糊、明暗和柔化统一在壁纸编辑器中调整。", fontSize = 13.sp, lineHeight = 19.sp)
                         AppearanceToggle("显示首页壁纸", "只影响首页顶部，容器背景单独选择", current.container != "bare", !busy) {
@@ -442,6 +461,37 @@ fun AppearancePage(
             }
         }
     }
+    if (layoutOverlayActive) {
+        // A sibling underneath the sliding page catches touches on the exposed background.
+        Box(Modifier.matchParentSize().pointerInput(Unit) {
+            awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
+        })
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        visibleState = layoutVisibility,
+        enter = if (motion.canMove) androidx.compose.animation.slideInHorizontally(
+            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 450f),
+            initialOffsetX = { it },
+        ) else androidx.compose.animation.EnterTransition.None,
+        exit = if (motion.canMove) androidx.compose.animation.slideOutHorizontally(
+            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 450f),
+            targetOffsetX = { it },
+        ) else androidx.compose.animation.ExitTransition.None,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Box(Modifier.fillMaxSize().background(colors.background)
+            .then(if (!layoutEditing) Modifier.semantics { hideFromAccessibility() } else Modifier)) {
+            HomeLayoutPage(onClose = { layoutEditing = false })
+            if (!layoutEditing) {
+                // During exit the outgoing page must not take taps; the shield belongs above
+                // that page, never on AnimatedVisibility's stable/entering modifier.
+                Box(Modifier.matchParentSize().pointerInput(Unit) {
+                    awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
+                }.semantics { hideFromAccessibility() })
+            }
+        }
+    }
+    }
     if (editing) {
         val pending = editorEntry
         val initial = if (pending == null) current else current.copy(sky = "album", container = "designed",
@@ -473,6 +523,32 @@ fun AppearancePage(
                     }
                 }
             })
+    }
+    WanzaiOverlayDialog(
+        show = pendingRemoval != null,
+        onDismissRequest = { if (!busy) pendingRemoval = null },
+        title = "删除这张壁纸？",
+        summary = "仅删除本应用图库中的副本，不删除相册原图；已应用的首页壁纸仍然保留。",
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            WanzaiTextButton("取消", onClick = { pendingRemoval = null }, enabled = !busy, modifier = Modifier.weight(1f))
+            WanzaiButton(onClick = {
+                val entry = pendingRemoval ?: return@WanzaiButton
+                if (busy) return@WanzaiButton
+                busy = true
+                scope.launch {
+                    try {
+                        entries = library.remove(entry)
+                        if (selected?.id == entry.id) selected = null
+                        wallpaperSources.remove(entry.id)
+                        pendingRemoval = null
+                        note = "已从壁纸库删除，当前首页壁纸保留"
+                    } catch (cancel: CancellationException) { throw cancel }
+                    catch (_: Exception) { note = "删除失败，请重试" }
+                    finally { busy = false }
+                }
+            }, enabled = !busy, prominent = true, modifier = Modifier.weight(1f)) { Text("删除") }
+        }
     }
     // 原来是 material3 的 AlertDialog + TextButton：白底、直角、Material 蓝字，在这套
     // 玻璃/Miuix 主题里像另一个 app 的弹窗。改用项目统一的 WanzaiOverlayDialog

@@ -64,7 +64,8 @@ internal fun LiveHomePreview(
     val crawling by graph.jwTimetable.isCrawling
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     val active = com.muyao.wanzaihyperos.ui.design.liquid.LocalPageActive.current
-    LaunchedEffect(active) { if (active) while (true) { delay(60_000); now = LocalDateTime.now() } }
+    // Static previews and hidden tabs do not schedule a ticker. No preview may initiate data refresh.
+    LaunchedEffect(active, fullPage) { if (active && fullPage) while (true) { delay(60_000); now = LocalDateTime.now() } }
     val tron = (schedule as? ListState.Content)?.items?.firstOrNull()
     val jwSlots = (jw as? ListState.Content)?.items?.firstOrNull()?.slots.orEmpty()
     val pick = pickSlots(jwSlots, jwVerdictOf(jw, crawling, jwSlots.isNotEmpty()), tron?.slots.orEmpty())

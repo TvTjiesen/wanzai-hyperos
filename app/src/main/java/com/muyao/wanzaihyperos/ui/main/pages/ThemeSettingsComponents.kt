@@ -103,7 +103,10 @@ internal fun Modifier.themeSegment(last: Boolean): Modifier {
 
 @Composable
 internal fun ThemeSettingSegment(last: Boolean = false, content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxWidth().themeSegment(last).padding(horizontal = 16.dp, vertical = 4.dp)) {
+    Column(
+        Modifier.fillMaxWidth().themeSegment(last).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         content()
     }
 }

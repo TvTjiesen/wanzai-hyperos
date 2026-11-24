@@ -39,7 +39,7 @@ class AppearanceOrderOnceTest {
         assertTrue(layout.contains("draft.modules - id") && layout.contains("draft.modules + id"))
         assertTrue(page.contains("height(64.dp)"))
         assertFalse(page.contains("AppColors.pageBrush(true, background)"))
-        assertTrue(page.indexOf("系统自带壁纸") < page.indexOf("选择首页壁纸"))
+        assertTrue(page.indexOf("系统自带壁纸") < page.indexOf("添加壁纸"))
         assertTrue(page.contains("library.bundledSea()"))
     }
     @Test fun phonePreviewUsesReferenceScreenRatioAndWidthCap() {
@@ -52,9 +52,14 @@ class AppearanceOrderOnceTest {
     }
 
     @Test fun liveResetDoesNotDeleteImages() {
-        assertTrue(page.contains("current = AppearanceSettings()"))
+        val reset = page.substringAfter("show = confirmReset,").substringBefore("\n@Composable")
+        assertTrue(reset.contains("current = AppearanceSettings()"))
+        assertFalse(reset.contains("library.remove("))
+        assertFalse(reset.contains(".delete("))
         assertFalse(page.contains("UiPrefs.resetAppearance"))
-        assertFalse(page.contains("library.remove("))
+        assertTrue(page.contains("library.remove(entry)"))
+        assertTrue(page.contains("pendingRemoval != null"))
+        assertTrue(page.contains("it.id != \"builtin-sea\""))
         assertFalse(page.contains("confirmLeave"))
     }
 }

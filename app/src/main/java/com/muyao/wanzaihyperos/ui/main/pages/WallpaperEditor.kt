@@ -3,6 +3,7 @@ package com.muyao.wanzaihyperos.ui.main.pages
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,40 +37,24 @@ import kotlin.math.roundToInt
 
 /** A visual sample, without live repositories, animated glass or a second navigation hierarchy. */
 @Composable
-internal fun ThemeOverviewPreview(appearance: AppearanceSettings, image: LoadedWallpaper?) {
-    val colors = MiuixTheme.colorScheme
-    Box(Modifier.fillMaxSize().background(colors.background)) {
-        WallpaperCanvas(appearance, image, Modifier.fillMaxSize())
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(appearance.customization.homeTitle.ifBlank { "首页" }, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(colors.surface.copy(alpha = .90f)).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("主题效果预览", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text("壁纸、容器背景与主题色", fontSize = 12.sp, color = colors.onSurfaceVariantSummary)
-                // 这里原先是两条没有任何文字的纯色条（primary / primaryContainer）：
-                // 读者只看到一深一浅两块方糖，既不知道代表什么，也分不清哪个是主色 ——
-                // 正是业主说的「奇怪的色块」。改成带标注的小色卡，信息不减但能自解释。
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("主色" to colors.primary, "容器色" to colors.primaryContainer).forEach { (label, fill) ->
-                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Box(Modifier.size(14.dp).clip(RoundedCornerShape(5.dp)).background(fill))
-                            Text(label, fontSize = 11.sp, color = colors.onSurfaceVariantSummary)
-                        }
-                    }
-                }
-            }
-            // 下面这一排同理：原来是 4 个空白的灰色圆角块（appearance.modules.take(4) 只用来占位），
-            // 看起来像是没加载出内容的破图。改成写模块名的胶囊，刚好也是这块「预览」要表达的信息。
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                appearance.modules.take(4).forEach { module ->
-                    Box(Modifier.weight(1f).height(32.dp).clip(RoundedCornerShape(12.dp))
-                        .background(colors.surface.copy(alpha = .9f)), contentAlignment = Alignment.Center) {
-                        Text(moduleLabel(module), fontSize = 11.sp, color = colors.onSurfaceVariantSummary)
-                    }
-                }
-            }
-        }
+internal fun ThemeOverviewPreview(graph: com.muyao.wanzaihyperos.app.AppGraph, appearance: AppearanceSettings, image: LoadedWallpaper?) {
+    // 用和首页相同的真实组件拼成小样：当前课程/待办/小球和布局开关一套组件，
+    // 但 LiveHomePreview 的入口占位回调为空、editing=false，因此不会触发刷新、导航或学校写操作。
+    CompositionLocalProvider(LocalPageActive provides false) {
+        LiveHomePreview(
+            graph = graph,
+            preset = SkyPreset.of(appearance.sky),
+            image = image,
+            crop = WallpaperEntry("preview", appearance.panX, appearance.panY, appearance.zoom),
+            editing = false,
+            onCrop = {},
+            modifier = Modifier.fillMaxSize(),
+            dim = appearance.dim,
+            soft = appearance.soft,
+            fullPage = true,
+            scrollable = false,
+            appearance = appearance,
+        )
     }
 }
 
