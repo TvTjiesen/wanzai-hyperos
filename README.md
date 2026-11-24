@@ -1,120 +1,79 @@
-# 玩在城院 · HyperOS 原生版（Kotlin + Compose + Miuix）
+# 玩在城院 · HyperOS 原生版
 
-浙大城市学院校园聚合入口的**原生 Android 重写**。
-藍本是 `[local]\wanzai`（Flutter 版，**唯讀參考**，本專案不修改它）。
+浙大城市学院校园聚合入口的**原生 Android 重写**：Kotlin + Jetpack Compose + [Miuix](https://github.com/compose-miuix-ui/miuix)
+（小米 HyperOS 设计语言的 Compose 实现），配合本地 vendored 的
+[Glasmio](https://github.com/NEORUAA/Glasmio) 液态玻璃组件（iOS 26/27 观感）。
 
----
-
-## 這是什麼
-
-把「玩在城院」從 Flutter 版重寫成原生：Kotlin + Jetpack Compose + **Miuix**
-（小米 HyperOS 設計語言的 Compose 實作），對齊手機原生的觀感與效能。
-
-第一期（A1–A4）已完成：四個主頁、門戶登入與七個業務端點接真資料、
-學在城院手機版**免密登入**。詳見下方狀態表。
+> 这是个人学习项目，与学校官方无关。仓库内不含任何真实学号、姓名、密码或设备取证资料。
 
 ---
 
-## 快速開始
+## 它做什么
 
-```powershell
-# 1) 環境變數（每次開新 shell 都要設）
-$env:JAVA_HOME       = "C:\Program Files\Microsoft\jdk-21.0.12.101-hotspot"
-$env:ANDROID_HOME    = "[local]\android-sdk"
-$env:ANDROID_SDK_ROOT= "[local]\android-sdk"
-$env:GRADLE_USER_HOME= "[local]\.gradle-home"
-Set-Location [local]
+把「玩在城院」的 Flutter 版重写为原生 Android 应用：四个主页面、门户登录与业务端点的真数据接入、
+教务（课表 / 考试 / 成绩 / 讲座）与「学在城院」手机版免密登录、液态玻璃 UI 与自定义主题。
 
-# 2) 建 APK
-.\gradlew.bat :app:assembleDebug --no-daemon --console=plain "-Dorg.gradle.jvmargs=-Xmx2g"
-#    → app\build\outputs\apk\debug\app-debug.apk
+---
 
-# 3) 跑單元測試
-.\gradlew.bat :app:testDebugUnitTest --no-daemon --console=plain "-Dorg.gradle.jvmargs=-Xmx2g"
+## 快速开始
+
+```bash
+# 需要 JDK 21 + Android SDK（compileSdk 37）
+export JAVA_HOME=/path/to/jdk-21
+export ANDROID_HOME=/path/to/android-sdk
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+
+./gradlew :app:testDebugUnitTest --no-daemon --console=plain   # 单元测试
+./gradlew :app:assembleOptimized  --no-daemon --console=plain   # R8 发布的 APK
 ```
 
-完整且**可複現**的構建說明（含每個版本為什麼是那個版本、常見坑）見
-**[docs/BUILD-REPRODUCIBLE.md](docs/BUILD-REPRODUCIBLE.md)**。
-
-> ⚠️ 手機上會**同時裝著 Flutter 舊版**（`com.muyao.wanzaihzcu`）與本版
-> （`com.muyao.wanzaihyperos`）。兩者包名不同、互不覆蓋。
-> 本版 debug 的桌面標籤是「**玩在城院（新版·測試）**」，用來區分。
+产物：`app/build/outputs/apk/optimized/app-optimized.apk`
 
 ---
 
-## 目前狀態
-
-| 單元 | 內容 | 狀態 |
-|------|------|------|
-| A0 | 構建鏈路（Gradle/AGP/Kotlin/Miuix 打通） | ✅ |
-| A1 | Miuix UI 骨架 + 四頁導航 | ✅ |
-| A2 | 共用介面與資料底座（限流、加密存儲、解析） | ✅ |
-| A3 | 門戶登入與功能接入（7 端點真資料） | ✅ |
-| A4 | 學在城院手機版免登 | 🟡 核心完成 |
-| A5 | 整合與第一期交付 | ✅ 本次 |
-
-**測試**：`195 條單元測試，0 失敗，0 跳過` ／ 另有 7 條真機儀器化測試（Keystore）。
-**驗收矩陣**（逐條對照計劃書，含未完成項）：**[docs/ACCEPTANCE-MATRIX.md](docs/ACCEPTANCE-MATRIX.md)**
-
-### A4 還沒做的（如實列出，不假裝完成）
-
-- token 到期自動刷新／刷新單飛／輪換／刷新失敗 —— 目前過期會**安全降級**
-  到學在城院自己的登入頁，不崩。
-- WebView 權限按來源授予（目前不授予任何危險權限）。
-- 掃碼（相機）、簽到 —— 標**待驗**；沒有合法情境時不用入口截圖冒充成功。
-
----
-
-## 架構
+## 模块结构
 
 ```
-Compose 頁面 (ui/)
-      ↓
-Repository (data/)           ← 快取、StaleGuard、單飛
-      ↓
-API (net/PortalApi)          ← 23 個門戶端點
-      ↓
-HzcuClient (net/)            ← 限流 + Cookie 罐 + 脫敏 + 重試
-      ↓
-SessionStore (session/)      ← AES-256-GCM，密鑰在 Android Keystore
+app/src/main/java/com/muyao/wanzaihyperos/
+├── MainActivity.kt / WanzaiRoot.kt   应用入口与根导航
+├── nav/           路由与转场
+├── ui/            Compose 页面（main / home / jw / tronclass / szty / web …）与设计系统
+├── data/          仓库层：门户、教务（jw）、CJH52、TronClass、主题与偏好
+├── net/           HTTP 客户端、Cookie 罐、限流、脱敏、CAS 加密
+└── session/       会话与 Android Keystore 加密存储
+
+third_party/glasmio/   本地 vendored 的 Glasmo 玻璃组件库（Apache-2.0，含上游声明）
+tools/gen_ai_ball_glyphs.py   AI 小球字形生成器（单元测试会读取它）
 ```
 
-**組合根**：`app/AppGraph.kt` —— 全 App **唯一**組裝網路層與會話層的地方。
-它持有唯一的 `HzcuClient`（因為它持有 Cookie 罐；兩份客戶端 = 兩份罐 = 「有時能登有時不能」）。
-
-### 幾條硬性紀律（改程式前請先讀）
-
-1. **密碼不持久化**。密碼只作參數穿過登入流程，不落盤、不進日誌。
-2. **日誌只記 host + 參數名，永不記值**（`net/Redaction.kt`）。
-3. **限流**：全局 ≥1000ms、單端點 ≥2000ms、**嚴格串行**（不是令牌桶）。
-4. **未讀刷新 ≥15 分鐘**；自動輪詢**預設關閉**。
-5. **`total` 欄位不可靠** —— 只按**返回條數**分頁（實測 `total=20` 但 `allrecords=192`）。
-6. **`[local]\wanzai`（Flutter）唯讀** —— 只讀不改。
+网络层组装的唯一入口是 `AppGraph`：它持有唯一的 `HzcuClient`（持有 Cookie 罐，两份客户端 = 两份罐 = 登录状态漂移）。
 
 ---
 
-## 文件導覽
+## 几条硬性纪律
 
-| 文件 | 內容 |
-|------|------|
-| [ACCEPTANCE-MATRIX.md](docs/ACCEPTANCE-MATRIX.md) | **驗收矩陣**：A1–A4 逐條 + 證據 + 未完成項 |
-| [BUILD-REPRODUCIBLE.md](docs/BUILD-REPRODUCIBLE.md) | **固定構建方式**：工具鏈版本與理由、命令、並存識別 |
-| [A4-WALKTHROUGH.md](docs/A4-WALKTHROUGH.md) | 學在城院免登走查（含**真機才暴露的 bug** 與根因） |
-| [A3-WALKTHROUGH.md](docs/A3-WALKTHROUGH.md) | 門戶登入與 7 端點接入走查 |
-| [A2-WALKTHROUGH.md](docs/A2-WALKTHROUGH.md) | 資料底座走查 |
-| [A1-WALKTHROUGH.md](docs/A1-WALKTHROUGH.md) | UI 骨架走查 |
-| [BUILD-KOTLIN.md](docs/BUILD-KOTLIN.md) | **踩坑台賬**（§4.x）。動 Compose/Miuix 前值得先掃一眼 |
-| [PLAN-GPT.md](docs/PLAN-GPT.md) | 統籌計劃書（含各期狀態標註） |
-| [API-PORTAL.md](docs/API-PORTAL.md) | 門戶 23 端點契約（含 form/JSON 差異、`rows` 位置） |
-
-截圖在 `docs/shots/`（已做 PII 處理，見 A4 走查 §10）。
+1. **密码不持久化**：只作参数穿过登录流程，不落盘、不进日志。
+2. **日志只记 host 与参数名，永不记值**（`net/Redaction.kt`）。
+3. **限流严格串行**：全局 ≥1000ms、单端点 ≥1000ms，不是令牌桶。
+4. **抓取失败保留旧内容**：`retainCachedOnFailure` 语义，失败不清缓存。
+5. **不伪造成功**：拿不到的数据显示「未知 / —」，不用入口截图冒充成功状态。
 
 ---
 
-## 憑據處理（紅線）
+## 测试
 
-- 聯調用的帳號密碼**只放 `.secrets/`**，該目錄已在 `.gitignore` 中。
-- **一次真機聯調結束後應把整個目錄刪掉。**
-- 倉庫內任何位置（含程式碼、測試、文檔、註解）**不得出現真實學號或密碼**。
-  已用 `git grep` 與未跟蹤檔案全量掃描核對，零命中。
-- 測試用的帳號密碼是**假資料**（本機假伺服器不校驗），與真實憑據無關。
+`./gradlew :app:testDebugUnitTest` 覆盖 1571 项单元测试（其中 12 项按平台条件跳过）。
+部分测试会读取仓库内的 `tools/gen_ai_ball_glyphs.py` 与 debug/androidTest 源码做契约校验，
+因此须在仓库根目录运行。
+
+---
+
+## 署名与许可
+
+- 应用代码：© TvTjiesen（[GitHub](https://github.com/TvTjiesen)）。
+- `third_party/glasmio/`：摘自 [Glasmio](https://github.com/NEORUAA/Glasmio)（Apache-2.0），
+  其上游第三方声明见 `third_party/glasmio/THIRD_PARTY_NOTICES.md`（含 Kyant0 的
+  AndroidLiquidGlass / Backdrop / Capsule / Shapes、AndroidX、Reorderable、Miuix 等）。
+- 依赖库各自的许可证随其分发包提供。
+
+本项目仅供学习与个人使用；第三方服务（学校门户、教务系统）的使用须遵守其自身条款。
