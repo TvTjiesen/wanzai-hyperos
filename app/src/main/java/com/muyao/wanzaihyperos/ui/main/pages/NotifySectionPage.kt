@@ -75,6 +75,8 @@ import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.R
 import com.muyao.wanzaihyperos.data.CountValue
 import com.muyao.wanzaihyperos.data.ListState
+import com.muyao.wanzaihyperos.data.cjh52.Cjh52Notice
+import com.muyao.wanzaihyperos.data.cjh52.Lecture
 import com.muyao.wanzaihyperos.data.portal.PortalMessageGroup
 import com.muyao.wanzaihyperos.data.portal.PortalMessageItem
 import com.muyao.wanzaihyperos.data.portal.PortalNewsItem
@@ -166,6 +168,23 @@ fun NotifySectionPage(
     val entryGate = com.muyao.wanzaihyperos.ui.main.LocalPageEntryGate.current
     val entryOwner = com.muyao.wanzaihyperos.ui.main.LocalPageEntryOwner.current
     val refreshGate = remember(entryOwner) { com.muyao.wanzaihyperos.data.portal.NoticeRefreshGate() }
+
+    // ══════════ 通知来源的选择 ══════════
+    //
+    // 门户的「活动通知」「讲座通知」两组在**服务端**就冻结在 2025-11-06：
+    // 2026-11-24 用活体 token 实测，活动通知 allrecords=192、讲座通知 allrecords=85，
+    // 全量日期分布里 2026 年 0 条；同一 token 打 listMessageBroadcast 却能取到 2026-06，
+    // 所以不是登录/权限/分页的问题，是那两张表没有新行（详见 docs 记录）。
+    //
+    // 于是把两条**真正在更新**的来源提到前面：CJH52「日常通知」（最新 2026-11-12）与
+    // 「爱讲座」（最新 2026-11-19）。门户那两组原样保留为第三个来源 ——
+    // 不删入口，因为里面的历史通知仍然可查，只是不能冒充"最新消息"。
+    var noticeSource by androidx.compose.runtime.saveable.rememberSaveable(entryOwner) {
+        mutableStateOf(NOTICE_SOURCE_DAILY)
+    }
+    val noticeState by graph.notices.state.collectAsVisibleStateWithLifecycle()
+    val lectureState by graph.lectures.state.collectAsVisibleStateWithLifecycle()
+    val lectureHasMore by graph.lectures.hasMore.collectAsVisibleStateWithLifecycle()
     LaunchedEffect(pageActive, entryOwner, entryGate, refreshGate) {
         if (!pageActive) return@LaunchedEffect
         if (entryGate.claim("notify", entryOwner)) {
@@ -193,8 +212,31 @@ fun NotifySectionPage(
             if (refreshGate.claim("system-announcements", graph.broadcasts.state.value, now)) {
                 graph.fetch { graph.broadcasts.refresh() }
             }
+            // 只刷**当前正在看**的那份来源：没在看的那份不必替它拉数据，
+            // 既省一次请求，也避免学工平台的会话被无谓地消耗。
+            if (noticeSource == NOTICE_SOURCE_DAILY &&
+                refreshGate.claim("daily-notices", graph.notices.state.value, now)
+            ) {
+                graph.fetch { graph.notices.refresh() }
+            }
+            if (noticeSource == NOTICE_SOURCE_LECTURE &&
+                refreshGate.claim("lectures", graph.lectures.state.value, now)
+            ) {
+                graph.fetch { graph.lectures.refresh() }
+            }
             graph.fetch { graph.unread.refresh() }
             kotlinx.coroutines.delay(60_000)
+        }
+    }
+
+    LaunchedEffect(noticeSource, pageActive, entryOwner) {
+        if (!pageActive) return@LaunchedEffect
+        // 切到某个来源时立刻拉一次，而不是等下一轮 60 秒轮询 ——
+        // 用户刚点完胶囊却看到「正在取得…」转一整分钟是不能接受的。
+        when (noticeSource) {
+            NOTICE_SOURCE_DAILY -> graph.fetch { graph.notices.refresh() }
+            NOTICE_SOURCE_LECTURE -> graph.fetch { graph.lectures.refresh() }
+            else -> Unit
         }
     }
 
@@ -455,7 +497,133 @@ fun NotifySectionPage(
 
             if (filter == 2 || filter == 0) {
 
-            // ══════════ 消息 ══════════
+            // ══════════ 通知来源 ══════════
+            //
+            // 为什么要有这一排：门户「活动通知／讲座通知」冻结在 2025-11-06（服务端实测），
+            // 而 CJH52 的日常通知与爱讲座到今天仍在更新。三份数据放在同一屏里必须
+            // 各自标清楚"这是哪一份"、并且默认落在**有新鲜数据**的那一份上，
+            // 否则用户点开消息页看到的永远是 2025 年的旧通知。
+            item(key = "notice-sources") {
+                NoticeSourceChips(
+                    selected = noticeSource,
+                    onSelect = { source ->
+                        noticeSource = source
+                        when (source) {
+                            NOTICE_SOURCE_DAILY -> graph.fetch { graph.notices.refresh() }
+                            NOTICE_SOURCE_LECTURE -> graph.fetch { graph.lectures.refresh() }
+                            else -> Unit
+                        }
+                    },
+                )
+            }
+
+            if (noticeSource == NOTICE_SOURCE_DAILY) {
+                // ══════════ 日常通知（CJH52）══════════
+                //
+                // 与「应用 → 日常通知」同源同仓库（graph.notices），
+                // 所以在这里刷新之后进那一页也是新数据，不会两处打架。
+                item(key = "daily-header") {
+                    GroupHead(
+                        name = "日常通知",
+                        count = (noticeState as? ListState.Content)?.items?.size,
+                        note = "学生服务 · 实时更新",
+                    )
+                }
+                when (val s = noticeState) {
+                    is ListState.FirstLoad -> item(key = "daily-loading") { StatusHint("正在取得日常通知…") }
+                    is ListState.SessionExpired -> item(key = "daily-expired") {
+                        StatusError("学工平台登录已失效", "请到应用页打开一次智慧学工以重新激活。", "管理账号", onOpenAccounts)
+                    }
+                    is ListState.Failed -> item(key = "daily-failed") {
+                        StatusError("取不到日常通知", s.error.userText, "重试") {
+                            graph.fetch { graph.notices.refresh() }
+                        }
+                    }
+                    is ListState.Empty -> item(key = "daily-empty") {
+                        Column {
+                            ListFreshness(s.meta) { graph.fetch { graph.notices.refresh() } }
+                            StatusHint("暂时没有日常通知。")
+                        }
+                    }
+                    is ListState.Content -> {
+                        item(key = "daily-freshness") {
+                            ListFreshness(s.meta) { graph.fetch { graph.notices.refresh() } }
+                        }
+                        if (s.items.isEmpty()) {
+                            item(key = "daily-none") { StatusHint("暂时没有日常通知。") }
+                        } else {
+                            s.items.forEachIndexed { index, notice ->
+                                val itemKey = "daily-${notice.id}"
+                                item(key = itemKey) {
+                                    Column(Modifier.springListEntrance(entrance, itemKey)) {
+                                        DailyNoticeRow(notice)
+                                        if (index != s.items.lastIndex) ThinDivider()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (noticeSource == NOTICE_SOURCE_LECTURE) {
+                // ══════════ 爱讲座（CJH52）══════════
+                // 报名/取消报名是写操作，这里只读；要报名走「去原站报名」。
+                item(key = "lecture-header") {
+                    GroupHead(
+                        name = "爱讲座",
+                        count = (lectureState as? ListState.Content)?.items?.size,
+                        note = "CJH52 · 报名请去原站",
+                    )
+                }
+                when (val s = lectureState) {
+                    is ListState.FirstLoad -> item(key = "lecture-loading") { StatusHint("正在取得讲座…") }
+                    is ListState.SessionExpired -> item(key = "lecture-expired") {
+                        StatusError("学工平台登录已失效", "请到应用页打开一次智慧学工以重新激活。", "管理账号", onOpenAccounts)
+                    }
+                    is ListState.Failed -> item(key = "lecture-failed") {
+                        StatusError("取不到讲座", s.error.userText, "重试") {
+                            graph.fetch { graph.lectures.refresh() }
+                        }
+                    }
+                    is ListState.Empty -> item(key = "lecture-empty") {
+                        Column {
+                            ListFreshness(s.meta) { graph.fetch { graph.lectures.refresh() } }
+                            StatusHint("暂时没有讲座。")
+                        }
+                    }
+                    is ListState.Content -> {
+                        item(key = "lecture-freshness") {
+                            ListFreshness(s.meta) { graph.fetch { graph.lectures.refresh() } }
+                        }
+                        if (s.items.isEmpty()) {
+                            item(key = "lecture-none") { StatusHint("暂时没有讲座。") }
+                        } else {
+                            s.items.forEachIndexed { index, lecture ->
+                                val itemKey = "lecture-${lecture.id}"
+                                item(key = itemKey) {
+                                    Column(Modifier.springListEntrance(entrance, itemKey)) {
+                                        LectureNoticeRow(lecture)
+                                        if (index != s.items.lastIndex) ThinDivider()
+                                    }
+                                }
+                            }
+                        }
+                        if (lectureHasMore) {
+                            item(key = "lecture-more") {
+                                MoreRow(
+                                    loading = s.meta.loadingMore || s.meta.refreshing,
+                                    onClick = { graph.fetch { graph.lectures.loadMore() } },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (noticeSource == NOTICE_SOURCE_PORTAL) {
+
+            // ══════════ 消息（门户，历史）══════════
             item(key = "msg-header") {
                 // 不叫「消息」：頁面大標題已經是「消息」，分組再來一個同名大字
                 // 看起來像標題重複。入口在首頁就叫「门户通知」，這裡沿用同一個說法。
@@ -565,6 +733,7 @@ fun NotifySectionPage(
                 }
             } else if (msgGroupsState is ListState.FirstLoad || msgGroupsState is ListState.Content) {
                 item(key = "msg-await-group") { StatusHint("正在取得消息分组…") }
+            }
             }
             }
 
@@ -772,6 +941,32 @@ private fun MsgGroupChips(
     )
 }
 
+/**
+ * 「通知」这一屏的三份来源。
+ *
+ * 为什么需要显式的来源切换，而不是像老版本那样只列门户分组：
+ * 门户的 `活动通知`/`讲座通知` 在**服务端**冻结在 2025-11-06（2026-11-24 实测全量
+ * 192/85 条里 2026 年 0 条），而 CJH52 的日常通知与爱讲座到今天还在更新。
+ * 三份数据混在一屏而不标来源，用户没法判断眼前这条到底是"新通知"还是"去年的归档"。
+ *
+ * 顺序即优先级：默认落在 [NOTICE_SOURCE_DAILY]（真正有当天数据的那份）。
+ */
+private const val NOTICE_SOURCE_DAILY = 0
+private const val NOTICE_SOURCE_LECTURE = 1
+private const val NOTICE_SOURCE_PORTAL = 2
+
+@Composable
+private fun NoticeSourceChips(selected: Int, onSelect: (Int) -> Unit) {
+    val labels = listOf("日常通知", "爱讲座", "门户通知")
+    com.muyao.wanzaihyperos.ui.design.SlidingChoiceRow(
+        labels = labels,
+        stableKeys = labels,
+        selectedIndex = selected.coerceIn(0, labels.lastIndex),
+        onSelect = onSelect,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
 @Composable
 private fun FilterPill(label: String, count: String, selected: Boolean) {
     val colors = MiuixTheme.colorScheme
@@ -927,6 +1122,130 @@ private fun StatusHint(text: String) {
 }
 
 /**
+ * 日常通知的一行（CJH52 `find_all_for_reader`）。
+ *
+ * 卡片材质与 [MessageRow] 完全一致 —— 同一屏里的两个来源长成两种卡片，
+ * 用户会以为是两个层级的东西。区别只在**字段**：这里没有未读态（CJH52 不给），
+ * 时间来自 `publishedAt`，发布人来自 `publisher`。
+ */
+@Composable
+private fun DailyNoticeRow(notice: Cjh52Notice, modifier: Modifier = Modifier) {
+    val colors = MiuixTheme.colorScheme
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.surface.copy(alpha = 0.72f))
+            .border(1.dp, colors.dividerLine.copy(alpha = 0.6f), shape)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = notice.title.ifBlank { "（无标题）" },
+            fontSize = Type.rowTitle,
+            lineHeight = Type.lineRowTitle,
+            fontWeight = Type.weightBody,
+            color = colors.onBackground,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+        val meta = listOfNotNull(
+            formatNoticeMillis(notice.publishedAt ?: notice.createdAt),
+            notice.publisher.takeIf { it.isNotBlank() },
+            notice.level.takeIf { it.isNotBlank() && it != "普通" },
+        ).joinToString(" · ")
+        if (meta.isNotBlank()) {
+            Text(meta, fontSize = Type.summary, color = colors.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 5.dp))
+        }
+        if (notice.detail.isNotBlank()) {
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = notice.detail,
+                fontSize = Type.secondary,
+                color = colors.onSurfaceVariantSummary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
+ * 爱讲座的一行（CJH52 `find_lectures`）。
+ *
+ * 报名/取消报名是写操作，这里**不做** —— 只显示状态与名额，
+ * 要报名去原站（入口在「应用 → 爱讲座」那一页）。
+ */
+@Composable
+private fun LectureNoticeRow(lecture: Lecture, modifier: Modifier = Modifier) {
+    val colors = MiuixTheme.colorScheme
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.surface.copy(alpha = 0.72f))
+            .border(1.dp, colors.dividerLine.copy(alpha = 0.6f), shape)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Top) {
+            Text(
+                text = lecture.title.ifBlank { "（无标题）" },
+                fontSize = Type.rowTitle,
+                lineHeight = Type.lineRowTitle,
+                fontWeight = Type.weightBody,
+                color = colors.onBackground,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = lecture.statusLabel,
+                fontSize = Type.summary,
+                color = if (lecture.canRegister) colors.primary else colors.onSurfaceVariantSummary,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        val meta = listOfNotNull(
+            lecture.startLocal.takeIf { it.isNotBlank() },
+            lecture.address.takeIf { it.isNotBlank() },
+            lecture.speaker.takeIf { it.isNotBlank() },
+        ).joinToString(" · ")
+        if (meta.isNotBlank()) {
+            Text(meta, fontSize = Type.summary, color = colors.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 5.dp))
+        }
+        val extra = listOfNotNull(
+            lecture.capacityLabel.takeIf { it.isNotBlank() },
+            lecture.deadlineLocal.takeIf { it.isNotBlank() }?.let { "报名截止 $it" },
+        ).joinToString(" · ")
+        if (extra.isNotBlank()) {
+            Text(extra, fontSize = Type.summary, color = colors.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 3.dp))
+        }
+    }
+}
+
+/**
+ * CJH52 的时间戳 → 与通知行一致的短日期。
+ *
+ * 复用 [boardShortDate] 的"同一年只写 月/日"口径，但输入是毫秒数，
+ * 所以先按本地时区格式化成 `yyyy-MM-dd HH:mm` 再交给它。
+ */
+private fun formatNoticeMillis(millis: Long?): String? {
+    if (millis == null || millis <= 0L) return null
+    val formatted = runCatching {
+        java.time.Instant.ofEpochMilli(millis)
+            .atZone(java.time.ZoneId.systemDefault())
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+    }.getOrNull() ?: return null
+    return boardShortDate(formatted)
+}
+
+/**
  * 失敗說明。
  *
  * 錯誤不能藏：標題保留 error 色，下面照舊給 `userText` 的具體原因。
@@ -995,7 +1314,11 @@ private fun MoreRow(loading: Boolean, onClick: () -> Unit) {
 @Composable
 private fun GroupHead(
     name: String,
-    count: Int,
+    /**
+     * 已加载条数。**可以不知道**（`null`）：来源还没回来时写「—」而不是 0 ——
+     * 把「不知道」印成「0 条」是这条流水线反复犯过的错（见 UnknownCountGuardTest）。
+     */
+    count: Int?,
     note: String = "",
     trailing: (@Composable () -> Unit)? = null,
 ) {
@@ -1013,7 +1336,7 @@ private fun GroupHead(
             )
         }
         Text(
-            text = if (note.isNotBlank()) note else "已加载 $count 条",
+            text = if (note.isNotBlank()) note else count?.let { "已加载 $it 条" } ?: "已加载 — 条",
             fontSize = Type.caption,
             color = colors.onSurfaceVariantSummary,
             style = TextStyle(fontFeatureSettings = Type.tabular),
