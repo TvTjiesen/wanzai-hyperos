@@ -78,7 +78,7 @@ fun SettingsConnectionCard(
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
         val feedbackWidth = maxWidth / 2
         val cardTop = with(density) {
-            if (feedbackSize.height.toDp() > ballBox) feedbackSize.height.toDp() - ballBox / 2 + 8.dp else ballBox / 2
+            if (feedbackSize.height.toDp() > ballBox) feedbackSize.height.toDp() + 8.dp else ballBox / 2
         }
         Box(Modifier.fillMaxWidth().padding(top = cardTop)) {
             GlasmioGroupedList {

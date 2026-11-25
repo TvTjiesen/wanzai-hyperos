@@ -814,7 +814,7 @@ internal fun HomeSkyHeader(
     var dateHeight by remember { mutableStateOf(0f) }
     var cardHeight by remember { mutableStateOf(0f) }
     var feedbackHeight by remember { mutableStateOf(0.dp) }
-    val cardTopTarget = if (feedbackHeight > ballBox) feedbackHeight - ballBox / 2 + 8.dp else ballBox / 2
+    val cardTopTarget = if (feedbackHeight > ballBox) feedbackHeight + 8.dp else ballBox / 2
     val homeMotion = rememberMotion()
     val cardTop by androidx.compose.animation.core.animateDpAsState(
         targetValue = cardTopTarget,

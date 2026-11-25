@@ -100,7 +100,7 @@ class GlasmioTwoPageLayoutTest {
         assertTrue("非近课不得用数百分钟的长倒计时挤占球状态", home.contains("focus.ongoing || focus.minutes in 0..59"))
         assertTrue("加载与上课状态只精确去重，来源后缀保留", home.contains("if (focus.ongoing) AiBall.lineOf(ballState) else headline"))
         assertTrue("球拖至右下仍须避让文字", home.contains("if (compact) 120.dp else 128.dp") && home.contains("Spacer(Modifier.height(6.dp))"))
-        assertTrue("半球与反馈留白必须与卡高测量分层", home.contains("val cardTopTarget = if (feedbackHeight > ballBox) feedbackHeight - ballBox / 2 + 8.dp else ballBox / 2") && home.contains("Box(Modifier.padding(top = cardTop))") && home.contains("Column(Modifier.onSizeChanged { cardHeight"))
+        assertTrue("半球与反馈留白必须与卡高测量分层", home.contains("val cardTopTarget = if (feedbackHeight > ballBox) feedbackHeight + 8.dp else ballBox / 2") && home.contains("Box(Modifier.padding(top = cardTop))") && home.contains("Column(Modifier.onSizeChanged { cardHeight"))
         val run = home.substringAfter("internal fun RunSummaryCard(").substringBefore("private fun runRequirementText(")
         assertTrue("窄卡也不能丢失错误与来源全文", !run.contains("maxLines"))
     }

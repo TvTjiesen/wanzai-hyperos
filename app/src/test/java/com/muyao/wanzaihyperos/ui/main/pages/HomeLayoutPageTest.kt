@@ -45,7 +45,7 @@ class HomeLayoutPageTest {
         assertTrue(feedback.contains("ball = ball"))
         assertFalse(feedback.contains("fillMaxWidth"))
         assertTrue(feedback.contains("onRowSizeChanged = { feedbackHeight = with(density) { it.height.toDp() } }"))
-        assertTrue(homeSource.contains("val cardTopTarget = if (feedbackHeight > ballBox) feedbackHeight - ballBox / 2 + 8.dp else ballBox / 2"))
+        assertTrue(homeSource.contains("val cardTopTarget = if (feedbackHeight > ballBox) feedbackHeight + 8.dp else ballBox / 2"))
         assertTrue(homeSource.contains("targetValue = cardTopTarget"))
     }
 }
