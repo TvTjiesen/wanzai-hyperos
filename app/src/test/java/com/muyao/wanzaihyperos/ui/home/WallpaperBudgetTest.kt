@@ -59,6 +59,26 @@ class WallpaperBudgetTest {
         assertTrue(plan.argbBytes <= 4_000_000)
     }
 
+    @Test fun wallpaperCacheEvictsByAccessAndHonorsBothBounds() {
+        val cache = WeightedLruCache<String, String>(maxWeight = 5, maxEntries = 2) { it.length.toLong() }
+        cache.put("a", "aa")
+        cache.put("b", "bb")
+        assertEquals("aa", cache.get("a")) // a becomes most recently used
+        cache.put("c", "cc") // b is the least recently used entry
+        assertNull(cache.get("b"))
+        assertEquals("aa", cache.get("a"))
+        assertEquals("cc", cache.get("c"))
+        assertTrue(cache.size() <= 2)
+        assertTrue(cache.weight() <= 5)
+
+        cache.put("oversized", "123456")
+        assertNull(cache.get("oversized"))
+        assertTrue(cache.weight() <= 5)
+        cache.clear()
+        assertEquals(0, cache.size())
+        assertEquals(0L, cache.weight())
+    }
+
     @Test fun loaderKeepsBoundsAllocationAndSparseStatsOffTheMainThread() {
         val loader = File("src/main/java/com/muyao/wanzaihyperos/ui/home/WallpaperLoader.kt").readText()
         assertTrue(loader.contains("withContext(Dispatchers.IO)"))

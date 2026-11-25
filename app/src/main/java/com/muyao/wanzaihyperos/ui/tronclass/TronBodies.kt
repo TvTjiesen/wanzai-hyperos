@@ -68,12 +68,12 @@ fun TronHomeBody(
 
     if (home == null) {
         androidx.compose.foundation.layout.Column(modifier) {
-            com.muyao.wanzaihyperos.ui.design.ai.AiBall(
+            com.muyao.wanzaihyperos.ui.design.AiBallFeedbackRow(ball = { com.muyao.wanzaihyperos.ui.design.ai.AiBall(
                 state = com.muyao.wanzaihyperos.ui.design.ai.AiBallStates.ofList(state),
                 diameter = 72.dp,
                 modifier = Modifier.padding(horizontal = Dims.screenH),
                 stateDescription = "学习资料状态",
-            )
+            ) })
             CjhChipFlow(
                 modifier = Modifier.padding(horizontal = Dims.screenH),
                 chips = listOf(
@@ -106,13 +106,13 @@ fun TronHomeBody(
             item { TronPartialNotice(meta, failures, repository::refresh) }
         }
         item {
-            com.muyao.wanzaihyperos.ui.design.ai.AiBall(
+            com.muyao.wanzaihyperos.ui.design.AiBallFeedbackRow(ball = { com.muyao.wanzaihyperos.ui.design.ai.AiBall(
                 state = if (hasProblem) com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Error
                     else com.muyao.wanzaihyperos.ui.design.ai.AiBallStates.ofList(state),
                 diameter = 72.dp,
                 modifier = Modifier.padding(horizontal = Dims.screenH),
                 stateDescription = if (hasProblem) "部分学习资料尚未确认" else "学习资料状态",
-            )
+            ) })
         }
         item {
             TronHero(

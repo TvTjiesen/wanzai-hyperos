@@ -48,7 +48,8 @@ class AiBallWiringTest {
         val heading = title.substringBefore("fun SettingsConnectionCard")
         assertTrue("设置标题仍是LazyList item且不消费球", heading.contains("item(key = \"large_title\")") && !heading.contains("leading()"))
         val card = title.substringAfter("fun SettingsConnectionCard").substringBefore("internal data class")
-        assertTrue("卡肩球须预留独立72dp区域，不能用offset覆盖卡片点击", card.contains("val ballBox = 72.dp") && card.contains("padding(top = ballBox / 2)") && card.contains("padding(start = 12.dp).size(ballBox)"))
+        assertTrue("卡肩球须预留独立72dp区域，不能用offset覆盖卡片点击", card.contains("val ballBox = 72.dp") && card.contains("feedbackSize.height.toDp() - ballBox / 2 + 8.dp") && card.contains("Box(Modifier.size(ballBox)"))
+        assertTrue("反馈需限制宽度并让卡片避开球下方堆叠提示", card.contains("maxWidth = feedbackWidth") && card.contains("feedbackSize.height.toDp() - ballBox"))
         assertTrue("卡肩球在卡片后绘制且不是玻璃", card.indexOf("{ leading() }") > card.indexOf("configuration.boundaryText()") && !card.contains("LiquidGlass"))
         assertTrue("自定义标题仍需上报真实高度，折叠不能失联", title.contains("pilot.titleHeightPx = it.height.toFloat()"))
         assertTrue("设置标题必须可被读屏识别", title.contains("heading()") && title.contains("IosTypography.largeTitle"))
@@ -131,9 +132,13 @@ class AiBallWiringTest {
         assertTrue("首页必须只有一只球，不能在卡内重复", Regex("\\bAiBall\\(").findAll(home).count() == 1)
         assertTrue("首页球必须消费真实 ballState", header.contains("state = ballState"))
         assertTrue("紧凑及常规档都保留主角球", header.contains("ballDiameter = if (compact) 96.dp else 104.dp"))
-        assertTrue("课程开关必须只传到内容分支", home.contains("courseEnabled = \"courses\" in UiPrefs.homeModules"))
+        assertTrue("课程开关必须来自 preview 草稿并回退到正常首页偏好",
+            home.contains("courseEnabled = \"courses\" in (layoutEditing?.settings?.modules ?: UiPrefs.homeModules)"))
+        assertTrue("球状态与球本身必须独立于课程内容开关", header.indexOf("if (courseEnabled)") >= 0 &&
+            header.indexOf("val ball:") > header.indexOf("if (courseEnabled)") &&
+            header.indexOf("AiBall(") > header.indexOf("val ball:"))
         assertTrue("球须绘制在两种内容分支之后", header.indexOf("AiBall(") > header.indexOf("courseContent(subline)"))
-        assertTrue("卡上沿必须穿过球中心", header.contains("padding(top = ballBox / 2)"))
+        assertTrue("卡上沿必须保留半球基线并为真实反馈留位", header.contains("val cardTopTarget = if (feedbackHeight > ballBox) feedbackHeight - ballBox / 2 + 8.dp else ballBox / 2") && header.contains("padding(top = cardTop)"))
         // 方案三：默认布局不动，长按确认后才临时拖动；普通划动仍交父页面。
         assertTrue("首页不能额外指定不同拖动范围", !header.contains("dragRange"))
         val ball = code("design/ai/AiBall.kt")

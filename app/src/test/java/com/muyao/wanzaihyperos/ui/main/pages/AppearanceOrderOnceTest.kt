@@ -8,17 +8,19 @@ class AppearanceOrderOnceTest {
     private val page = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/AppearancePage.kt").readText()
     @Test fun threeSectionsExpandInPlace() {
         val sections = listOf("home", "colors", "interaction")
-        val keys = listOf("preview") + sections.map { "section-$it" } + "restore-default"
+        val keys = listOf("section-home", "preview", "home-layout", "section-colors", "section-interaction", "restore-default")
         val positions = keys.map { page.indexOf("item(key = \"$it\")").also { position -> assertTrue("Missing section: $it", position >= 0) } }
         assertEquals(positions.sorted(), positions)
         assertEquals(positions.size, positions.toSet().size)
-        sections.forEachIndexed { index, id ->
-            val item = page.substring(positions[index + 1], positions[index + 2])
+        sections.forEach { id ->
+            val sectionIndex = keys.indexOf("section-$id")
+            val item = page.substring(positions[sectionIndex], positions[sectionIndex + 1])
             assertTrue("$id expands independently in place", "ThemeExpandableSection(" in item && "\"$id\" in expandedSections" in item)
         }
         val components = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/ThemeSettingsComponents.kt").readText()
         assertTrue("spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)" in components)
-        assertTrue("placeable.height * state.value" in components && "verticalArrangement = Arrangement.spacedBy(gap)" in components)
+        assertTrue("placeable.height * state.value" in components && "verticalArrangement = arrangement" in components)
+        assertTrue("gap still animates in measure, not parent composition", "val gap = arrangement.spacing.roundToPx()" in components && "val gap = spacing.roundToPx()" in components)
         assertTrue("Each segment registers independent height progress", "transition.segmentProgress(\"SegmentedProgress\")" in components)
         assertTrue("themeSegment(last)" in page)
         assertFalse(page.contains("section-background"))
@@ -50,7 +52,9 @@ class AppearanceOrderOnceTest {
         assertEquals(244.8f, themePreviewWidth(360f), .0001f)
         assertEquals(300f, themePreviewWidth(720f), .0001f)
         val components = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/ThemeSettingsComponents.kt").readText()
-        assertTrue("source bounds must wrap the enlarged phone shell", components.contains("Box(modifier.width(width).height(width / aspect)"))
+        assertTrue("phone shell retains its enlarged layout", components.contains("Box(modifier.width(width).height(width / aspect)"))
+        assertTrue("phone preview must remain the real home overview", page.contains("PhoneThemePreview { Preview() }"))
+        assertFalse("phone shell is not the wallpaper transition source", page.contains("PhoneThemePreview(Modifier.wallpaperMotionCoordinates"))
     }
 
     @Test fun liveResetDoesNotDeleteImages() {

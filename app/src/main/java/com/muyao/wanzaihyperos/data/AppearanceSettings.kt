@@ -22,6 +22,8 @@ data class AppearanceSettings(
     val customization: ThemeCustomization = ThemeCustomization(),
     val reduceMotion: Boolean = false,
     val highContrast: Boolean = false,
+    val homeOrder: List<String> = HomeLayoutOrder.defaults,
+    val hiddenHomeSections: Set<String> = emptySet(),
 ) {
     fun validated(): AppearanceSettings {
         customization.validated()
@@ -35,6 +37,9 @@ data class AppearanceSettings(
         require(panX.isFinite() && panY.isFinite() && zoom.isFinite())
         require(panX in -1f..1f && panY in -1f..1f && zoom in 1f..4f)
         require(modules.all { it in setOf("courses", "todos", "rollcall", "szty") })
-        return this
+        require(hiddenHomeSections.all { it in HomeLayoutOrder.defaults })
+        require(homeOrder.all { it in HomeLayoutOrder.defaults })
+        require(homeOrder.distinct().size == homeOrder.size)
+        return copy(homeOrder = HomeLayoutOrder.normalize(homeOrder))
     }
 }

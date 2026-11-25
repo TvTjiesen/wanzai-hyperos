@@ -35,7 +35,7 @@ class ThemeRepairContractTest {
     }
 
     @Test fun `appearance overview invokes phone preview`() {
-        assertTrue(appearance.contains("PhoneThemePreview(") && appearance.contains("ThemeOverviewPreview("))
+        assertTrue(appearance.contains("PhoneThemePreview { Preview() }") && appearance.contains("ThemeOverviewPreview("))
     }
 
     @Test fun `wallpaper removal is confirmed and excludes bundled wallpaper`() {
@@ -61,6 +61,73 @@ class ThemeRepairContractTest {
         assertTrue(animation.contains("slideOutHorizontally("))
         assertTrue(animation.contains("EnterTransition.None"))
         assertTrue(animation.contains("ExitTransition.None"))
+    }
+
+    @Test fun `wallpaper section starts with visibility and real image sources`() {
+        val home = appearance.substringAfter("item(key = \"section-home\")").substringBefore("item(key = \"preview\")")
+        assertTrue(home.indexOf("AppearanceToggle(\"显示首页壁纸\"") in 0 until home.indexOf("VisualChoice("))
+        assertTrue(home.contains("editorSource = captureSource(\"builtin-sea\")"))
+        assertTrue(home.contains("editorOrigin = editorSource?.bounds"))
+        assertTrue(home.contains("sampleModifier = Modifier.wallpaperMotionCoordinates { wallpaperSources[\"builtin-sea\"] = it }"))
+        assertTrue(home.contains("sampleModifier = Modifier.wallpaperMotionCoordinates { wallpaperSources[\"current-preview\"] = it }"))
+        assertTrue(home.contains("WallpaperCanvas(current.copy(container = \"designed\"), loaded, Modifier.fillMaxSize())"))
+        assertFalse(appearance.contains("PhoneThemePreview(Modifier.wallpaperMotionCoordinates"))
+        assertTrue(appearance.contains("editorSource = null; editorOrigin = null"))
+    }
+
+    @Test fun `theme choices use shared glass buttons and preserve disabled state`() {
+        val visual = blockAfter(appearance, "private fun VisualChoice(")
+        val choice = blockAfter(appearance, "internal fun AppearanceChoice(")
+        listOf(visual, choice).forEach { source ->
+            assertTrue(source.contains("WanzaiButton(onClick = onClick, enabled = enabled"))
+            assertTrue(source.contains("this.selected = selected"))
+            assertTrue(source.contains("colors.primaryContainer"))
+            assertFalse(source.contains(".clickable("))
+        }
+        assertTrue(visual.contains("sampleModifier: Modifier = Modifier, onClick: () -> Unit)"))
+        assertTrue(visual.contains(".then(sampleModifier)"))
+        val toggle = blockAfter(appearance, "private fun AppearanceToggle(")
+        assertTrue(toggle.contains("onCheckedChange = { if (enabled) onToggle() }"))
+        assertTrue(toggle.contains("if (!enabled) Box(Modifier.matchParentSize().pointerInput"))
+        assertTrue(toggle.contains("clearAndSetSemantics"))
+    }
+
+    @Test fun `wallpaper reveal crops a real canvas and can reverse without stretching`() {
+        val editor = File(root, "WallpaperEditor.kt").readText()
+        assertTrue(editor.contains("internal fun WallpaperCanvas("))
+        assertTrue(editor.contains("LiveHomePreview("))
+        assertTrue(editor.contains("BackHandler { dismiss() }"))
+        assertTrue(editor.contains("LaunchedEffect(closing, move)"))
+        assertTrue(editor.contains("val target = if (closing) 0f else 1f"))
+        assertTrue(editor.contains("motionRevealRect(originBounds, destination, transition.value)"))
+        assertTrue(editor.contains("Constraints.fixed(width, height)"))
+        assertFalse(editor.contains("scaleX ="))
+        assertFalse(editor.contains("scaleY ="))
+        assertFalse(editor.contains("}.graphicsLayer { alpha = transition.value.coerceIn"))
+    }
+
+    @Test fun `wallpaper fallback fades only the preview and background reads progress while drawing`() {
+        val editor = File(root, "WallpaperEditor.kt").readText()
+        assertTrue(editor.contains("}.drawBehind { drawRect(colors.background.copy(alpha = transition.value.coerceIn(0f, 1f))) }"))
+        assertFalse(editor.contains("}.background(colors.background.copy(alpha = transition.value"))
+        assertTrue(editor.contains("alpha = if (move && geometryUsable && originBounds != null && previewBounds != null) 1f"))
+        assertTrue(editor.contains("else transition.value.coerceIn(0f, 1f)"))
+        assertTrue(editor.contains("if (closing) result?.let(finish) ?: cancel()"))
+    }
+
+    @Test fun `theme section animation does not read frame progress around child composition`() {
+        val section = blockAfter(components, "internal fun ThemeExpandableSection(")
+        assertTrue(section.contains("val progress = transition.segmentProgress(\"SegmentedHeader\")"))
+        assertFalse(section.contains("progress.value"))
+        assertTrue(section.contains("ThemeExpandableHeader(title, summary, icon, expanded, enabled, toggle, progress)"))
+        assertTrue(section.contains("val gap = arrangement.spacing.roundToPx()"))
+        assertTrue(section.contains("verticalArrangement = arrangement, content = content"))
+        val header = blockAfter(components, "private fun ThemeExpandableHeader(")
+        assertTrue(header.contains("progress.value.coerceIn(0f, 1f)"))
+        val arrangement = blockAfter(components, "private class ThemeSectionArrangement(")
+        assertTrue(arrangement.contains("override val spacing get() = (2f * (1f - progress.value.coerceIn(0f, 1f))).dp"))
+        assertTrue(arrangement.contains("val gap = spacing.roundToPx()"))
+        assertTrue(arrangement.contains("outPositions[index] = position"))
     }
 
     @Test fun `all theme chevrons keep their accessory inline`() {

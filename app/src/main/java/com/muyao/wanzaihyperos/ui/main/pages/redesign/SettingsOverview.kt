@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -69,10 +72,15 @@ fun SettingsConnectionCard(
     leading: @Composable () -> Unit,
 ) {
     val colors = GlasmioTheme.colors
-    // Reserve the entire hit box in this scrolling item; only the card is clickable.
+    val density = LocalDensity.current
     val ballBox = 72.dp
-    Box(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().padding(top = ballBox / 2)) {
+    var feedbackSize by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val feedbackWidth = maxWidth / 2
+        val cardTop = with(density) {
+            if (feedbackSize.height.toDp() > ballBox) feedbackSize.height.toDp() - ballBox / 2 + 8.dp else ballBox / 2
+        }
+        Box(Modifier.fillMaxWidth().padding(top = cardTop)) {
             GlasmioGroupedList {
                 Column(
                     Modifier.fillMaxWidth()
@@ -83,13 +91,7 @@ fun SettingsConnectionCard(
                     Row(Modifier.fillMaxWidth().padding(start = 76.dp), verticalAlignment = Alignment.Top) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("账号与连接", style = IosTypography.title2, color = colors.content)
-                            Text(
-                                configuration.countText(),
-                                style = IosTypography.subheadline.merge(
-                                    TextStyle(fontFeatureSettings = Type.tabular),
-                                ),
-                                color = colors.accent,
-                            )
+                            Text(configuration.countText(), style = IosTypography.subheadline.merge(TextStyle(fontFeatureSettings = Type.tabular)), color = colors.accent)
                         }
                         SfIcon("chevron.forward", null, size = 18.dp, tint = colors.accent)
                     }
@@ -97,7 +99,12 @@ fun SettingsConnectionCard(
                 }
             }
         }
-        Box(Modifier.padding(start = 12.dp).size(ballBox), contentAlignment = Alignment.Center) { leading() }
+        com.muyao.wanzaihyperos.ui.design.AiBallFeedbackRow(
+            modifier = Modifier.padding(start = 12.dp).onSizeChanged { feedbackSize = it },
+            maxWidth = feedbackWidth,
+            stackToast = true,
+            ball = { Box(Modifier.size(ballBox), contentAlignment = Alignment.Center) { leading() } },
+        )
     }
 }
 

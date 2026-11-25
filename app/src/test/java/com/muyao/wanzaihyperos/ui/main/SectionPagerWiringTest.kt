@@ -79,9 +79,11 @@ class SectionPagerWiringTest {
         val home = File("src/main/java/com/muyao/wanzaihyperos/ui/main/pages/HomeSectionPage.kt").readText()
         assertTrue(home.contains("homeUsesLightStatusIcons("))
         assertTrue(home.contains("chrome.sampledTopLuminance, statusCollapse"))
-        assertTrue(home.contains("active = activeHome,"))
+        val statusIcons = home.substringAfter("LightStatusBarIcons(").substringBefore("val pageActive =")
+        assertTrue("只有当前正常首页可写状态栏，布局 preview 不得抢占", statusIcons.contains("active = activeHome && !previewOnly,"))
         assertTrue(home.contains("DisposableEffect(light, window, active)"))
         assertTrue(home.contains("if (!active) return@DisposableEffect onDispose { }"))
+        assertTrue("离场时应恢复先前状态栏外观", home.contains("onDispose { controller.isAppearanceLightStatusBars = previous }"))
     }
 
     @Test fun onlyTopmostOverlayStaysActiveWhileMainPagerIsBlocked() {

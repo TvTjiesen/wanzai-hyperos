@@ -30,7 +30,9 @@ import androidx.compose.ui.semantics.semantics
 import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.offset
 import androidx.compose.ui.unit.dp
 import com.muyao.wanzaihyperos.ui.design.*
 import kotlinx.coroutines.CancellationException
@@ -54,22 +56,45 @@ internal fun ThemeExpandableSection(
     toggle: () -> Unit, content: @Composable ColumnScope.() -> Unit,
 ) {
     val transition = updateTransition(expanded, label = "ThemeSection")
-    val progress = transition.segmentProgress("SegmentedHeader").value.coerceIn(0f, 1f)
+    val progress = transition.segmentProgress("SegmentedHeader")
+    val arrangement = remember(progress) { ThemeSectionArrangement(progress) }
     Column(Modifier.fillMaxWidth()) {
-        // 展开到底时标题卡的下沿必须收成直角：段落的顶角也是 0，两边圆角对着彼此会在
-        // 卡片左右两侧留下两个 6dp 的凹口（看着像卡面被啃掉一块）。
-        val headerBottom = (24f - 24f * progress).dp
-        AppearanceSectionHeader(title, summary, icon, expanded, enabled, toggle,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp,
-                bottomStart = headerBottom, bottomEnd = headerBottom))
+        ThemeExpandableHeader(title, summary, icon, expanded, enabled, toggle, progress)
         if (expanded || transition.currentState || transition.isRunning) {
             val accessibility = if (expanded) Modifier else Modifier.semantics { hideFromAccessibility() }
-            // 完全展开时缝隙归零，否则同色的卡面之间会露出一条 2dp 的页面底色细线。
-            val gap = (2f * (1f - progress)).dp
             CompositionLocalProvider(LocalThemeSectionTransition provides transition) {
-                Column(Modifier.fillMaxWidth().then(accessibility).padding(top = gap),
-                    verticalArrangement = Arrangement.spacedBy(gap), content = content)
+                Column(Modifier.fillMaxWidth().then(accessibility).layout { measurable, constraints ->
+                    val gap = arrangement.spacing.roundToPx()
+                    val placeable = measurable.measure(constraints.offset(vertical = -gap))
+                    layout(placeable.width, constraints.constrainHeight(placeable.height + gap)) {
+                        placeable.placeRelative(0, gap)
+                    }
+                }, verticalArrangement = arrangement, content = content)
             }
+        }
+    }
+}
+
+@Composable
+private fun ThemeExpandableHeader(
+    title: String, summary: String, icon: SettingIcon, expanded: Boolean, enabled: Boolean,
+    toggle: () -> Unit, progress: State<Float>,
+) {
+    val headerBottom = (24f * (1f - progress.value.coerceIn(0f, 1f))).dp
+    AppearanceSectionHeader(title, summary, icon, expanded, enabled, toggle,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp,
+            bottomStart = headerBottom, bottomEnd = headerBottom))
+}
+
+private class ThemeSectionArrangement(private val progress: State<Float>) : Arrangement.Vertical {
+    override val spacing get() = (2f * (1f - progress.value.coerceIn(0f, 1f))).dp
+
+    override fun Density.arrange(totalSize: Int, sizes: IntArray, outPositions: IntArray) {
+        val gap = spacing.roundToPx()
+        var position = 0
+        sizes.forEachIndexed { index, size ->
+            outPositions[index] = position
+            position += size + if (index < sizes.lastIndex) gap else 0
         }
     }
 }

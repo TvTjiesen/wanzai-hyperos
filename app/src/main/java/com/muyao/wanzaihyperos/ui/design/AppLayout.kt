@@ -508,6 +508,8 @@ fun SecondaryScaffold(
      * ```
      */
     scrollProgress: Float = 0f,
+    /** True when this page expands feedback from an original in-content AI ball. */
+    inlineFeedbackAnchored: Boolean = false,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val pageSource = rememberLayerBackdrop()
@@ -524,6 +526,7 @@ fun SecondaryScaffold(
                     modifier = Modifier.align(Alignment.TopCenter),
                     heightDp = Dims.barHeight + 12.dp,
                 )
+                Column {
                 SmallTopAppBar(
                     title = title,
                     subtitle = subtitle,
@@ -567,6 +570,10 @@ fun SecondaryScaffold(
                         }
                     },
                 )
+                if (!inlineFeedbackAnchored) {
+                    InlineRefreshToast(Modifier.fillMaxWidth().padding(horizontal = Dims.screenH))
+                }
+                }
             }
         },
         content = { padding ->

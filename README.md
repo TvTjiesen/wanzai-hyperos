@@ -52,7 +52,7 @@ tools/gen_ai_ball_glyphs.py   AI 小球字形生成器（单元测试会读取�
 
 ## 几条硬性纪律
 
-1. **密码不持久化**：只作参数穿过登录流程，不落盘、不进日志。
+1. **凭据不进入日志或仓库**：普通登录只在流程内使用密码；教务的「记住凭据」须由用户选择，保存时使用 Android Keystore 加密。
 2. **日志只记 host 与参数名，永不记值**（`net/Redaction.kt`）。
 3. **限流严格串行**：全局 ≥1000ms、单端点 ≥1000ms，不是令牌桶。
 4. **抓取失败保留旧内容**：`retainCachedOnFailure` 语义，失败不清缓存。
@@ -62,7 +62,7 @@ tools/gen_ai_ball_glyphs.py   AI 小球字形生成器（单元测试会读取�
 
 ## 测试
 
-`./gradlew :app:testDebugUnitTest` 覆盖 1571 项单元测试（其中 12 项按平台条件跳过）。
+`./gradlew :app:testDebugUnitTest` 覆盖 1589 项单元测试（其中 12 项按平台条件跳过）。
 部分测试会读取仓库内的 `tools/gen_ai_ball_glyphs.py` 与 debug/androidTest 源码做契约校验，
 因此须在仓库根目录运行。
 
@@ -70,10 +70,10 @@ tools/gen_ai_ball_glyphs.py   AI 小球字形生成器（单元测试会读取�
 
 ## 署名与许可
 
-- 应用代码：© TvTjiesen（[GitHub](https://github.com/TvTjiesen)）。
+- 应用代码：© TvTjiesen（[GitHub](https://github.com/TvTjiesen)），采用 [Apache License 2.0](LICENSE)。
 - `third_party/glasmio/`：摘自 [Glasmio](https://github.com/NEORUAA/Glasmio)（Apache-2.0），
   其上游第三方声明见 `third_party/glasmio/THIRD_PARTY_NOTICES.md`（含 Kyant0 的
   AndroidLiquidGlass / Backdrop / Capsule / Shapes、AndroidX、Reorderable、Miuix 等）。
 - 依赖库各自的许可证随其分发包提供。
 
-本项目仅供学习与个人使用；第三方服务（学校门户、教务系统）的使用须遵守其自身条款。
+你可以依据 Apache License 2.0 使用、修改和分发本项目；第三方服务（学校门户、教务系统）的访问权限及使用仍须遵守其自身条款。本项目不授予这些服务的数据或账号权限。

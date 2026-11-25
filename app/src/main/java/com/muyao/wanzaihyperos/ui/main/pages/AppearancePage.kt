@@ -31,6 +31,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -43,6 +44,7 @@ import com.muyao.wanzaihyperos.app.AppGraph
 import com.muyao.wanzaihyperos.data.UiPrefs
 import com.muyao.wanzaihyperos.ui.AppThemeMode
 import com.muyao.wanzaihyperos.ui.components.WanzaiButton
+import com.muyao.wanzaihyperos.ui.components.WanzaiSwitch
 import com.muyao.wanzaihyperos.ui.components.WanzaiOverlayDialog
 import com.muyao.wanzaihyperos.ui.components.WanzaiSlider
 import com.muyao.wanzaihyperos.ui.components.WanzaiTextButton
@@ -213,10 +215,10 @@ fun AppearancePage(
             catch (_: Exception) { editing = false; note = "图片暂时无法读取，原壁纸保留" }
         }
     }
-    fun openEditor() {
+    fun openEditor(sourceKey: String = "current-preview") {
         if (!busy) {
             managingWallpapers = false
-            editorSource = captureSource("current-preview")
+            editorSource = captureSource(sourceKey)
             editorOrigin = editorSource?.bounds
             editorEntry = null
             editorImage = loaded
@@ -244,22 +246,25 @@ fun AppearancePage(
             contentPadding = PaddingValues(Dims.screenH, 12.dp, Dims.screenH,
                 com.muyao.wanzaihyperos.ui.design.liquid.pageBottomInsetDp(com.muyao.wanzaihyperos.ui.design.liquid.LocalNavBarVisible.current)),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item(key = "preview") {
-                AppearanceSection("概览") {
-                    PhoneThemePreview(Modifier.wallpaperMotionCoordinates { wallpaperSources["current-preview"] = it }) { Preview() }
-                    WanzaiTextButton("编辑壁纸", onClick = { openEditor() }, enabled = !busy && !imageLoading)
-                    Text("浅色界面预览 · 选项自动保存；壁纸在编辑器完成后应用，取消保留原设置", fontSize = 12.sp, color = colors.onSurfaceVariantSummary)
-                    note?.let { Text(it, color = if (motion.highContrast) colors.onSurface else colors.onSurfaceVariantSummary,
-                        fontSize = 13.sp, lineHeight = 19.sp) }
-                }
-            }
             item(key = "section-home") {
                 ThemeExpandableSection("首页壁纸", "顶部壁纸、裁切与显示", SettingIcon.House, "home" in expandedSections, !busy, { toggleSection("home") }) {
+                    ThemeSettingSegment {
+                        AppearanceToggle("显示首页壁纸", "只影响首页顶部，容器背景单独选择", current.container != "bare", !busy) {
+                            current = current.copy(container = if (current.container == "bare") "designed" else "bare")
+                        }
+                        VisualChoice("当前壁纸", "轻点编辑取景与效果", false, !busy && !imageLoading, Modifier.fillMaxWidth(), {
+                            WanzaiTheme(AppThemeMode.Light, appearance = current.copy(theme = "Light")) {
+                                WallpaperCanvas(current.copy(container = "designed"), loaded, Modifier.fillMaxSize())
+                            }
+                        }, sampleModifier = Modifier.wallpaperMotionCoordinates { wallpaperSources["current-preview"] = it }) { openEditor() }
+                    }
                     AppearanceSection("系统自带壁纸") {
-                        VisualChoice("晴海 · 原画", "海湾、帆船与雏菊", selected?.id == "builtin-sea", !busy, Modifier.fillMaxWidth().wallpaperMotionCoordinates { wallpaperSources["builtin-sea"] = it }, {
+                        VisualChoice("晴海 · 原画", "海湾、帆船与雏菊", selected?.id == "builtin-sea", !busy, Modifier.fillMaxWidth(), {
                             Image(androidx.compose.ui.res.painterResource(com.muyao.wanzaihyperos.R.drawable.wallpaper_sea),
                                 "原绘海湾壁纸", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        }) {
+                        }, sampleModifier = Modifier.wallpaperMotionCoordinates { wallpaperSources["builtin-sea"] = it }) {
+                            editorSource = captureSource("builtin-sea")
+                            editorOrigin = editorSource?.bounds
                             busy = true
                             scope.launch {
                                 try {
@@ -308,11 +313,21 @@ fun AppearancePage(
                                 fontSize = 12.sp, color = colors.onSurfaceVariantSummary)
                         }
                         Text("图片保留在本机。取景、旋转、模糊、明暗和柔化统一在壁纸编辑器中调整。", fontSize = 13.sp, lineHeight = 19.sp)
-                        AppearanceToggle("显示首页壁纸", "只影响首页顶部，容器背景单独选择", current.container != "bare", !busy) {
-                            current = current.copy(container = if (current.container == "bare") "designed" else "bare")
-                        }
                     }
 
+                }
+            }
+            item(key = "preview") {
+                AppearanceSection("概览") {
+                    PhoneThemePreview { Preview() }
+                    VisualChoice("编辑壁纸", "实际壁纸取景 · 轻点打开编辑器", false, !busy && !imageLoading, Modifier.fillMaxWidth(), {
+                        WanzaiTheme(AppThemeMode.Light, appearance = current.copy(theme = "Light")) {
+                            WallpaperCanvas(current.copy(container = "designed"), loaded, Modifier.fillMaxSize())
+                        }
+                    }, sampleModifier = Modifier.wallpaperMotionCoordinates { wallpaperSources["overview-wallpaper"] = it }) { openEditor("overview-wallpaper") }
+                    Text("浅色界面预览 · 选项自动保存；壁纸在编辑器完成后应用，取消保留原设置", fontSize = 12.sp, color = colors.onSurfaceVariantSummary)
+                    note?.let { Text(it, color = if (motion.highContrast) colors.onSurface else colors.onSurfaceVariantSummary,
+                        fontSize = 13.sp, lineHeight = 19.sp) }
                 }
             }
             item(key = "home-layout") {
@@ -506,7 +521,7 @@ fun AppearancePage(
     ) {
         Box(Modifier.fillMaxSize().background(colors.background)
             .then(if (!layoutEditing) Modifier.semantics { hideFromAccessibility() } else Modifier)) {
-            HomeLayoutPage(onClose = { layoutEditing = false })
+            HomeLayoutPage(onClose = { layoutEditing = false }, graph = graph)
             if (!layoutEditing) {
                 // During exit the outgoing page must not take taps; the shield belongs above
                 // that page, never on AnimatedVisibility's stable/entering modifier.
@@ -525,9 +540,11 @@ fun AppearancePage(
         val preview = if (pending == null) editorImage ?: loaded else editorImage
         if (pending == null || preview != null) WallpaperEditor(initial, preview, originBounds = editorOrigin,
             sourceIsValid = { editorSource?.isValid() == true },
-            onCancel = { editing = false; editorEntry = null; editorImage = null },
+            onCancel = { editing = false; editorEntry = null; editorImage = null; editorSource = null; editorOrigin = null },
             onDone = { edited ->
                 editing = false
+                editorSource = null
+                editorOrigin = null
                 editorEntry = null
                 editorImage = null
                 if (pending == null) {
@@ -606,19 +623,20 @@ fun AppearancePage(
 
 @Composable
 private fun VisualChoice(label: String, detail: String, selected: Boolean, enabled: Boolean, modifier: Modifier,
-    sample: @Composable BoxScope.() -> Unit, onClick: () -> Unit) {
+    sample: @Composable BoxScope.() -> Unit, sampleModifier: Modifier = Modifier, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    // 未选中时原来是 colors.background 实底：卡片本身已经是 surface 底，于是每个
-    // 选项都变成一块深浅不一的方贴片，一排看过去像没对齐的色块。未选中留透明，
-    // 只让选中的那一项浮起来。
-    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    Column(modifier.clip(RoundedCornerShape(Dims.cardCorner)).background(if (selected) colors.primary.copy(alpha = .10f) else Color.Transparent)
-        .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.RadioButton, onClick = onClick)
-        .pressSpring(interaction).semantics { this.selected = selected }
-        .padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(Dims.wallpaperTileCorner)), content = sample)
-        Text(label + if (selected) " ✓" else "", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
-        Text(detail, fontSize = Type.caption, lineHeight = 15.sp, color = colors.onSurfaceVariantSummary)
+    WanzaiButton(onClick = onClick, enabled = enabled,
+        modifier = modifier.semantics { this.selected = selected; role = Role.RadioButton }) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(Dims.wallpaperTileCorner)).then(sampleModifier), content = sample)
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Dims.chipCorner))
+                .background(if (selected) colors.primaryContainer else Color.Transparent).padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(label + if (selected) " ✓" else "", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    color = if (selected) colors.onPrimaryContainer else colors.onSurface)
+                Text(detail, fontSize = Type.caption, lineHeight = 15.sp, color = colors.onSurfaceVariantSummary)
+            }
+        }
     }
 }
 
@@ -658,51 +676,17 @@ private fun VisualChoice(label: String, detail: String, selected: Boolean, enabl
 @Composable
 internal fun AppearanceChoice(label: String, selected: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier, subtitle: String? = null, showCheck: Boolean = true, onClick: () -> Unit) {
     val colors = MiuixTheme.colorScheme
-    val canMove = rememberMotion().canMove
-    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    // 选中底原来用 primary 的 10% 透明度压在卡面上，可下面还有一层 graphicsLayer 阴影
-    // （selectionDepth）——半透明的底会让阴影透出来，选中格因此显成一坨**脏灰**，
-    // 真机像素采样是 #B5B7BF 的灰带 + #E3E5ED 的心，看着像按下去没弹起来。
-    // 改成与卡面 surface 先混合成实色再画，阴影就透不过来；配一圈同色描边表达选中。
-    // 混色比例按卡面亮度分档：深色卡面 #222324 上叠 14% 主色只差 Δ1.27（肉眼读不出），
-    // 选中信息就全压在一条 1dp 描边上；深色档提到 26% 才有「这块被选中了」的观感。
-    val darkSurface = colors.surface.luminance() < 0.5f
-    val selectionMix = if (darkSurface) .26f else .14f
-    val selectionFill: Color = if (selected)
-        androidx.compose.ui.graphics.lerp(colors.surface, colors.primary, selectionMix) else Color.Transparent
-    val selectionTint by androidx.compose.animation.animateColorAsState(
-        selectionFill,
-        animationSpec = if (canMove) androidx.compose.animation.core.spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow) else androidx.compose.animation.core.snap(),
-        label = "appearance-selection",
-    )
-    val selectionDepth by animateFloatAsState(if (selected && enabled) 1f else 0f,
-        animationSpec = if (canMove) androidx.compose.animation.core.spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow) else androidx.compose.animation.core.snap(),
-        label = "appearance-depth")
-    // 圆角只走统一 token（CornerTierTest 盯着外观页不许写死 dp）：选中感由阴影/底色抬升。
-    val sampleShape = RoundedCornerShape(Dims.cardCorner)
-    Row(modifier.fillMaxWidth().heightIn(min = 48.dp)
-        .graphicsLayer { shadowElevation = 1.5.dp.toPx() * selectionDepth; shape = sampleShape; clip = true }
-        .background(selectionTint, sampleShape)
-        // 描边是选中态的第二重信号：深色档下 1dp/45% 的对比只有 2.68:1（低于非文本 3:1），
-        // 半像素还会被上面的 clip 削掉，所以深色档加粗到 1.5dp、提到 65%。
-        .then(if (selected) Modifier.border(
-            if (darkSurface) 1.5.dp else 1.dp,
-            colors.primary.copy(alpha = if (darkSurface) .65f else .45f), sampleShape) else Modifier)
-        .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
-        .pressSpring(interaction).semantics { this.selected = selected }
-        // 三格并排时（跟随系统/浅色/深色）每格实际只有 ~99dp，原来左右各 12dp 内边距加
-        // 紧贴文字的 ✓，把「跟随系统」挤成「跟随/系统」两行、还把格撑得比别人高。
-        // 内边距收到 8dp、✓ 隔开 6dp，四字标签就能单行放下（不许用 maxLines 截断：
-        // SettingsPlanTest 明确禁止省略号式截断）。
-        .padding(horizontal = 8.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, fontSize = 14.sp, color = if (!enabled) colors.onSurfaceVariantSummary else if (selected) colors.primary else colors.onSurface)
-            if (!subtitle.isNullOrBlank()) Text(subtitle, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
+    WanzaiButton(onClick = onClick, enabled = enabled,
+        modifier = modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { this.selected = selected }) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(Dims.chipCorner))
+            .background(if (selected) colors.primaryContainer else Color.Transparent)
+            .padding(horizontal = 4.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(label, fontSize = 14.sp, color = if (!enabled) colors.onSurfaceVariantSummary else if (selected) colors.onPrimaryContainer else colors.onSurface)
+                if (!subtitle.isNullOrBlank()) Text(subtitle, fontSize = Type.caption, color = colors.onSurfaceVariantSummary)
+            }
+            if (selected && showCheck) Text("✓", color = colors.onPrimaryContainer, modifier = Modifier.padding(start = 6.dp))
         }
-        // ✓ 是可选的：并排的分段控件（跟随系统/浅色/深色、柔和/鲜明/中性、六个主题色）
-        // 每格只有 ~97dp，塞下 ✓ 就会把四字标签挤成两行、还把该格撑得比别人高；
-        // 这类格子靠「淡底 + 描边」已经足够表达选中，不需要再加一个勾。
-        if (selected && showCheck) Text("✓", color = colors.primary, modifier = Modifier.padding(start = 6.dp))
     }
 }
 
@@ -755,7 +739,13 @@ private fun AppearanceToggle(title: String, summary: String, checked: Boolean, e
                 Text(title, fontSize = 15.sp, color = colors.onSurface)
                 Text(summary, fontSize = 12.sp, lineHeight = 17.sp, color = colors.onSurfaceVariantSummary)
             }
-            top.yukonga.miuix.kmp.basic.Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+            Box(Modifier.clearAndSetSemantics { }) {
+                WanzaiSwitch(checked = checked, label = title, onCheckedChange = { if (enabled) onToggle() },
+                    modifier = Modifier.graphicsLayer { alpha = if (enabled) 1f else .45f })
+                if (!enabled) Box(Modifier.matchParentSize().pointerInput(Unit) {
+                    awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
+                })
+            }
         }
     }
 }
@@ -787,6 +777,8 @@ private fun WallpaperThumbnail(library: WallpaperLibrary, entry: WallpaperEntry,
     val motion = rememberMotion()
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     var wiggleDirection by remember(entry.id) { mutableIntStateOf(1) }
+    val haptics = rememberHaptics()
+    val hapticScope = rememberCoroutineScope()
     LaunchedEffect(managing, motion.canMove) {
         if (!managing || !motion.canMove) { wiggleDirection = 1; return@LaunchedEffect }
         wiggleDirection = -1
@@ -807,7 +799,17 @@ private fun WallpaperThumbnail(library: WallpaperLibrary, entry: WallpaperEntry,
         .graphicsLayer { rotationZ = if ((entry.id.hashCode() and 1) == 0) tilt else -tilt }
         .clip(RoundedCornerShape(Dims.wallpaperTileCorner))
         .combinedClickable(interactionSource = interaction, indication = null, role = Role.Button,
-            enabled = enabled || managing, onClick = { if (!managing) onClick() }, onLongClick = onLongPress)
+            enabled = enabled || managing, onClick = { if (!managing) onClick() }, onLongClick = {
+                if (!managing) {
+                    onLongPress()
+                    hapticScope.launch {
+                        repeat(3) { pulse ->
+                            haptics.tick()
+                            if (pulse < 2) kotlinx.coroutines.delay(45)
+                        }
+                    }
+                }
+            })
         .pressSpring(interaction)) {
         Box(Modifier.fillMaxSize().clip(RoundedCornerShape(Dims.cardCorner))) {
             image?.let { Image(it.bitmap, "壁纸", Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }

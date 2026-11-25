@@ -141,12 +141,12 @@ fun WanzaiTheme(
     val customizedDensity = androidx.compose.ui.unit.Density(inheritedDensity.density * customization.displayScale / inheritedCustomization.displayScale, inheritedDensity.fontScale * customization.textScale / inheritedCustomization.textScale)
     val context = androidx.compose.ui.platform.LocalContext.current
     val accentPair = when (customization.accent) {
-        "blue" -> 0xFF1D5DA8L to 0xFFA8C8FFL
-        "teal" -> 0xFF006B60L to 0xFF75D8C6L
-        "purple" -> 0xFF7040A0L to 0xFFD9B5FFL
-        "rose" -> 0xFFA32958L to 0xFFFFB1C8L
-        "orange" -> 0xFF8B4800L to 0xFFFFBC7CL
-        else -> 0xFF3E4E9EL to 0xFF8E9CE8L
+        "blue" -> 0xFF0064D6L to 0xFF0A84FFL
+        "teal" -> 0xFF007A72L to 0xFF63D2C4L
+        "purple" -> 0xFF8944C8L to 0xFFBF8AF5L
+        "rose" -> 0xFFBF2859L to 0xFFFF6482L
+        "orange" -> 0xFFA35200L to 0xFFFFAB40L
+        else -> 0xFF5056B8L to 0xFF9D9AFFL
     }
     val baseAccentLight = if (customization.dynamicColor && android.os.Build.VERSION.SDK_INT >= 31)
         Color(context.getColor(android.R.color.system_accent1_600)) else if (customization.accentHex.isNotEmpty()) com.muyao.wanzaihyperos.ui.design.readableThemeAccent(customization.accentHex, false) else Color(accentPair.first)

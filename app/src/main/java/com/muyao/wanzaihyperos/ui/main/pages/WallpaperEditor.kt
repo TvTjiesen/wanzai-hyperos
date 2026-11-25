@@ -14,10 +14,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,7 +75,7 @@ private fun moduleLabel(id: String): String = when (id) {
 }
 
 @Composable
-private fun WallpaperCanvas(appearance: AppearanceSettings, image: LoadedWallpaper?, modifier: Modifier) {
+internal fun WallpaperCanvas(appearance: AppearanceSettings, image: LoadedWallpaper?, modifier: Modifier) {
     if (appearance.container == "bare") {
         ThemePageBackground(modifier, dark = false, preset = BackgroundPreset.of(appearance.background))
         return
@@ -142,8 +145,7 @@ internal fun WallpaperEditor(initial: AppearanceSettings, image: LoadedWallpaper
             Column(Modifier.fillMaxSize().wallpaperMotionBounds {
                 if (initialDialogBounds == null) { initialDialogBounds = it; initialOrientation = orientation }
                 dialogBounds = it
-            }.graphicsLayer { alpha = transition.value.coerceIn(0f, 1f) }
-                .background(colors.background.copy(alpha = transition.value.coerceIn(0f, 1f)))
+            }.drawBehind { drawRect(colors.background.copy(alpha = transition.value.coerceIn(0f, 1f))) }
                 .systemBarsPadding().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth().graphicsLayer { alpha = transition.value }, verticalAlignment = Alignment.CenterVertically) {
@@ -153,17 +155,24 @@ internal fun WallpaperEditor(initial: AppearanceSettings, image: LoadedWallpaper
                 }
                 Box(Modifier.fillMaxWidth().weight(1f)
                     .wallpaperMotionBounds { previewBounds = it }) {
-                  Box(Modifier.fillMaxSize().graphicsLayer {
+                  // Animate the viewport, not scaleX/scaleY: HomeSky cover-fits the original image
+                  // uniformly at each crop size. Reversing the same progress also works mid-open.
+                  Box(Modifier.fillMaxSize().layout { measurable, constraints ->
                         val destination = previewBounds
-                        val source = originBounds
-                        val p = transition.value.coerceIn(0f, 1f)
-                        if (move && geometryUsable && source != null && destination != null && motionSourceVisible(destination, destination)) {
-                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-                            translationX = (source.left - destination.left) * (1f - p)
-                            translationY = (source.top - destination.top) * (1f - p)
-                            scaleX = source.width / destination.width + (1f - source.width / destination.width) * p
-                            scaleY = source.height / destination.height + (1f - source.height / destination.height) * p
-                        } else alpha = p
+                        val reveal = if (move && geometryUsable && originBounds != null && destination != null)
+                            motionRevealRect(originBounds, destination, transition.value) else null
+                        val width = (reveal?.width?.roundToInt() ?: constraints.maxWidth).coerceAtLeast(1)
+                        val height = (reveal?.height?.roundToInt() ?: constraints.maxHeight).coerceAtLeast(1)
+                        val child = measurable.measure(Constraints.fixed(width, height))
+                        layout(constraints.maxWidth, constraints.maxHeight) {
+                            child.place(
+                                ((reveal?.left ?: destination?.left ?: 0f) - (destination?.left ?: 0f)).roundToInt(),
+                                ((reveal?.top ?: destination?.top ?: 0f) - (destination?.top ?: 0f)).roundToInt(),
+                            )
+                        }
+                    }.graphicsLayer {
+                        alpha = if (move && geometryUsable && originBounds != null && previewBounds != null) 1f
+                            else transition.value.coerceIn(0f, 1f)
                     }.clip(RoundedCornerShape(24.dp))) {
                     WallpaperCanvas(draft.copy(container = "designed"), image, Modifier.fillMaxSize())
                     if (photo && bitmap != null) Box(Modifier.fillMaxSize().pointerInput(bitmap) {

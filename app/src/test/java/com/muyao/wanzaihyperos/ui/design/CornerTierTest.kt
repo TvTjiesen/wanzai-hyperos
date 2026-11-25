@@ -116,7 +116,10 @@ class CornerTierTest {
         assertTrue("牆紙格（WallpaperThumbnail）必须走 Dims.wallpaperTileCorner", "Dims.wallpaperTileCorner" in tile)
 
         val choice = bodyAfter(code, "fun VisualChoice(")
-        assertTrue("壁纸选择卡（VisualChoice）外框必须走 Dims.cardCorner", "Dims.cardCorner" in choice)
+        assertTrue("壁纸选择卡外框必须复用玻璃按钮，不能自画第二套壳", "WanzaiButton(" in choice)
+        val adapter = SourceScan.stripComments(File("$mainRoot/ui/components/WanzaiGlasmioControls.kt").readText(Charsets.UTF_8))
+        val button = bodyAfter(adapter, "fun WanzaiButton(")
+        assertTrue("按钮须保留厂商玻璃与减弱动态的同形后备", "GlasmioButton(" in button && "shape = CircleShape" in button)
         assertTrue("壁纸选择卡（VisualChoice）预览图必须走 Dims.wallpaperTileCorner", "Dims.wallpaperTileCorner" in choice)
 
         // A10：取景框搬去独立页（`WallpaperCropPage.kt` 的 `CropEditor`）。

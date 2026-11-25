@@ -144,6 +144,7 @@ fun SearchPage(
     ThemedScaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
+            Column {
             SmallTopAppBar(
                 title = "搜索应用",
 color = Color.Transparent,
@@ -158,6 +159,10 @@ color = Color.Transparent,
                     }
                 },
             )
+            if (state !is SearchState.Searching) {
+                com.muyao.wanzaihyperos.ui.design.InlineRefreshToast(Modifier.padding(horizontal = 24.dp))
+            }
+            }
         },
     ) { innerPadding ->
         Column(modifier = Modifier.padding(innerPadding)) {
@@ -217,12 +222,12 @@ color = Color.Transparent,
                             .padding(top = 34.dp, bottom = 26.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        AiBall(
+                        com.muyao.wanzaihyperos.ui.design.AiBallFeedbackRow(ball = { AiBall(
                             state = AiBallState.Searching,
                             diameter = AiBall.DIAMETER_PAGE,
                             hitSlop = AiBall.INLINE_SLOP,
                             stateDescription = "正在检索学校门户的应用入口。\n结果尚未返回，不代表没有匹配。\n这是学校检索，不是大模型对话。",
-                        )
+                        ) })
                         Text(
                             text = "正在翻找资料",
                             fontSize = Type.caption,

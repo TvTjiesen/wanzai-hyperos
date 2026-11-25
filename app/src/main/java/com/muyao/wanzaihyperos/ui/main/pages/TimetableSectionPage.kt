@@ -375,6 +375,7 @@ fun TimetableSectionPage(
                     )
                     WeekNavButton("›", desc = "下一周") { weekOffset += 1 }
                 }
+                com.muyao.wanzaihyperos.ui.design.InlineRefreshToast()
             }
         }
         // ---- 日期条（板子：7 个数字 + 有课小圆点；点一天就切到那天）----------
@@ -698,160 +699,160 @@ fun TimetableSectionPage(
                                 (jwResult?.unparsed.orEmpty().isNotEmpty() || schedule?.unparsed.orEmpty().isNotEmpty()))
                                 "暂无可显示的课程" else "第 $targetWeek 周无课")
                         }
-                    } else if (uiState.timetableGrid) {
-                        // ---- 本週課表板（五天全顯示、單層）--------------------
-                        val boardMonday = LocalDate.now()
-                            .minusDays((LocalDate.now().dayOfWeek.value - 1).toLong())
-                            .plusWeeks(weekOffset.toLong())
-                        item(key = "board") {
-                            // 业主第 ⑤ 条「课表的占地面积可以大一点」：这一页的 LazyColumn 左右各有
-                            // screenH=16dp 边距，别的 item 需要它，板子不需要 —— 板子越宽，一行能放的
-                            // 课名越全。fullBleedHorizontal 把子项按「两边各多 16dp」测量，再按原宽
-                            // 上报、横向外扩半个出血位画出去：父级只认上报的宽度，多出来的部分
-                            // 落在 LazyColumn 自己的边界内（它只裁自己的边，不裁 16dp 边距区）。
-                            // 五栏各宽 220.8px，比加边距时每栏宽 12.8px（3.7dp）。
-                            // 2026-10-28 业主：「把课表的那个背景去掉」。
-                            // 原来这层 AppCard 给了板子一个实色卡底 + 1dp 描边 + 7dp 投影，
-                            // 代价是横向吃掉 cardPadding×2 = 28dp、纵向再多一层卡边距 ——
-                            // 列宽从 45.49dp 掉到 45.49dp 的同一行里再挤 28dp 分给五列。
-                            // 去掉之后板子直接坐在纸面上，五列各宽 51.49dp（+13%）。
-                            WeekBoard(
-                                        // 2026-10-29 业主：「看完整个页面得上下滑动了…我要他刚好铺满
-                                        // 不用翻页」。行高不能写死，得由「这块板子真正拿到多少高度」算：
-                                        // 这里顺手量出正文顶端的 root y，页面根节点量出整页高度，
-                                        // 两者相减再扣掉底栏预留，就是留给整周板的那一段。
-                                        modifier = Modifier
-                                            .fullBleedHorizontal(5.dp, Dims.screenH - 5.dp)
-                                            .onGloballyPositioned { co ->
-                                                val y = co.positionInRoot().y
-                                                if (kotlin.math.abs(y - boardTopPx) > 0.5f) boardTopPx = y
-                                            },
-                                        boardHeightPx = if (pageHeightPx > 0f && boardTopPx > 0f) {
-                                            val reserve = with(LocalDensity.current) { BoardBottomReserve.toPx() }
-                                            (pageHeightPx - boardTopPx - reserve).coerceAtLeast(0f)
-                                        } else {
-                                            0f
-                                        },
-                                        columns = columns,
-                                        // 只有看本週時才高亮今天；翻到別的週還標「今天」
-                                        // 是把上週的課說成今天有課（列表視圖早就這麼判了）。
-                                        today = if (weekOffset == 0) {
-                                            LocalDate.now().dayOfWeek.value
-                                        } else {
-                                            0
-                                        },
-                                        week = targetWeek,
-                                        courseCount = courseCount,
-                                        source = source,
-                                        // 表头要带日期数字（业主「包括顶部的日期」）：
-                                        // monday 在这一分支里由 targetWeek 反推不出来，直接用本周一。
-                                        dayDate = { dow -> boardMonday.plusDays((dow - 1).toLong()).dayOfMonth },
-                        onPickDay = { dow ->
-                            selectedDay = dow
-                            uiState.timetableGrid = false
-                            UiPrefs.saveTimetableGrid(false)
-                        },
-                                        onPick = { s, b ->
-                                            picked = s
-                                            pickedAnchor = b
-                                        },
-                            )
-                        }
-                        item(key = "jw-fresh") {
-                            FreshnessLine(if (fromJiaowu) jwState else state, now = System.currentTimeMillis(), onOpenJw = onOpenJw) {
-                                graph.fetch { if (fromJiaowu) graph.jwTimetable.refresh() else graph.schedule.refresh() }
-                            }
-                        }
                     } else {
-                        // ---- 单日日程（板子：先把今天读清楚，再给整周）----------
-                        val todayDow = LocalDate.now().dayOfWeek.value
-                        val isToday = weekOffset == 0 && selectedDay == todayDow
-                        val daySlots = slots
-                            .filter { it.dayOfWeek == selectedDay }
-                            .sortedBy { it.periodStart }
-                        if (daySlots.isEmpty()) {
-                            item(key = "day-empty") {
-                                TimetableEmpty("${DAY_WEEK[selectedDay - 1]}无课")
-                            }
-                        } else {
-                            // 一天的课装进**一张纸面卡**，行与行之间只留一条细线 ——
-                            // 板子的日程是一行一节课，不是一节课一张卡（七张卡要滚三屏）。
-                            item(key = "day-agenda") {
-                                // 板子的日程直接落在纸面上，没有「一张大卡把一天装起来」。
-                                // 这里只保留行与行之间的发丝线，边界交给页面的左右留白。
-                                Column(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp),
-                                ) {
-                                    daySlots.forEachIndexed { idx, slot ->
-                                        if (idx > 0) {
-                                            Box(
-                                                Modifier
-                                                    .fillMaxWidth()
-                                                    .height(1.dp)
-                                                    .background(colors.onBackground.copy(alpha = 0.07f)),
-                                            )
-                                        }
-                                        CourseCell(
-                                            slot = slot,
-                                            isToday = isToday,
-                                            onOpen = { s, r ->
-                                                picked = s
-                                                pickedAnchor = r
+                        // Stable item identity keeps the same scroll anchor across both layouts.
+                        item(key = "timetable-mode-content") {
+                            Column(Modifier.fillMaxWidth()) {
+                                TimetableModeContentTransition(weekMode = uiState.timetableGrid) { showWeek ->
+                                    Column(
+                                        Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(Dims.cardGap),
+                                    ) {
+                                        if (showWeek) {
+                                            // ---- 本週課表板（五天全顯示、單層）--------------------
+                                            val boardMonday = LocalDate.now()
+                                                .minusDays((LocalDate.now().dayOfWeek.value - 1).toLong())
+                                                .plusWeeks(weekOffset.toLong())
+                                                // 业主第 ⑤ 条「课表的占地面积可以大一点」：这一页的 LazyColumn 左右各有
+                                                // screenH=16dp 边距，别的 item 需要它，板子不需要 —— 板子越宽，一行能放的
+                                                // 课名越全。fullBleedHorizontal 把子项按「两边各多 16dp」测量，再按原宽
+                                                // 上报、横向外扩半个出血位画出去：父级只认上报的宽度，多出来的部分
+                                                // 落在 LazyColumn 自己的边界内（它只裁自己的边，不裁 16dp 边距区）。
+                                                // 五栏各宽 220.8px，比加边距时每栏宽 12.8px（3.7dp）。
+                                                // 2026-10-28 业主：「把课表的那个背景去掉」。
+                                                // 原来这层 AppCard 给了板子一个实色卡底 + 1dp 描边 + 7dp 投影，
+                                                // 代价是横向吃掉 cardPadding×2 = 28dp、纵向再多一层卡边距 ——
+                                                // 列宽从 45.49dp 掉到 45.49dp 的同一行里再挤 28dp 分给五列。
+                                                // 去掉之后板子直接坐在纸面上，五列各宽 51.49dp（+13%）。
+                                                WeekBoard(
+                                                            // 2026-10-29 业主：「看完整个页面得上下滑动了…我要他刚好铺满
+                                                            // 不用翻页」。行高不能写死，得由「这块板子真正拿到多少高度」算：
+                                                            // 这里顺手量出正文顶端的 root y，页面根节点量出整页高度，
+                                                            // 两者相减再扣掉底栏预留，就是留给整周板的那一段。
+                                                            modifier = Modifier
+                                                                .fullBleedHorizontal(5.dp, Dims.screenH - 5.dp)
+                                                                .onGloballyPositioned { co ->
+                                                                    val y = co.positionInRoot().y
+                                                                    if (kotlin.math.abs(y - boardTopPx) > 0.5f) boardTopPx = y
+                                                                },
+                                                            boardHeightPx = if (pageHeightPx > 0f && boardTopPx > 0f) {
+                                                                val reserve = with(LocalDensity.current) { BoardBottomReserve.toPx() }
+                                                                (pageHeightPx - boardTopPx - reserve).coerceAtLeast(0f)
+                                                            } else {
+                                                                0f
+                                                            },
+                                                            columns = columns,
+                                                            // 只有看本週時才高亮今天；翻到別的週還標「今天」
+                                                            // 是把上週的課說成今天有課（列表視圖早就這麼判了）。
+                                                            today = if (weekOffset == 0) {
+                                                                LocalDate.now().dayOfWeek.value
+                                                            } else {
+                                                                0
+                                                            },
+                                                            week = targetWeek,
+                                                            courseCount = courseCount,
+                                                            source = source,
+                                                            // 表头要带日期数字（业主「包括顶部的日期」）：
+                                                            // monday 在这一分支里由 targetWeek 反推不出来，直接用本周一。
+                                                            dayDate = { dow -> boardMonday.plusDays((dow - 1).toLong()).dayOfMonth },
+                                            onPickDay = { dow ->
+                                                selectedDay = dow
+                                                uiState.timetableGrid = false
+                                                UiPrefs.saveTimetableGrid(false)
                                             },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        item(key = "week-stats") {
-                            Column(Modifier.fillMaxWidth().padding(start = 0.dp, top = 10.dp)) {
-                                // 板 `.weekfoot{display:flex;justify-content:space-between;
-                                // align-items:center;font-size:9.5px;color:var(--faint)}` + `b{--sub/650}`
-                                // ⇒ **左右两栏**，不是把三段用「·」串成一行：
-                                // 串起来那一行会自己折行，右边就空了（复评 2026-10-21）。
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = "本周 $periodCount 节 · $courseCount 门课",
-                                        style = TextStyle(fontFeatureSettings = Type.tabular),
-                                        fontSize = Type.caption,
-                                        fontWeight = Type.weightBody,
-                                        color = colors.onSurfaceVariantSummary,
-                                    )
-                                    if (slots.none { it.dayOfWeek >= 6 }) {
-                                        Text(
-                                            text = "周六日无课",
-                                            fontSize = Type.caption,
-                                            color = colors.onSurfaceVariantSummary.copy(alpha = 0.8f),
-                                        )
-                                    }
-                                }
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    text = buildString {
-                                        if (targetWeek != null) append("第 $targetWeek 周")
-                                        if (termLabel.isNotBlank()) {
-                                            if (isNotEmpty()) append(" · ")
-                                            append(termLabel)
+                                                            onPick = { s, b ->
+                                                                picked = s
+                                                                pickedAnchor = b
+                                                            },
+                                                )
+                                        } else {
+                                            // ---- 单日日程（板子：先把今天读清楚，再给整周）----------
+                                            val todayDow = LocalDate.now().dayOfWeek.value
+                                            val isToday = weekOffset == 0 && selectedDay == todayDow
+                                            val daySlots = slots
+                                                .filter { it.dayOfWeek == selectedDay }
+                                                .sortedBy { it.periodStart }
+                                            if (daySlots.isEmpty()) {
+                                                    TimetableEmpty("${DAY_WEEK[selectedDay - 1]}无课")
+                                            } else {
+                                                // 一天的课装进**一张纸面卡**，行与行之间只留一条细线 ——
+                                                // 板子的日程是一行一节课，不是一节课一张卡（七张卡要滚三屏）。
+                                                    // 板子的日程直接落在纸面上，没有「一张大卡把一天装起来」。
+                                                    // 这里只保留行与行之间的发丝线，边界交给页面的左右留白。
+                                                    Column(
+                                                        Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(vertical = 2.dp),
+                                                    ) {
+                                                        daySlots.forEachIndexed { idx, slot ->
+                                                            if (idx > 0) {
+                                                                Box(
+                                                                    Modifier
+                                                                        .fillMaxWidth()
+                                                                        .height(1.dp)
+                                                                        .background(colors.onBackground.copy(alpha = 0.07f)),
+                                                                )
+                                                            }
+                                                            CourseCell(
+                                                                slot = slot,
+                                                                isToday = isToday,
+                                                                onOpen = { s, r ->
+                                                                    picked = s
+                                                                    pickedAnchor = r
+                                                                },
+                                                            )
+                                                        }
+                                                    }
+                                            }
+                                                Column(Modifier.fillMaxWidth().padding(start = 0.dp, top = 10.dp)) {
+                                                    // 板 `.weekfoot{display:flex;justify-content:space-between;
+                                                    // align-items:center;font-size:9.5px;color:var(--faint)}` + `b{--sub/650}`
+                                                    // ⇒ **左右两栏**，不是把三段用「·」串成一行：
+                                                    // 串起来那一行会自己折行，右边就空了（复评 2026-10-21）。
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                    ) {
+                                                        Text(
+                                                            text = "本周 $periodCount 节 · $courseCount 门课",
+                                                            style = TextStyle(fontFeatureSettings = Type.tabular),
+                                                            fontSize = Type.caption,
+                                                            fontWeight = Type.weightBody,
+                                                            color = colors.onSurfaceVariantSummary,
+                                                        )
+                                                        if (slots.none { it.dayOfWeek >= 6 }) {
+                                                            Text(
+                                                                text = "周六日无课",
+                                                                fontSize = Type.caption,
+                                                                color = colors.onSurfaceVariantSummary.copy(alpha = 0.8f),
+                                                            )
+                                                        }
+                                                    }
+                                                    Spacer(Modifier.height(2.dp))
+                                                    Text(
+                                                        text = buildString {
+                                                            if (targetWeek != null) append("第 $targetWeek 周")
+                                                            if (termLabel.isNotBlank()) {
+                                                                if (isNotEmpty()) append(" · ")
+                                                                append(termLabel)
+                                                            }
+                                                            if (isNotEmpty()) append(" · ")
+                                                            append("来源 ${source.label}")
+                                                        },
+                                                        style = TextStyle(fontFeatureSettings = Type.tabular),
+                                                        fontSize = Type.micro,
+                                                        color = colors.onSurfaceVariantSummary.copy(alpha = 0.8f),
+                                                    )
+                                                }
                                         }
-                                        if (isNotEmpty()) append(" · ")
-                                        append("来源 ${source.label}")
-                                    },
-                                    style = TextStyle(fontFeatureSettings = Type.tabular),
-                                    fontSize = Type.micro,
-                                    color = colors.onSurfaceVariantSummary.copy(alpha = 0.8f),
-                                )
-                            }
-                        }
-                        // 秒开的代价必须写在屏幕上：这份是几点存的、要不要重取。
-                        item(key = "jw-fresh-day") {
-                            FreshnessLine(if (fromJiaowu) jwState else state, now = System.currentTimeMillis(), onOpenJw = onOpenJw) {
-                                graph.fetch { if (fromJiaowu) graph.jwTimetable.refresh() else graph.schedule.refresh() }
+                                    }
+                                }
+                                Spacer(Modifier.height(Dims.cardGap))
+                                // One refresh control remains outside the overlapping mode content.
+                                FreshnessLine(if (fromJiaowu) jwState else state, now = System.currentTimeMillis(), onOpenJw = onOpenJw) {
+                                    graph.fetch { if (fromJiaowu) graph.jwTimetable.refresh() else graph.schedule.refresh() }
+                                }
                             }
                         }
                     }

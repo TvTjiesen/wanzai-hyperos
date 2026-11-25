@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.layout.onSizeChanged
 import com.muyao.wanzaihyperos.nav.homeMorphSource
+import com.muyao.wanzaihyperos.ui.home.HomeLayoutEditableBlock
 import com.muyao.wanzaihyperos.ui.home.redesign.homeDepthCanvasHeight
 import com.muyao.wanzaihyperos.ui.home.redesign.homeStatusDetail
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -94,6 +95,7 @@ import com.muyao.wanzaihyperos.ui.design.ContainerStyle
 import com.muyao.wanzaihyperos.ui.design.MarkIcon
 import com.muyao.wanzaihyperos.ui.design.Dims
 import com.muyao.wanzaihyperos.ui.design.LocalContainerStyle
+import com.muyao.wanzaihyperos.ui.design.rememberMotion
 import com.muyao.wanzaihyperos.ui.design.ai.AiBall
 import com.muyao.wanzaihyperos.ui.design.ai.AiBallStates
 import com.muyao.wanzaihyperos.ui.design.ai.AiBallPresentation
@@ -177,7 +179,9 @@ fun HomeSectionPage(
     onOpenSzty: () -> Unit = {},
     morphState: com.muyao.wanzaihyperos.nav.HomeMorphState? = null,
     modifier: Modifier = Modifier,
+    layoutEditing: com.muyao.wanzaihyperos.ui.home.HomeLayoutEditing? = null,
 ) {
+    val previewOnly = layoutEditing != null
     val colors = MiuixTheme.colorScheme
     val context = LocalContext.current
 
@@ -290,16 +294,16 @@ fun HomeSectionPage(
         light = com.muyao.wanzaihyperos.ui.home.homeUsesLightStatusIcons(
             look.lightIcons, chrome.sampledTopLuminance, statusCollapse,
         ),
-        active = activeHome,
+        active = activeHome && !previewOnly,
     )
     val pageActive = LocalPageActive.current
     // ★ 第 9 轮审计必修 4：把"列表正在滚"报给玻璃层（滚动期降采样；见 `PageChrome.scrolling`）。
     //   只报滚动状态、不动进度 —— 进度那支仍然只由在场页写。
     val scrolling = listState.isScrollInProgress
-    androidx.compose.runtime.SideEffect { chrome.onScroll(scrolling) }
+    androidx.compose.runtime.SideEffect { if (!previewOnly) chrome.onScroll(scrolling) }
     val collapsePx = with(LocalDensity.current) { 120.dp.toPx() }
-    LaunchedEffect(listState, pageActive, collapsePx) {
-        if (!pageActive) return@LaunchedEffect
+    LaunchedEffect(listState, pageActive, collapsePx, previewOnly) {
+        if (!pageActive || previewOnly) return@LaunchedEffect
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
         }.collect { (index, offset) ->
@@ -310,7 +314,8 @@ fun HomeSectionPage(
 
     // 「重新读取全部来源」：与首屏那一发同一批来源。抽成 lambda 是为了两处永远同步 ——
     // 以后加了新来源，只改这里一处，首屏与按钮都不会漏。只重取，不动偏好与登录态。
-    val refreshSources: (Boolean) -> Unit = { force ->
+    val refreshSources: (Boolean) -> Unit = refresh@{ force ->
+        if (previewOnly) return@refresh
         graph.fetch { readHomeSource { graph.rollcall.refresh() } }
         graph.fetch { readHomeSource { graph.todoBoard.refresh() } }
         graph.fetch { readHomeSource { if (force) graph.schedule.refresh() else graph.schedule.refreshIfNeeded() } }
@@ -323,8 +328,8 @@ fun HomeSectionPage(
     val refreshAll: () -> Unit = { refreshSources(true) }
     val entryGate = com.muyao.wanzaihyperos.ui.main.LocalPageEntryGate.current
     val entryOwner = com.muyao.wanzaihyperos.ui.main.LocalPageEntryOwner.current
-    LaunchedEffect(pageActive, entryOwner, entryGate) {
-        if (pageActive && entryGate.claim("home", entryOwner)) refreshSources(false)
+    LaunchedEffect(pageActive, entryOwner, entryGate, previewOnly) {
+        if (!previewOnly && pageActive && entryGate.claim("home", entryOwner)) refreshSources(false)
     }
 
     // ── 今天要用的那份課表 ────────────────────────────────────────
@@ -349,6 +354,7 @@ fun HomeSectionPage(
     val week = UiPrefs.noteWeek(
         (tron?.currentWeek as? com.muyao.wanzaihyperos.data.CountValue.Known)?.value,
         now.toLocalDate().toEpochDay(),
+        persist = !previewOnly,
     )
     val times = UiPrefs.periodTimes
     val confirmedEmpty = slotPick.jwVerdict == JwVerdict.SETTLED_EMPTY
@@ -472,7 +478,7 @@ fun HomeSectionPage(
             }
         },
         overlayContent = { skyBackdrop ->
-        val compact = UiPrefs.homeDensity == "compact"
+        val compact = (layoutEditing?.settings?.density ?: UiPrefs.homeDensity) == "compact"
         // 「此刻」卡和副标题共用同一次推导：正在上的课 / 下一节 / 还要上几节。
         val focus = remember(todaySlots, now, times) {
             focusNowOf(todaySlots, now.toLocalTime(), times)
@@ -522,9 +528,130 @@ fun HomeSectionPage(
         Box(Modifier.fillMaxSize()) {
         // 下拉刷新：四份数据各发一发，谁失败都不影响其他（runCatching 各自兜住）。
         // contentPadding 只挪下拉指示器，不给内容加 padding —— 内容 inset 仍由 LazyColumn 自己消费。
-        PullToRefresh(
+        val homeContent: @Composable () -> Unit = {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = Dims.screenH,
+                    end = Dims.screenH,
+                    // 顶栏是悬浮的：大日期从它下面开始，不能压在搜索钮上。
+                    top = if (previewOnly) 8.dp else iosHeaderInset() + 2.dp,
+                    bottom = if (previewOnly) 24.dp else pageBottomInsetDp(LocalNavBarVisible.current) + 24.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 16.dp),
+            ) {
+                val sectionOrder = com.muyao.wanzaihyperos.data.HomeLayoutOrder.normalize(
+                    layoutEditing?.settings?.homeOrder ?: UiPrefs.homeLayoutOrder,
+                )
+                sectionOrder.forEach { section ->
+                    when (section) {
+                        "hero" -> if (previewOnly || "hero" !in UiPrefs.hiddenHomeSections) item(key = "hero") {
+                            HomeLayoutEditableBlock("hero", layoutEditing, listState) {
+                                Box(Modifier.then(if (statusMotion.canMove && !previewOnly) Modifier.animateItem() else Modifier).springListEntrance(entrance, "hero")) {
+                                    HomeSkyHeader(
+                                        now = now,
+                                        look = look,
+                                        remainingCount = remainingCount,
+                                        todayCount = todaySlots.size,
+                                        nextStart = nextStart,
+                                        loading = loading,
+                                        compact = compact,
+                                        failure = shownFailure,
+                                        slotSource = slotPick.source,
+                                        jwVerdict = slotPick.jwVerdict,
+                                        jwIsStale = (jwTimetableState as? ListState.Content)?.meta?.stale == true,
+                                        ballState = ballState,
+                                        ballPresentation = AiBallPresentation.Home,
+                                        ballWork = homeBallWork,
+                                        taskFactText = AiBallStates.homeFactText(ballState, todoFacts, rollcallFacts),
+                                        onCardGeometry = { top, height ->
+                                            if (!previewOnly) {
+                                                depthCardTop = depthTopInset.value + top
+                                                depthCardHeight = height
+                                            }
+                                        },
+                                        courseEnabled = "courses" in (layoutEditing?.settings?.modules ?: UiPrefs.homeModules),
+                                        showRefreshToast = !previewOnly,
+                                        courseContent = { status ->
+                                            FocusGlassCard(
+                                                backdrop = skyBackdrop, compact = compact, plan = plan, focus = focus,
+                                                loading = loading, fetching = fetchingSchedule, shownFailure = shownFailure,
+                                                week = week, now = now, look = look, skyIsPhoto = preset == SkyPreset.ALBUM,
+                                                photoStats = if (preset == SkyPreset.ALBUM) photoStats else null,
+                                                openRollcall = openRollcall, onClick = if (previewOnly) ({}) else onOpenTimetable,
+                                                onOpenRollcall = if (previewOnly) ({}) else onOpenRollcall,
+                                                statusText = status, ballState = ballState,
+                                                taskFactText = AiBallStates.homeFactText(ballState, todoFacts, rollcallFacts),
+                                            )
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        "quick-actions" -> if (previewOnly || "quick-actions" !in UiPrefs.hiddenHomeSections) item(key = "quick-actions") {
+                            HomeLayoutEditableBlock("quick-actions", layoutEditing, listState) {
+                                HomeQuickActions(
+                                    backdrop = skyBackdrop, compact = compact,
+                                    modifier = Modifier.then(if (statusMotion.canMove && !previewOnly) Modifier.animateItem() else Modifier).springListEntrance(entrance, "quick-actions"),
+                                    onOpenTimetable = if (previewOnly) ({}) else onOpenTimetable,
+                                    onOpenJw = if (previewOnly) ({}) else onOpenJw,
+                                    onOpenMessages = if (previewOnly) ({}) else onOpenMessages,
+                                    onOpenAppearance = if (previewOnly) ({}) else onOpenAppearance,
+                                )
+                            }
+                        }
+                        "todos" -> if (previewOnly || ("todos" in UiPrefs.homeModules && "todos" !in UiPrefs.hiddenHomeSections)) item(key = "todos") {
+                            HomeLayoutEditableBlock("todos", layoutEditing, listState) {
+                                HomeDashboardGroup(compact, modifier = Modifier.then(if (statusMotion.canMove && !previewOnly) Modifier.animateItem() else Modifier).springListEntrance(entrance, "todos").homeMorphSource("todos", if (previewOnly) null else morphState)) {
+                                    TodoSummaryCard(state = todoState,
+                                        fetching = todoState is ListState.FirstLoad && inFlight > 0,
+                                        onClick = if (previewOnly) ({}) else ({ morphState?.prepare("todos"); onOpenTodos() }),
+                                    )
+                                }
+                            }
+                        }
+                        "rollcall" -> if (previewOnly || ("rollcall" in UiPrefs.homeModules && "rollcall" !in UiPrefs.hiddenHomeSections)) item(key = "rollcall") {
+                            HomeLayoutEditableBlock("rollcall", layoutEditing, listState) {
+                                HomeDashboardGroup(compact, modifier = Modifier.then(if (statusMotion.canMove && !previewOnly) Modifier.animateItem() else Modifier).homeMorphSource("rollcall", if (previewOnly) null else morphState)) {
+                                    RollcallSection(open = openRollcall,
+                                        onOpen = { if (!previewOnly) { morphState?.prepare("rollcall"); onOpenRollcall() } },
+                                        narrow = false,
+                                    )
+                                }
+                            }
+                        }
+                        "szty" -> if (previewOnly || ("szty" in UiPrefs.homeModules && "szty" !in UiPrefs.hiddenHomeSections)) item(key = "szty") {
+                            HomeLayoutEditableBlock("szty", layoutEditing, listState) {
+                                HomeDashboardGroup(compact, modifier = Modifier.then(if (statusMotion.canMove && !previewOnly) Modifier.animateItem() else Modifier).homeMorphSource("szty", if (previewOnly) null else morphState)) {
+                                    RunSummaryCard(state = sztyState, fetching = sztyState is ListState.FirstLoad && inFlight > 0,
+                                        onClick = { if (!previewOnly) { morphState?.prepare("szty"); onOpenSzty() } }, narrow = false,
+                                    )
+                                }
+                            }
+                        }
+                        "timeline" -> if (previewOnly || ("timeline" !in UiPrefs.hiddenHomeSections && "courses" in UiPrefs.homeModules && !timelineHasNothingToSay)) item(key = "timeline") {
+                            HomeLayoutEditableBlock("timeline", layoutEditing, listState) {
+                                HomeDashboardGroup(compact, modifier = Modifier.then(if (statusMotion.canMove && !previewOnly) Modifier.animateItem() else Modifier).springListEntrance(entrance, "timeline")) {
+                                    TodayTimelineCard(slots = todaySlots, week = week, now = now, times = times,
+                                        loading = loading, failure = shownFailure,
+                                        onOpenTimetable = if (previewOnly) ({}) else onOpenTimetable,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                item(key = "tail") { Spacer(Modifier.height(8.dp)) }
+            }
+        }
+        if (previewOnly) {
+            homeContent()
+        } else {
+            PullToRefresh(
             isRefreshing = refreshing,
             onRefresh = {
+                if (previewOnly) return@PullToRefresh
                 refreshing = true
                 graph.fetch {
                     try {
@@ -547,157 +674,14 @@ fun HomeSectionPage(
             contentPadding = PaddingValues(top = statusBarTopPadding()),
             refreshTexts = listOf("下拉刷新", "松开手就刷", "正在刷新…", "刷完了"),
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = Dims.screenH,
-                    end = Dims.screenH,
-                    // 顶栏是悬浮的：大日期从它下面开始，不能压在搜索钮上。
-                    top = iosHeaderInset() + 2.dp,
-                    bottom = pageBottomInsetDp(LocalNavBarVisible.current) + 24.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 16.dp),
-            ) {
-                item(key = "hero") {
-                    Box(Modifier.then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "hero")) {
-                    HomeSkyHeader(
-                        now = now,
-                        look = look,
-                        remainingCount = remainingCount,
-                        todayCount = todaySlots.size,
-                        nextStart = nextStart,
-                        loading = loading,
-                        compact = compact,
-                        failure = shownFailure,
-                        slotSource = slotPick.source,
-                        jwVerdict = slotPick.jwVerdict,
-                        jwIsStale = (jwTimetableState as? ListState.Content)?.meta?.stale == true,
-                        ballState = ballState,
-                        ballPresentation = AiBallPresentation.Home,
-                        ballWork = homeBallWork,
-                        taskFactText = AiBallStates.homeFactText(ballState, todoFacts, rollcallFacts),
-                        onCardGeometry = { top, height ->
-                            depthCardTop = depthTopInset.value + top
-                            depthCardHeight = height
-                        },
-                        courseEnabled = "courses" in UiPrefs.homeModules,
-                        courseContent = { status ->
-                            FocusGlassCard(
-                                backdrop = skyBackdrop,
-                                compact = compact,
-                                plan = plan,
-                                focus = focus,
-                                loading = loading,
-                                fetching = fetchingSchedule,
-                                shownFailure = shownFailure,
-                                week = week,
-                                now = now,
-                                look = look,
-                                skyIsPhoto = preset == SkyPreset.ALBUM,
-                                photoStats = if (preset == SkyPreset.ALBUM) photoStats else null,
-                                openRollcall = openRollcall,
-                                onClick = onOpenTimetable,
-                                onOpenRollcall = onOpenRollcall,
-                                statusText = status,
-                                ballState = ballState,
-                                taskFactText = AiBallStates.homeFactText(ballState, todoFacts, rollcallFacts),
-                            )
-                        },
-                    )
-                    }
-                }
-
-                item(key = "quick-actions") {
-                    HomeQuickActions(
-                        backdrop = skyBackdrop,
-                        compact = compact,
-                        modifier = Modifier.then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "quick-actions"),
-                        onOpenTimetable = onOpenTimetable,
-                        onOpenJw = onOpenJw,
-                        onOpenMessages = onOpenMessages,
-                        onOpenAppearance = onOpenAppearance,
-                    )
-                }
-
-                if ("todos" in UiPrefs.homeModules) {
-                    item(key = "todos") {
-                        HomeDashboardGroup(compact, modifier = Modifier.then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "todos").homeMorphSource("todos", morphState)) {
-                        TodoSummaryCard(
-                            state = todoState,
-                            // 本页一进来就发了这一发（见上面那个 LaunchedEffect），所以：
-                            // 还没有任何结论 + 壳里真有一笔在途 ⇒ 这一栏确实在等。
-                            fetching = todoState is ListState.FirstLoad && inFlight > 0,
-                            onClick = { morphState?.prepare("todos"); onOpenTodos() },
-                        )
-                        }
-                    }
-                }
-
-                if ("rollcall" in UiPrefs.homeModules || "szty" in UiPrefs.homeModules) {
-                    item(key = "services") {
-                        BoxWithConstraints(Modifier.fillMaxWidth().then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "services")) {
-                            val paired = "rollcall" in UiPrefs.homeModules && "szty" in UiPrefs.homeModules &&
-                                maxWidth >= 304.dp && LocalDensity.current.fontScale < 1.3f
-                            val services: @Composable (Boolean) -> Unit = { narrow ->
-                                if ("rollcall" in UiPrefs.homeModules) {
-                                    HomeDashboardGroup(compact, narrow = narrow) {
-                                        RollcallSection(open = openRollcall, onOpen = { morphState?.prepare("rollcall"); onOpenRollcall() }, narrow = narrow, modifier = Modifier.homeMorphSource("rollcall", morphState))
-                                    }
-                                }
-                                if ("szty" in UiPrefs.homeModules) {
-                                    HomeDashboardGroup(compact, narrow = narrow) {
-                                        RunSummaryCard(state = sztyState,
-                                            fetching = sztyState is ListState.FirstLoad && inFlight > 0,
-                                            onClick = { morphState?.prepare("szty"); onOpenSzty() }, narrow = narrow, modifier = Modifier.homeMorphSource("szty", morphState))
-                                    }
-                                }
-                            }
-                            if (paired) {
-                                // Keep historical guard tokens `onOpen = onOpenRollcall` and `onClick = onOpenSzty` alive.
-                                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    HomeDashboardGroup(compact, modifier = Modifier.weight(1f).fillMaxHeight(), narrow = true, stretch = true) {
-                                        RollcallSection(open = openRollcall, onOpen = { morphState?.prepare("rollcall"); onOpenRollcall() }, narrow = true, modifier = Modifier.homeMorphSource("rollcall", morphState))
-                                    }
-                                    HomeDashboardGroup(compact, modifier = Modifier.weight(1f).fillMaxHeight(), narrow = true, stretch = true) {
-                                        RunSummaryCard(state = sztyState,
-                                            fetching = sztyState is ListState.FirstLoad && inFlight > 0,
-                                            onClick = { morphState?.prepare("szty"); onOpenSzty() }, narrow = true, modifier = Modifier.homeMorphSource("szty", morphState))
-                                    }
-                                }
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 16.dp)) {
-                                    services(false)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if ("courses" in UiPrefs.homeModules) {
-                    if (!timelineHasNothingToSay) item(key = "timeline") {
-                        HomeDashboardGroup(compact, modifier = Modifier.then(if (statusMotion.canMove) Modifier.animateItem() else Modifier).springListEntrance(entrance, "timeline")) {
-                            TodayTimelineCard(
-                                slots = todaySlots,
-                                week = week,
-                                now = now,
-                                times = times,
-                                loading = loading,
-                                failure = shownFailure,
-                                onOpenTimetable = onOpenTimetable,
-                            )
-                        }
-                    }
-                }
-
-                item(key = "tail") { Spacer(Modifier.height(8.dp)) }
+                homeContent()
             }
         }
 
         // 顶栏那一行：左「柒合院」，右「第 N 周」（搜索钮由顶栏自己画在最右）。
         // 叠在内容之上、顶栏之下；滚动时和顶栏纱一起退场，不会和折叠后的小标题打架。
         val headerAlpha = (1f - chrome.progress * 2.2f).coerceIn(0f, 1f)
-        if (headerAlpha > 0.01f) {
+        if (!previewOnly && headerAlpha > 0.01f) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -788,6 +772,7 @@ internal fun HomeSkyHeader(
     taskFactText: String? = null,
     ballPresentation: AiBallPresentation? = AiBallPresentation.Home,
     ballWork: AiBallWork = AiBallWork(),
+    showRefreshToast: Boolean = false,
 ) {
     val weekLabel = WEEKDAYS.getOrElse(now.dayOfWeek.value - 1) { "" }
     val ink = look.ink
@@ -828,9 +813,20 @@ internal fun HomeSkyHeader(
     val ballBox = ballDiameter + AiBall.HIT_SLOP * 2
     var dateHeight by remember { mutableStateOf(0f) }
     var cardHeight by remember { mutableStateOf(0f) }
-    LaunchedEffect(dateHeight, cardHeight, ballBox) {
+    var feedbackHeight by remember { mutableStateOf(0.dp) }
+    val cardTopTarget = if (feedbackHeight > ballBox) feedbackHeight - ballBox / 2 + 8.dp else ballBox / 2
+    val homeMotion = rememberMotion()
+    val cardTop by androidx.compose.animation.core.animateDpAsState(
+        targetValue = cardTopTarget,
+        animationSpec = if (homeMotion.canMove) androidx.compose.animation.core.spring(
+            dampingRatio = com.muyao.wanzaihyperos.ui.design.Motion.FEEDBACK_DAMPING,
+            stiffness = com.muyao.wanzaihyperos.ui.design.Motion.FEEDBACK_STIFFNESS,
+        ) else androidx.compose.animation.core.snap(),
+        label = "home-feedback-card-offset",
+    )
+    LaunchedEffect(dateHeight, cardHeight, cardTop) {
         if (dateHeight > 0f && cardHeight > 0f) {
-            onCardGeometry(dateHeight + ballBox.value / 2f, cardHeight)
+            onCardGeometry(dateHeight + cardTop.value, cardHeight)
         }
     }
     Column(Modifier.fillMaxWidth()) {
@@ -854,7 +850,7 @@ internal fun HomeSkyHeader(
                 modifier = Modifier.padding(start = 8.dp, bottom = 5.dp))
         }
         Box(Modifier.fillMaxWidth()) {
-            Box(Modifier.padding(top = ballBox / 2)) {
+            Box(Modifier.padding(top = cardTop)) {
                 Column(Modifier.onSizeChanged { cardHeight = with(density) { it.height.toDp().value } }) {
                 if (courseEnabled) {
                     courseContent(subline)
@@ -869,17 +865,28 @@ internal fun HomeSkyHeader(
                 }
                 }
             }
-            AiBall(
-                state = ballState,
-                diameter = ballDiameter,
-                stateDescription = if (ballState == com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Focus &&
-                    nextStart != null && java.time.Duration.between(now.toLocalTime(), nextStart).toMinutes() in 0..59) {
-                    "${java.time.Duration.between(now.toLocalTime(), nextStart).toMinutes()} 分钟后上课"
-                } else if (failure != null || loading) subline else taskFactText,
-                modifier = Modifier.padding(start = 14.dp),
-                presentation = ballPresentation,
-                work = ballWork,
-            )
+            Box(Modifier.fillMaxWidth()) {
+                val ball: @Composable () -> Unit = {
+                    AiBall(
+                        state = ballState,
+                        diameter = ballDiameter,
+                        stateDescription = if (ballState == com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Focus &&
+                            nextStart != null && java.time.Duration.between(now.toLocalTime(), nextStart).toMinutes() in 0..59) {
+                            "${java.time.Duration.between(now.toLocalTime(), nextStart).toMinutes()} 分钟后上课"
+                        } else if (failure != null || loading) subline else taskFactText,
+                        modifier = Modifier.padding(start = 14.dp),
+                        presentation = ballPresentation,
+                        work = ballWork,
+                    )
+                }
+                if (showRefreshToast) {
+                    com.muyao.wanzaihyperos.ui.design.AiBallFeedbackRow(
+                        onRowSizeChanged = { feedbackHeight = with(density) { it.height.toDp() } },
+                        stackToast = true,
+                        ball = ball,
+                    )
+                } else ball()
+            }
         }
     }
 }

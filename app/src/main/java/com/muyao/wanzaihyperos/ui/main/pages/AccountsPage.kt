@@ -114,6 +114,7 @@ fun AccountsPage(
         title = "账号与连接",
         onBack = onBack,
         modifier = modifier,
+        inlineFeedbackAnchored = true,
     ) { inner ->
         Column(
             Modifier
@@ -137,12 +138,14 @@ fun AccountsPage(
                 modifier = Modifier.fillMaxWidth().padding(top = Dims.tight, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AiBall(
-                    state = AiBallStates.ofAccounts(sources.takeIf { it.isNotEmpty() }),
-                    diameter = AiBall.DIAMETER_PAGE,
-                    hitSlop = AiBall.INLINE_SLOP,
-                    stateDescription = configuration.countText() + "\n" + configuration.boundaryText(),
-                )
+                com.muyao.wanzaihyperos.ui.design.AiBallFeedbackRow {
+                    AiBall(
+                        state = AiBallStates.ofAccounts(sources.takeIf { it.isNotEmpty() }),
+                        diameter = AiBall.DIAMETER_PAGE,
+                        hitSlop = AiBall.INLINE_SLOP,
+                        stateDescription = configuration.countText() + "\n" + configuration.boundaryText(),
+                    )
+                }
                 Spacer(Modifier.width(9.dp))
                 Column(Modifier.weight(1f)) {
                 Text(

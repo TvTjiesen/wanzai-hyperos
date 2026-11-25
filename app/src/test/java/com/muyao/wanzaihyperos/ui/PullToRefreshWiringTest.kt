@@ -59,15 +59,24 @@ class PullToRefreshWiringTest {
     @Test
     fun `首页也能下拉刷新，四份数据都要重取`() {
         val s = text(home)
-        assertTrue("首页没有下拉刷新容器", s.contains("PullToRefresh("))
+        val content = s.indexOf("val homeContent: @Composable () -> Unit = {")
+        val list = s.indexOf("LazyColumn(", content.coerceAtLeast(0))
+        val branch = s.indexOf("if (previewOnly) {\n            homeContent()\n        } else {")
         val start = s.indexOf("PullToRefresh(")
-        val end = s.indexOf("LazyColumn(", start)
-        assertTrue("找不到被包住的列表", end > start)
-        val block = s.substring(start, end)
-        assertTrue("下拉没刷新课表", block.contains("graph.schedule.refresh()"))
-        assertTrue("下拉没刷新待办", block.contains("graph.todoBoard.refresh()"))
-        assertTrue("下拉没刷新签到", block.contains("graph.rollcall.refresh()"))
-        assertTrue("下拉没刷新未读", block.contains("graph.unread.refresh(force = true)"))
+        val render = s.indexOf("homeContent()", start.coerceAtLeast(0))
+        assertTrue("真实列表必须定义在 preview/正常页共用的 homeContent 内", content >= 0 && list > content && branch > list)
+        assertTrue("只有正常首页应包下拉刷新并调用真实列表", start > branch && render > start)
+        assertTrue("首页不能另外复制一份列表", Regex("\\bLazyColumn\\(").findAll(s).count() == 1)
+        assertTrue("preview 和正常首页必须各调用一次同一份内容", Regex("\\bhomeContent\\(\\)").findAll(s).count() == 2)
+        val block = s.substring(start, render)
+        val refresh = block.substringAfter("onRefresh = {").substringBefore("pullToRefreshState =")
+        assertTrue("下拉回调仍须阻止 preview 意外触发刷新", refresh.contains("if (previewOnly) return@PullToRefresh"))
+        listOf("schedule", "todoBoard", "rollcall").forEach { source ->
+            assertTrue("下拉没独立刷新 $source", refresh.contains("catchingActive { graph.$source.refresh() }"))
+        }
+        assertTrue("下拉没独立刷新未读", refresh.contains("catchingActive { graph.unread.refresh(force = true) }"))
+        assertTrue("刷新完成或失败都必须复位指示器", refresh.contains("finally {") && refresh.contains("refreshing = false"))
+        assertFalse("首页下拉不能把已有内容清成 FirstLoad", refresh.contains("ListState.FirstLoad"))
         assertTrue("下拉刷新没换掉英文气泡文案", block.contains("下拉刷新"))
     }
 

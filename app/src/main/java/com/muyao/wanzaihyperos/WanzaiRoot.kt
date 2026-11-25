@@ -499,8 +499,10 @@ fun WanzaiApp(
                 }
             }
         }
+        val feedback = com.muyao.wanzaihyperos.ui.design.rememberAppFeedback(app.inFlight, aiBallNotice)
         androidx.compose.runtime.CompositionLocalProvider(
             com.muyao.wanzaihyperos.ui.design.LocalContainerStyle provides containerStyle,
+            com.muyao.wanzaihyperos.ui.design.LocalAppFeedback provides feedback,
             com.muyao.wanzaihyperos.ui.search.LocalSearchMotion provides searchMotion,
         ) {
             androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
@@ -1121,18 +1123,7 @@ fun WanzaiApp(
                     requestInputFocus = ready,
                 )
             }
-            // ★ 动效 9：全局后台刷新胶囊 —— 只映射真实在途请求（AppGraph 的
-            //   fetch/runTracked 计数），完成即收回、可点掉；检查时间不伪装成内容更新。
-            //   放在根 Box 顶层，覆盖所有页面；顶部居中，避开状态栏。
-            com.muyao.wanzaihyperos.ui.design.GlobalRefreshCapsule(
-                inFlight = app.inFlight,
-                modifier = Modifier.align(Alignment.TopCenter)
-                    .statusBarsPadding().padding(top = 6.dp),
-            )
-            AiBallNoticeHost(
-                state = aiBallNotice,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 84.dp),
-            )
+            AiBallNoticeHost(state = aiBallNotice)
             }
         }
     }

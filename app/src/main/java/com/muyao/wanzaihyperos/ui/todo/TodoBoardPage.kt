@@ -127,6 +127,7 @@ fun TodoBoardPage(
         modifier = modifier,
         scrollProgress = veilProgress,
         onRefresh = { scope.launch { runCatching { repository.refresh() } } },
+        inlineFeedbackAnchored = true,
     ) { innerPadding ->
         if (board == null) {
             StatePlaceholder(
@@ -161,15 +162,17 @@ fun TodoBoardPage(
                         modifier = Modifier.fillMaxWidth().padding(top = Dims.tight, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        AiBall(
-                            state = AiBallStates.ofList(state),
-                            diameter = AiBall.DIAMETER_PAGE,
-                            hitSlop = AiBall.INLINE_SLOP,
-                            stateDescription = com.muyao.wanzaihyperos.ui.common.listStateDescription("待办聚合", state) +
-                                (board.knownTotal?.let { "\n已确认来源共 $it 项；未知来源不当成零。" }
-                                    ?: "\n完整数量未知，不当成零。") +
-                                "\n只读展示；需你在对应系统处理，不代办。",
-                        )
+                        com.muyao.wanzaihyperos.ui.design.AiBallFeedbackRow {
+                            AiBall(
+                                state = AiBallStates.ofList(state),
+                                diameter = AiBall.DIAMETER_PAGE,
+                                hitSlop = AiBall.INLINE_SLOP,
+                                stateDescription = com.muyao.wanzaihyperos.ui.common.listStateDescription("待办聚合", state) +
+                                    (board.knownTotal?.let { "\n已确认来源共 $it 项；未知来源不当成零。" }
+                                        ?: "\n完整数量未知，不当成零。") +
+                                    "\n只读展示；需你在对应系统处理，不代办。",
+                            )
+                        }
                         Spacer(Modifier.width(9.dp))
                         Column(Modifier.weight(1f)) {
                         Text(

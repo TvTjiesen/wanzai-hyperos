@@ -84,6 +84,8 @@ object UiPrefs {
     private const val KEY_GLASS_MODE = "glass_mode"
     private const val KEY_GLASS_OPACITY = "glass_opacity"
     private const val KEY_HOME_MODULES = "home_modules"
+    private const val KEY_HOME_ORDER = "home_layout_order"
+    private const val KEY_HOME_HIDDEN_SECTIONS = "home_hidden_sections"
 
     /**
      * 首页模块表的**版本号**（2026-11-01 加「校园跑」时引入）。
@@ -335,6 +337,14 @@ object UiPrefs {
     var homeModules by mutableStateOf(HOME_MODULES.toSet())
         private set
 
+    /** Ordered real homepage blocks, independent from the module visibility switches. */
+    var homeLayoutOrder by mutableStateOf(HomeLayoutOrder.defaults)
+        private set
+
+    /** Hidden blocks remain in [homeLayoutOrder] so restoring one never loses its position. */
+    var hiddenHomeSections by mutableStateOf(emptySet<String>())
+        private set
+
     /** 应用页：把「网页服务」收成一行入口（默认展开，保持与应用页原有信息量一致）。 */
     var appsWebCollapsed by mutableStateOf(false)
         private set
@@ -425,9 +435,14 @@ object UiPrefs {
         glassOpacity = p.getInt(KEY_GLASS_OPACITY, 50).coerceIn(0, 100)
         glassMode = (p.getString(KEY_GLASS_MODE, "liquid") ?: "liquid")
             .takeIf { it in GLASS_MODES } ?: "liquid"
+        homeLayoutOrder = HomeLayoutOrder.normalize(
+            (p.getString(KEY_HOME_ORDER, null) ?: "").split(",").filter(String::isNotBlank),
+        )
+        hiddenHomeSections = (p.getString(KEY_HOME_HIDDEN_SECTIONS, "") ?: "")
+            .split(",").filter { it in HomeLayoutOrder.defaults }.toSet()
         val modules = (p.getString(KEY_HOME_MODULES, null))
             ?.split(",")
-            ?.filter { it.isNotBlank() }
+            ?.filter { it in HOME_MODULES }
             ?.toSet()
         // 模块表的版本迁移（见 KEY_HOME_MODULES_REV）：rev 1 ⇒ 2 补上「校园跑」。
         // 只寫 rev 不寫表是錯的：下次冷啟動照舊盤讀回來，新模組又消失一次。
@@ -723,6 +738,7 @@ object UiPrefs {
         themeModeName, backgroundPreset, glassMode, glassOpacity, containerStyle, wallpaperPreset,
         wallpaperDim, wallpaperSoft, wallpaperPanX, wallpaperPanY, wallpaperZoom,
         homeDensity, homeModules.toSet(), appsWebCollapsed, reduceTransparency, themeCustomization, reduceMotion, highContrastOverride,
+        homeLayoutOrder.toList(), hiddenHomeSections.toSet(),
     )
 
     /** Commit only appearance keys, then publish the same snapshot as one UI change. */
@@ -743,6 +759,8 @@ object UiPrefs {
             ?.putString(KEY_HOME_DENSITY, v.density)
             ?.putString(KEY_HOME_MODULES, HOME_MODULES.filter { it in v.modules }.joinToString(","))
             ?.putInt(KEY_HOME_MODULES_REV, HOME_MODULES_REV)
+            ?.putString(KEY_HOME_ORDER, HomeLayoutOrder.normalize(v.homeOrder).joinToString(","))
+            ?.putString(KEY_HOME_HIDDEN_SECTIONS, v.hiddenHomeSections.filter { it in HomeLayoutOrder.defaults }.joinToString(","))
             ?.putBoolean(KEY_APPS_WEB_COLLAPSED, v.appsCollapsed)
             ?.putBoolean(KEY_REDUCE_TRANSPARENCY, v.reduceTransparency)
             ?.putBoolean(KEY_REDUCE_MOTION, v.reduceMotion)
@@ -763,6 +781,8 @@ object UiPrefs {
             wallpaperSoft = v.soft
             wallpaperPanX = v.panX; wallpaperPanY = v.panY; wallpaperZoom = v.zoom
             homeDensity = v.density; homeModules = v.modules.toSet()
+            homeLayoutOrder = HomeLayoutOrder.normalize(v.homeOrder)
+            hiddenHomeSections = v.hiddenHomeSections.toSet()
             appsWebCollapsed = v.appsCollapsed; reduceTransparency = v.reduceTransparency
         }
         com.muyao.wanzaihyperos.ui.design.MotionPrefs.setReduceMotion(v.reduceMotion)
@@ -788,6 +808,8 @@ object UiPrefs {
         wallpaperSoft = 26
         homeDensity = "comfortable"
         homeModules = HOME_MODULES.toSet()
+        homeLayoutOrder = HomeLayoutOrder.defaults
+        hiddenHomeSections = emptySet()
         reduceTransparency = false
         // ★ 独立审计（v3 #12 第 2 轮 P1#5）：这条以前只写 `KEY_REDUCE_TRANSPARENCY=false`，
         //   **不清 `KEY_GLASS_MODE`** ⇒ 「选关闭 → 恢复默认 → 杀进程重进」之后，
@@ -807,6 +829,8 @@ object UiPrefs {
             ?.putString(KEY_HOME_DENSITY, "comfortable")
             ?.putString(KEY_HOME_MODULES, HOME_MODULES.joinToString(","))
             ?.putInt(KEY_HOME_MODULES_REV, HOME_MODULES_REV)
+            ?.putString(KEY_HOME_ORDER, HomeLayoutOrder.defaults.joinToString(","))
+            ?.putString(KEY_HOME_HIDDEN_SECTIONS, "")
             ?.putBoolean(KEY_REDUCE_TRANSPARENCY, false)
             ?.putString(KEY_GLASS_MODE, "liquid")
             ?.putInt(KEY_GLASS_OPACITY, 50)
@@ -862,8 +886,8 @@ object UiPrefs {
      * 放在这一处而不是各页各写一遍，是因为"记锚点"这件事只要有一页忘了，
      * 那一页就永远在等网络（业主报的"每次进来都重新加载"正是这个形状）。
      */
-    fun noteWeek(known: Int?, todayEpochDay: Long): Int? {
-        if (known != null && known > 0) saveWeekAnchor(todayEpochDay, known)
+    fun noteWeek(known: Int?, todayEpochDay: Long, persist: Boolean = true): Int? {
+        if (persist && known != null && known > 0) saveWeekAnchor(todayEpochDay, known)
         return if (known != null && known > 0) known else weekFromAnchor(todayEpochDay)
     }
 

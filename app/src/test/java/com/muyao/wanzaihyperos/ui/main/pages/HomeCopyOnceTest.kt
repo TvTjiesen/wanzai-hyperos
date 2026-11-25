@@ -39,6 +39,14 @@ class HomeCopyOnceTest {
         return hit!!.second
     }
 
+    private fun section(src: String, id: String): String {
+        val sections = src.substringAfter("when (section) {")
+        val start = sections.indexOf("\"$id\" ->")
+        assertTrue("找不到首页模块 $id", start >= 0)
+        val next = Regex("\\n\\s*\"[^\"]+\" ->").find(sections, start + 1)?.range?.first
+        return sections.substring(start, next ?: sections.indexOf("item(key = \"tail\")", start))
+    }
+
     /** 括号配平地切出某个函数的函数体。 */
     private fun bodyOf(src: String, signature: String): String {
         val start = src.indexOf(signature)
@@ -103,14 +111,49 @@ class HomeCopyOnceTest {
     @Test
     fun `今天真没课时那张卡不渲染`() {
         val src = source()
-        assertTrue("没有 timelineHasNothingToSay 这道闸门 —— 空白卡会照旧占着一行高度",
-            src.contains("val timelineHasNothingToSay ="))
-        val gate = src.indexOf("if (!timelineHasNothingToSay) item(key = \"timeline\")")
-        assertTrue("时间线卡的 item 没套上闸门", gate >= 0)
-        // 闸门必须在「此刻」卡之后 —— 副行那句「今天没有课」得先画出来，
-        // 否则这一屏关于今天一个字都没有。位置判据比字符串更结实。
-        val focus = src.indexOf("FocusGlassCard(")
-        assertTrue("闸门排到「此刻」卡前面去了", focus in 0 until gate)
+        assertTrue("没有计算时间线为空时是否仍有内容可说", src.contains("val timelineHasNothingToSay = !loading && shownFailure == null &&\n        week != null && todaySlots.isEmpty()"))
+        val sectionOrder = src.indexOf("sectionOrder.forEach { section ->")
+        val timelineBranch = src.indexOf("\"timeline\" ->", sectionOrder.coerceAtLeast(0))
+        val timeline = section(src, "timeline")
+        val item = timeline.indexOf("item(key = \"timeline\")")
+        assertTrue("时间线必须作为可排序真实模块渲染", sectionOrder >= 0 && timelineBranch > sectionOrder && item >= 0)
+        val gate = timeline.substringBefore("item(key = \"timeline\")")
+        assertTrue("正常时间线只有未隐藏、启用课程且有内容可说才渲染", gate.contains("previewOnly || (\"timeline\" !in UiPrefs.hiddenHomeSections && \"courses\" in UiPrefs.homeModules && !timelineHasNothingToSay)"))
+        assertTrue("timeline 无内容判定必须在正常页 item gate 内生效", gate.contains("!timelineHasNothingToSay"))
+        assertTrue("时间线真实项必须经过编辑器包装且编辑预览可显示", timeline.contains("HomeLayoutEditableBlock(\"timeline\", layoutEditing, listState)"))
+        assertTrue("preview 不得把正常偏好中的课程关闭状态套到草稿时间线", timeline.contains("previewOnly || (\"timeline\" !in UiPrefs.hiddenHomeSections && \"courses\" in UiPrefs.homeModules"))
+        assertTrue("timeline 卡片仍只画当前日期筛出的 slots", timeline.contains("TodayTimelineCard(slots = todaySlots, week = week"))
+    }
+
+    @Test
+    fun `编辑预览使用真实六块但屏蔽刷新导航与周次持久写入`() {
+        val src = source()
+        assertTrue("layoutEditing 必须标记真实编辑预览", src.contains("val previewOnly = layoutEditing != null"))
+        assertTrue("首页六块按编辑草稿顺序定义且保留默认顺序回退", src.contains("layoutEditing?.settings?.homeOrder ?: UiPrefs.homeLayoutOrder"))
+        val defaults = SourceScan.sources().firstOrNull { it.first == "main/data/HomeLayoutOrder.kt" }?.second.orEmpty()
+        assertTrue("首页排序默认列表必须保留真实的六个 block", defaults.contains("listOf(\"hero\", \"quick-actions\", \"todos\", \"rollcall\", \"szty\", \"timeline\")"))
+        listOf("hero", "quick-actions", "todos", "rollcall", "szty", "timeline").forEach { id ->
+            assertTrue("首页排序循环必须分发 $id", src.contains("\"$id\" ->"))
+            val block = section(src, id)
+            assertTrue("preview 下 $id 模块没有通过真实编辑器内容渲染", block.contains("previewOnly ||") && block.contains("HomeLayoutEditableBlock(\"$id\", layoutEditing, listState)"))
+        }
+        assertTrue("preview 不能领取正常首页首刷", src.contains("if (!previewOnly && pageActive && entryGate.claim(\"home\", entryOwner))"))
+        assertTrue("周次在 preview 只能读取，不能持久写入", src.contains("persist = !previewOnly"))
+        assertTrue("preview 必须直接调用同一个内容列表而非包下拉刷新", src.contains("if (previewOnly) {\n            homeContent()\n        } else {\n            PullToRefresh("))
+        assertTrue("即使刷新回调被触达也必须拒绝 preview", src.contains("if (previewOnly) return@PullToRefresh"))
+        assertTrue("preview 不显示可刷新/周次导航的正常页悬浮栏", src.contains("if (!previewOnly && headerAlpha > 0.01f)"))
+        val hero = section(src, "hero")
+        assertTrue("课程预览必须按草稿模块开关绘制真实焦点卡", hero.contains("courseEnabled = \"courses\" in (layoutEditing?.settings?.modules ?: UiPrefs.homeModules)"))
+        assertTrue("hero 课程卡预览不能导航到课表或签到", hero.contains("onClick = if (previewOnly) ({}) else onOpenTimetable") && hero.contains("onOpenRollcall = if (previewOnly) ({}) else onOpenRollcall"))
+        val quick = section(src, "quick-actions")
+        listOf("Timetable", "Jw", "Messages", "Appearance").forEach { target ->
+            assertTrue("preview 快捷入口 $target 不能导航", quick.contains("onOpen$target = if (previewOnly) ({}) else onOpen$target"))
+        }
+        assertTrue("preview 待办卡不能导航", section(src, "todos").contains("onClick = if (previewOnly) ({}) else"))
+        assertTrue("preview 签到卡不能导航", section(src, "rollcall").contains("onOpen = { if (!previewOnly)"))
+        assertTrue("preview 校园跑卡不能导航", section(src, "szty").contains("onClick = { if (!previewOnly)"))
+        assertTrue("preview 时间线不能导航", section(src, "timeline").contains("onOpenTimetable = if (previewOnly) ({}) else onOpenTimetable"))
+        assertTrue("正常首页 refreshSources 必须拒绝 preview", src.contains("if (previewOnly) return@refresh"))
     }
 
     @Test

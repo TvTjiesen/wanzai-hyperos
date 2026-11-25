@@ -424,6 +424,9 @@ object Motion {
     const val OVERLAY_IN_STIFFNESS = 520f
     const val OVERLAY_OUT_DAMPING = 1.0f
     const val OVERLAY_OUT_STIFFNESS = 900f
+
+    const val FEEDBACK_DAMPING = 1f
+    const val FEEDBACK_STIFFNESS = 380f
 }
 
 /**

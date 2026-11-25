@@ -1,5 +1,6 @@
 package com.muyao.wanzaihyperos.ui.main.pages
 
+import com.muyao.wanzaihyperos.ui.SourceScan
 import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -8,16 +9,28 @@ class GlasmioTwoPageLayoutTest {
     private val root = File("src/main/java/com/muyao/wanzaihyperos/ui")
     private fun code(path: String) = File(root, path).readText()
 
+    private fun homeSection(home: String, id: String): String {
+        val sections = home.substringAfter("when (section) {")
+        val start = sections.indexOf("\"$id\" ->")
+        assertTrue("找不到首页可排序模块 $id", start >= 0)
+        val next = Regex("\\n\\s*\"[^\"]+\" ->").find(sections, start + 1)?.range?.first
+        return sections.substring(start, next ?: sections.indexOf("item(key = \"tail\")", start))
+    }
+
     @Test fun `首页日期与课程层级使用密度令牌`() {
-        val home = code("main/pages/HomeSectionPage.kt")
+        val home = SourceScan.stripComments(code("main/pages/HomeSectionPage.kt"))
         assertTrue(home.contains("Type.homeDateCompact else Type.homeDate"))
         assertTrue(home.contains("Type.homeFocusCompact else Type.homeFocus"))
         assertTrue(home.contains("Type.lineHomeFocusCompact else Type.lineHomeFocus"))
         val course = home.substringAfter("internal fun FocusGlassCard(").substringBefore("private fun CountdownRing(")
         assertTrue("长标题和来源状态必须自然增长", !course.contains("maxLines") && !course.contains("heightIn(max"))
-        assertTrue(home.contains("if (!timelineHasNothingToSay)"))
-        listOf("courses", "rollcall", "todos", "szty").forEach {
-            assertTrue("模块 $it 的显示开关丢失", home.contains("\"$it\" in UiPrefs.homeModules"))
+        assertTrue("课程内容必须读取预览草稿开关并回退正常偏好", homeSection(home, "hero").contains("courseEnabled = \"courses\" in (layoutEditing?.settings?.modules ?: UiPrefs.homeModules)"))
+        val timeline = homeSection(home, "timeline")
+        val timelineGate = timeline.substringBefore("item(key = \"timeline\")")
+        assertTrue("正常时间线仍须同时满足显示、课程开关与有话可说", timelineGate.contains("previewOnly || (\"timeline\" !in UiPrefs.hiddenHomeSections && \"courses\" in UiPrefs.homeModules && !timelineHasNothingToSay)"))
+        listOf("rollcall", "todos", "szty").forEach { id ->
+            val gate = homeSection(home, id).substringBefore("item(key = \"$id\")")
+            assertTrue("模块 $id 的显示开关丢失", gate.contains("previewOnly || (\"$id\" in UiPrefs.homeModules && \"$id\" !in UiPrefs.hiddenHomeSections)"))
         }
         assertTrue(home.contains("onClick = refreshAll"))
         val status = course.substringAfter("text = statusDetail,").substringBefore("Spacer(")
@@ -45,20 +58,49 @@ class GlasmioTwoPageLayoutTest {
         assertTrue("快捷入口至少48dp", helper.contains("heightIn(min = 52.dp)"))
     }
 
-    @Test fun `首页双列服务保留开关与大字纵排回退`() {
-        val home = code("main/pages/HomeSectionPage.kt")
-        assertTrue(home.contains("maxWidth >= 304.dp && LocalDensity.current.fontScale < 1.3f"))
-        assertTrue(home.contains("item(key = \"services\")"))
-        assertTrue(home.contains("narrow = true"))
-        assertTrue(home.contains("onOpen = { morphState?.prepare(\"rollcall\"); onOpenRollcall() }"))
-        assertTrue(home.contains("onClick = onOpenSzty"))
+    @Test fun `首页六个真实模块可排序且签到校园跑独立全宽`() {
+        val home = SourceScan.stripComments(code("main/pages/HomeSectionPage.kt"))
+        assertTrue(home.contains("HomeLayoutOrder.normalize("))
+        assertTrue(home.contains("layoutEditing?.settings?.homeOrder ?: UiPrefs.homeLayoutOrder"))
+        val orderSource = SourceScan.sources().firstOrNull { it.first == "main/data/HomeLayoutOrder.kt" }?.second.orEmpty()
+        assertTrue("排序默认列表必须包含并保留六个真实模块",
+            orderSource.contains("listOf(\"hero\", \"quick-actions\", \"todos\", \"rollcall\", \"szty\", \"timeline\")"))
+        val ordering = home.indexOf("sectionOrder.forEach { section ->")
+        val branches = home.indexOf("when (section) {", ordering.coerceAtLeast(0))
+        assertTrue("真实模块必须按归一化顺序逐个渲染，而不是只排编辑占位卡", ordering >= 0 && branches > ordering)
+        val renderers = mapOf("hero" to "HomeSkyHeader(", "quick-actions" to "HomeQuickActions(",
+            "todos" to "TodoSummaryCard(", "rollcall" to "RollcallSection(",
+            "szty" to "RunSummaryCard(", "timeline" to "TodayTimelineCard(")
+        renderers.forEach { (id, renderer) ->
+            val block = homeSection(home, id)
+            val item = block.indexOf("item(key = \"$id\")")
+            val editable = block.indexOf("HomeLayoutEditableBlock(\"$id\", layoutEditing, listState)")
+            assertTrue("模块 $id 必须在稳定 item 中包住真实内容", item >= 0 && editable > item && block.indexOf(renderer) > editable)
+        }
+        assertTrue("不能恢复合并服务双列，两个模块要能独立排序", !home.contains("item(key = \"services\")"))
+        val rollcall = homeSection(home, "rollcall")
+        val runBlock = homeSection(home, "szty")
+        listOf(rollcall, runBlock).forEach { block ->
+            assertTrue("签到与校园跑各自使用全宽分组而非等分双列", block.contains("HomeDashboardGroup(compact, modifier =") && block.contains("narrow = false") && !block.contains("Modifier.weight(") && !block.contains("Row("))
+        }
+        assertTrue(rollcall.contains("onOpen = { if (!previewOnly) { morphState?.prepare(\"rollcall\"); onOpenRollcall() } }"))
+        assertTrue(runBlock.contains("onClick = { if (!previewOnly) { morphState?.prepare(\"szty\"); onOpenSzty() } }"))
+        assertTrue("preview 不得注册正常页的形变导航源", listOf(rollcall, runBlock).all { it.contains("if (previewOnly) null else morphState") })
+        val editor = SourceScan.stripComments(code("home/HomeLayoutEditor.kt"))
+        assertTrue("六个真实模块必须共用长按拖动排序手势", editor.contains("detectDragGesturesAfterLongPress(") && editor.contains("latest.onMove(id, targetId)"))
+        assertTrue("拖动目标只允许六个已知模块，排除本项", editor.contains("it.key != id && it.key in HomeLayoutOrder.defaults"))
+        assertTrue("排序必须有可访问名称和上移/下移替代动作", editor.contains("长按拖动排序") && editor.contains("CustomAccessibilityAction(\"上移\"") && editor.contains("CustomAccessibilityAction(\"下移\""))
+        assertTrue("编辑时须显示各模块真实内容并拦截卡片手势", editor.contains("if (visible && enabled)") && editor.contains("clearAndSetSemantics") && editor.contains("Modifier.matchParentSize().pointerInput(Unit)"))
+        val group = SourceScan.stripComments(code("home/redesign/HomeDashboard.kt"))
+            .substringAfter("fun HomeDashboardGroup(").substringBefore("fun HomeQuickActions(")
+        assertTrue("服务分组必须占据整个列表宽度", group.contains("Modifier.fillMaxWidth()"))
         assertTrue(home.contains("if (ratio != null)"))
         assertTrue(home.contains("if (headlineInStatus) AiBall.lineOf(ballState) else statusTitle"))
         assertTrue("只有课程已结束才可合并同义摘要，紧急待办与取数状态不能丢", home.contains("ballState == com.muyao.wanzaihyperos.ui.design.ai.AiBallState.Done"))
         assertTrue("非近课不得用数百分钟的长倒计时挤占球状态", home.contains("focus.ongoing || focus.minutes in 0..59"))
         assertTrue("加载与上课状态只精确去重，来源后缀保留", home.contains("if (focus.ongoing) AiBall.lineOf(ballState) else headline"))
         assertTrue("球拖至右下仍须避让文字", home.contains("if (compact) 120.dp else 128.dp") && home.contains("Spacer(Modifier.height(6.dp))"))
-        assertTrue("半球留白必须与卡高测量分层", home.contains("Box(Modifier.padding(top = ballBox / 2))") && home.contains("Column(Modifier.onSizeChanged { cardHeight"))
+        assertTrue("半球与反馈留白必须与卡高测量分层", home.contains("val cardTopTarget = if (feedbackHeight > ballBox) feedbackHeight - ballBox / 2 + 8.dp else ballBox / 2") && home.contains("Box(Modifier.padding(top = cardTop))") && home.contains("Column(Modifier.onSizeChanged { cardHeight"))
         val run = home.substringAfter("internal fun RunSummaryCard(").substringBefore("private fun runRequirementText(")
         assertTrue("窄卡也不能丢失错误与来源全文", !run.contains("maxLines"))
     }

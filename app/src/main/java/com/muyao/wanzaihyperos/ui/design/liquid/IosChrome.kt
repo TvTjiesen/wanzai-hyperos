@@ -461,7 +461,7 @@ fun LargeTitle(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (leading != null) {
-                leading()
+                com.muyao.wanzaihyperos.ui.design.AiBallFeedbackRow(ball = leading)
                 Spacer(Modifier.width(if (threeLine) HeroBallGap else LargeTitleLeadingGap))
             }
             if (!threeLine) {

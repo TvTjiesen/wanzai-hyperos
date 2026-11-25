@@ -117,6 +117,7 @@ fun TronShellPage(
         // 各板塊內容自己會用 hero 寫「LEARNING / 學在城院」，
         // 兩處都寫就是同一句話在螢幕上出現兩次。
         title = TABS[tab].first,
+        inlineFeedbackAnchored = tab == TAB_HOME,
         subtitle = TABS[tab].second,
         onBack = onExit,
         modifier = modifier,

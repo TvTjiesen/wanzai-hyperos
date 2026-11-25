@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import java.io.File
+import java.util.LinkedHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -54,13 +55,46 @@ fun wallpaperDecodePlan(
 
 data class LoadedWallpaper(val bitmap: ImageBitmap, val stats: WallpaperStats)
 
-/** One-entry process cache: re-entering a page reuses the unchanged active wallpaper bitmap. */
+/** Access-ordered cache bounded by both decoded bytes and entry count. */
+internal class WeightedLruCache<K : Any, V : Any>(
+    private val maxWeight: Long,
+    private val maxEntries: Int,
+    private val weightOf: (V) -> Long,
+) {
+    private data class Entry<V>(val value: V, val weight: Long)
+    private val entries = LinkedHashMap<K, Entry<V>>(16, .75f, true)
+    private var totalWeight = 0L
+
+    init { require(maxWeight > 0 && maxEntries > 0) }
+
+    @Synchronized fun get(key: K): V? = entries[key]?.value
+
+    @Synchronized fun put(key: K, value: V) {
+        val weight = weightOf(value).coerceAtLeast(0L)
+        entries.remove(key)?.let { totalWeight -= it.weight }
+        if (weight > maxWeight) return
+        entries[key] = Entry(value, weight)
+        totalWeight += weight
+        while (entries.size > maxEntries || totalWeight > maxWeight) {
+            val eldest = entries.entries.iterator().next()
+            totalWeight -= eldest.value.weight
+            entries.remove(eldest.key)
+        }
+    }
+
+    @Synchronized fun clear() { entries.clear(); totalWeight = 0L }
+    @Synchronized fun size(): Int = entries.size
+    @Synchronized fun weight(): Long = totalWeight
+}
+
+/** Keep active images and visible wallpaper thumbnails warm without unbounded bitmap retention. */
 private object WallpaperMemoryCache {
-    private data class Entry(val key: String, val value: LoadedWallpaper)
-    private var entry: Entry? = null
-    @Synchronized fun get(key: String): LoadedWallpaper? = entry?.takeIf { it.key == key }?.value
-    @Synchronized fun put(key: String, value: LoadedWallpaper) { entry = Entry(key, value) }
-    @Synchronized fun clear() { entry = null }
+    private val cache = WeightedLruCache<String, LoadedWallpaper>(24_000_000L, 8) {
+        it.bitmap.width.toLong() * it.bitmap.height * 4L
+    }
+    fun get(key: String): LoadedWallpaper? = cache.get(key)
+    fun put(key: String, value: LoadedWallpaper) = cache.put(key, value)
+    fun clear() = cache.clear()
 }
 
 private fun wallpaperCacheKey(file: File, targetWidth: Int, targetHeight: Int, budget: WallpaperBudget): String =
@@ -74,12 +108,11 @@ suspend fun loadWallpaper(
     budget: WallpaperBudget = WallpaperBudget(),
 ): LoadedWallpaper? = withContext(Dispatchers.IO) {
         val key = wallpaperCacheKey(file, targetWidth, targetHeight, budget) + ":" + com.muyao.wanzaihyperos.data.UiPrefs.wallpaperRev
-        val cacheable = targetWidth >= 1000
-        if (cacheable) WallpaperMemoryCache.get(key)?.let { return@withContext it }
+        WallpaperMemoryCache.get(key)?.let { return@withContext it }
         val bitmap = decodeWallpaperBitmap(file, targetWidth, targetHeight, budget) ?: return@withContext null
         try {
             val loaded = LoadedWallpaper(bitmap.asImageBitmap(), sparseWallpaperStats(bitmap))
-            if (cacheable && key == wallpaperCacheKey(file, targetWidth, targetHeight, budget) + ":" + com.muyao.wanzaihyperos.data.UiPrefs.wallpaperRev) WallpaperMemoryCache.put(key, loaded)
+            if (key == wallpaperCacheKey(file, targetWidth, targetHeight, budget) + ":" + com.muyao.wanzaihyperos.data.UiPrefs.wallpaperRev) WallpaperMemoryCache.put(key, loaded)
             loaded
         } catch (error: Exception) {
             bitmap.recycle()
